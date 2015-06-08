@@ -334,7 +334,9 @@ SRCS-$(CONFIG_BONJOUR) += src/bonjour.c
 SRCS_LIBAV = \
 	src/libav.c \
 	src/muxer/muxer_libav.c \
-	src/plumbing/transcoding.c
+	src/plumbing/transcoding.c \
+	src/plumbing/vdpau.c
+LDFLAGS += -lX11 -lvdpau
 SRCS-$(CONFIG_LIBAV) += $(SRCS_LIBAV)
 
 # Tvhcsa

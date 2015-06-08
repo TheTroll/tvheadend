@@ -20,6 +20,15 @@
 #include "tvheadend.h"
 #include "htsmsg.h"
 
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libswscale/swscale.h>
+#include <libavresample/avresample.h>
+#include <libavutil/opt.h>
+#include <libavutil/audio_fifo.h>
+#include <libavutil/dict.h>
+#include <libavutil/audioconvert.h>
+
 typedef struct transcoder_prop {
   char     tp_vcodec[32];
   char     tp_acodec[32];
@@ -33,6 +42,17 @@ typedef struct transcoder_prop {
 
   long     tp_nrprocessors;
 } transcoder_props_t;
+
+/* VDPAU */
+int vdpau_init(AVCodecContext *s);
+typedef struct VDPAU {
+    /* hwaccel context */
+    int initialized;
+    void  *hwaccel_ctx;
+    void (*hwaccel_uninit)(AVCodecContext *s);
+    int  (*hwaccel_get_buffer)(AVCodecContext *s, AVFrame *frame, int flags);
+    int  (*hwaccel_retrieve_data)(AVCodecContext *s, AVFrame *frame);
+} VDPAU ;
 
 extern uint32_t transcoding_enabled;
 

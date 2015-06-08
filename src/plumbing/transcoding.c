@@ -17,14 +17,6 @@
  */
 
 #include <unistd.h>
-#include <libavformat/avformat.h>
-#include <libavcodec/avcodec.h>
-#include <libswscale/swscale.h>
-#include <libavresample/avresample.h>
-#include <libavutil/opt.h>
-#include <libavutil/audio_fifo.h>
-#include <libavutil/dict.h>
-#include <libavutil/audioconvert.h>
 
 #if LIBAVUTIL_VERSION_MICRO >= 100 /* FFMPEG */
 #define USING_FFMPEG 1
@@ -102,6 +94,8 @@ typedef struct video_stream {
   int                        vid_first_sent;
   int                        vid_first_encoded;
   th_pkt_t                  *vid_first_pkt;
+
+  VDPAU			     vdpau;
 } video_stream_t;
 
 
@@ -1024,6 +1018,24 @@ send_video_packet(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt,
 /**
  *
  */
+static int vdpau_get_buffer(AVCodecContext *s, AVFrame *frame, int flags)
+{
+    VDPAU *vdpau = s->opaque;
+
+    return vdpau->hwaccel_get_buffer(s, frame, flags);
+}
+
+/**
+ *
+ */
+static enum AVPixelFormat vdpau_get_format(AVCodecContext *s, const enum AVPixelFormat *pix_fmts)
+{
+    return AV_PIX_FMT_VDPAU;
+}
+
+/**
+ *
+ */
 static void
 transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 {
@@ -1037,6 +1049,8 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   video_stream_t *vs = (video_stream_t*)ts;
   streaming_message_t *sm;
   th_pkt_t *pkt2;
+  VDPAU *vdpau;
+  enum AVPixelFormat pixfmt;
 
   av_init_packet(&packet);
   av_init_packet(&packet2);
@@ -1054,7 +1068,29 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 
   got_ref = 0;
 
+  ictx->opaque =  (void*) &vs->vdpau;
+  vdpau = ictx->opaque;
+
   if (!avcodec_is_open(ictx)) {
+    // Try to open VPDAU
+    if (icodec->id == AV_CODEC_ID_H264)
+    {
+      int ret;
+
+      tvhinfo("transcode", "Trying to use VDPAU...");
+
+      ret = vdpau_init(ictx);
+      if (ret >= 0)
+      {
+        ictx->get_format = vdpau_get_format;
+        ictx->get_buffer2 = vdpau_get_buffer;
+
+        tvhinfo("transcode", "VPAU initialized successfully");
+      }
+      else
+        tvherror("transcode", "VPAU init error %d, using software decoding", ret);
+    }
+
     if (avcodec_open2(ictx, icodec, NULL) < 0) {
       tvherror("transcode", "%04X: Unable to open %s decoder", shortid(t), icodec->name);
       transcoder_stream_invalidate(ts);
@@ -1099,6 +1135,15 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 
   if (!got_picture)
     goto cleanup;
+
+  if (vdpau->initialized)
+  {
+    ret = vs->vdpau.hwaccel_retrieve_data(ictx, vs->vid_dec_frame);
+    if (ret < 0) {
+      tvherror("transcode", "Unable to retrieve HW decoded frame)");
+      goto cleanup;
+    }
+  }
 
   got_ref = 1;
 
@@ -1210,6 +1255,8 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
       break;
     }
 
+    tvhinfo("transcode", "Transcode using codec %s", ocodec->name);
+
     if (avcodec_open2(octx, ocodec, &opts) < 0) {
       tvherror("transcode", "%04X: Unable to open %s encoder",
                shortid(t), ocodec->name);
@@ -1218,18 +1265,23 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
     }
   }
 
-  len = avpicture_get_size(ictx->pix_fmt, ictx->width, ictx->height);
+  if (vdpau->initialized)
+    pixfmt = AV_PIX_FMT_YUV420P;
+  else
+    pixfmt = ictx->pix_fmt;
+
+  len = avpicture_get_size(pixfmt, ictx->width, ictx->height);
   deint = av_malloc(len);
 
   avpicture_fill(&deint_pic,
 		 deint, 
-		 ictx->pix_fmt, 
+		 pixfmt, 
 		 ictx->width, 
 		 ictx->height);
 
   if (avpicture_deinterlace(&deint_pic,
 			    (AVPicture *)vs->vid_dec_frame,
-			    ictx->pix_fmt,
+			    pixfmt,
 			    ictx->width,
 			    ictx->height) < 0) {
     tvherror("transcode", "%04X: Cannot deinterlace frame", shortid(t));
@@ -1250,7 +1302,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   vs->vid_scaler = sws_getCachedContext(vs->vid_scaler,
 				    ictx->width,
 				    ictx->height,
-				    ictx->pix_fmt,
+				    pixfmt,
 				    octx->width,
 				    octx->height,
 				    octx->pix_fmt,
@@ -1568,6 +1620,16 @@ static void
 transcoder_destroy_video(transcoder_t *t, transcoder_stream_t *ts)
 {
   video_stream_t *vs = (video_stream_t*)ts;
+
+  if (vs->vid_ictx)
+  {
+    VDPAU *vdpau = vs->vid_ictx->opaque;
+    if (vdpau && vdpau->initialized)
+    {
+      vs->vdpau.hwaccel_uninit(vs->vid_ictx);
+      vdpau->initialized = 0;
+    }
+  }
 
   if(vs->vid_ictx) {
     av_freep(&vs->vid_ictx->extradata);
