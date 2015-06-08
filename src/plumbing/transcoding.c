@@ -1153,6 +1153,12 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   vs->vid_enc_frame->sample_aspect_ratio.num = vs->vid_dec_frame->sample_aspect_ratio.num;
   vs->vid_enc_frame->sample_aspect_ratio.den = vs->vid_dec_frame->sample_aspect_ratio.den;
 
+  // HACK Sample A/R and force the real A/R
+  vs->vid_enc_frame->sample_aspect_ratio.num = 1;
+  vs->vid_enc_frame->sample_aspect_ratio.num = 1;
+  octx->sample_aspect_ratio.num = 1;
+  octx->sample_aspect_ratio.den = 1;
+
   if(!avcodec_is_open(octx)) {
     // Common settings
     octx->width           = vs->vid_width  ? vs->vid_width  : ictx->width;
@@ -1720,11 +1726,14 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
 
 
   if(tp->tp_resolution > 0) {
+
+    tvhinfo("transcode", "Forcing 16/9 A/R");
+    double aspect = 16.0/9.0; 
+
     //  vs->vid_height = MIN(tp->tp_resolution, ssc->ssc_height);
     vs->vid_height = tp->tp_resolution;
     vs->vid_height += vs->vid_height & 1; /* Must be even */
-
-    double aspect = (double)ssc->ssc_width / ssc->ssc_height;
+ 
     vs->vid_width = vs->vid_height * aspect;
     vs->vid_width += vs->vid_width & 1;   /* Must be even */
   } else {
