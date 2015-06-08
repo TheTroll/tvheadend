@@ -1221,11 +1221,20 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
       break;
 
     case SCT_H264:
-      octx->pix_fmt        = PIX_FMT_YUV420P;
+
+      if (!strcmp(ocodec->name, "nvenc") || !strcmp(ocodec->name, "h264_qsv"))
+          octx->pix_fmt    = AV_PIX_FMT_NV12;
+      else
+          octx->pix_fmt    = PIX_FMT_YUV420P;
       octx->flags         |= CODEC_FLAG_GLOBAL_HEADER;
 
       // Default = "medium". We gain more encoding speed compared to the loss of quality when lowering it _slightly_.
-      av_dict_set(&opts, "preset",  "faster", 0);
+      if (!strcmp(ocodec->name, "nvenc"))
+         av_dict_set(&opts, "preset",  "hq", 0);
+      else if (!strcmp(ocodec->name, "h264_qsv"))
+         av_dict_set(&opts, "preset",  "medium", 0);
+      else
+         av_dict_set(&opts, "preset",  "faster", 0);
 
       // All modern devices should support "high" profile
       av_dict_set(&opts, "profile", "high", 0);
