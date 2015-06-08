@@ -940,10 +940,10 @@ http_deescape(char *s)
   char v, *d = s;
 
   while(*s) {
-    if(*s == '+') {
+    /*if(*s == '+') {
       *d++ = ' ';
       s++;
-    } else if(*s == '%') {
+    } else */if(*s == '%') {
       s++;
       switch(*s) {
       case '0' ... '9':
