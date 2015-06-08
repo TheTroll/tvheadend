@@ -1720,7 +1720,8 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
 
 
   if(tp->tp_resolution > 0) {
-    vs->vid_height = MIN(tp->tp_resolution, ssc->ssc_height);
+    //  vs->vid_height = MIN(tp->tp_resolution, ssc->ssc_height);
+    vs->vid_height = tp->tp_resolution;
     vs->vid_height += vs->vid_height & 1; /* Must be even */
 
     double aspect = (double)ssc->ssc_width / ssc->ssc_height;
