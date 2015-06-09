@@ -291,6 +291,13 @@ const idclass_t profile_class =
       .get      = profile_class_default_get,
     },
     {
+      .type     = PT_BOOL,
+      .id       = "prefersd",
+      .name     = "Prefer SD channel",
+      .off      = offsetof(profile_t, pro_prefersd),
+      .def.i    = 0,
+    },
+    {
       .type     = PT_STR,
       .id       = "name",
       .name     = "Profile Name",

@@ -2037,13 +2037,6 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
   if (!htsp_user_access_channel(htsp, ch))
     return htsp_error("User does not have access");
 
-  if (ch)
-  {
-    access_t* access = access_get_by_username(htsp->htsp_username);
-    if (access->aa_convert_to_sd)
-      convert_channel_to_sd(ch, &ch);
-  }
-
   weight = htsmsg_get_u32_or_default(in, "weight", 0);
   req90khz = htsmsg_get_u32_or_default(in, "90khz", 0);
 
@@ -2080,6 +2073,9 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
 #endif
 
   pro = profile_find_by_list(htsp->htsp_granted_access->aa_profiles, profile_id, "htsp");
+  if (pro->pro_prefersd)
+      convert_channel_to_sd(ch, &ch);
+
   profile_chain_init(&hs->hs_prch, pro, ch);
   if (profile_chain_work(&hs->hs_prch, &hs->hs_input, timeshiftPeriod, 0)) {
     tvhlog(LOG_ERR, "htsp", "unable to create profile chain '%s'", pro->pro_name);

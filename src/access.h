@@ -109,8 +109,6 @@ typedef struct access_entry {
   uint32_t ae_rights;
 
   TAILQ_HEAD(, access_ipmask) ae_ipmasks;
-
-  int ae_convert_to_sd;
 } access_entry_t;
 
 extern const idclass_t access_entry_class;
@@ -130,7 +128,6 @@ typedef struct access {
   uint32_t  aa_conn_limit_dvr;
   uint32_t  aa_conn_streaming;
   uint32_t  aa_conn_dvr;
-  uint8_t   aa_convert_to_sd;
 } access_t;
 
 TAILQ_HEAD(access_ticket_queue, access_ticket);

@@ -124,6 +124,8 @@ typedef struct profile {
   int pro_restart;
   int pro_contaccess;
 
+  int pro_prefersd;
+
   void (*pro_free)(struct profile *pro);
   void (*pro_conf_changed)(struct profile *pro);
   muxer_container_type_t (*pro_get_mc)(struct profile *pro);

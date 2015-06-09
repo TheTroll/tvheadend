@@ -912,6 +912,9 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
                                   "channel")))
     return HTTP_STATUS_NOT_ALLOWED;
 
+  if (pro->pro_prefersd)
+      convert_channel_to_sd(ch, &ch);
+
   if((tcp_id = http_stream_preop(hc)) == NULL)
     return HTTP_STATUS_NOT_ALLOWED;
 
@@ -997,13 +1000,6 @@ http_stream(http_connection_t *hc, const char *remain, void *opaque)
     // TODO: do we want to be able to force starting a particular instance
     mm      = mpegts_mux_find(components[1]);
 #endif
-  }
-
-  if (ch)
-  {
-    access_t* access = access_get_by_username(hc->hc_username);
-    if (access->aa_convert_to_sd)
-      convert_channel_to_sd(ch, &ch);
   }
 
   if(ch != NULL) {
