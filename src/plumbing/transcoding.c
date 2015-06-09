@@ -1272,6 +1272,26 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 
     case SCT_HEVC:
       octx->pix_fmt    = PIX_FMT_YUV420P;
+
+      if (t->t_props.tp_vbitrate < 64) {
+        // encode with specified quality and optimize for low latency
+        // valid values for quality are 1-51, smaller means better quality, use 15 as default
+        char valuestr[3];
+        snprintf(valuestr, sizeof (valuestr), "%d", t->t_props.tp_vbitrate == 0 ? 15 : MIN(51, t->t_props.tp_vbitrate));
+        av_dict_set(&opts,      "crf", valuestr, 0);
+        // tune "zerolatency" removes as much encoder latency as possible
+        av_dict_set(&opts,      "tune", "zerolatency", 0);
+      } else {
+        // encode with specified bitrate and optimize for high compression
+        octx->bit_rate        = t->t_props.tp_vbitrate * 1000;   
+        octx->rc_max_rate     = ceil(octx->bit_rate * 1.25);
+        octx->rc_buffer_size  = octx->rc_max_rate * 3;
+        // force-cfr=1 is needed for correct bitrate calculation (tune "zerolatency" also sets this)
+        av_dict_set(&opts,      "x265opts", "force-cfr=1", 0);
+        // use gop size of 5 seconds
+        octx->gop_size       *= 5;
+      }
+
       break;
     default:
       break;
