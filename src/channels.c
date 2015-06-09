@@ -1312,6 +1312,59 @@ channel_tag_find_by_identifier(uint32_t id) {
 }
 
 /**
+ *
+ */
+int
+convert_channel_to_sd(channel_t* in_ch, channel_t** out_ch)
+{
+  FILE *file;
+  const char* file_path;
+  char line[258];
+  const char* in_channame;
+
+  if (!in_ch || !out_ch)
+    return 0;
+
+  file_path = config_get_chanconv_path();
+  file = fopen(file_path, "r");
+  if (file == NULL) {
+    tvherror("main", "Cannot open channel conversion file [%s]", file_path);
+    return 0;
+  }
+
+  in_channame = channel_get_name(in_ch);
+
+  while(fgets(line, 80, file) != NULL)
+  {
+    char* delim;
+    char* line_in_chan, *line_out_chan;
+
+    delim = strstr(line, "|");
+    if (delim)
+    {
+      *delim = '\0';
+       line_in_chan = line;
+       line_out_chan = delim+1;
+       line_out_chan = strtok(line_out_chan, "\n");
+       line_out_chan = strtok(line_out_chan, "\r");
+
+       if (line_out_chan[0] != '\0' && !strncmp(line_in_chan, in_channame, 127))
+       {
+         *out_ch = channel_find_by_name(line_out_chan);
+         tvhlog(LOG_INFO, "main", "[%s] request converted to [%s]", in_channame, line_out_chan);
+         fclose(file);
+         return 1;
+       }
+    }
+  }
+
+  tvhlog(LOG_INFO, "main", "[%s] has no entry in conversion list", in_channame);
+
+  fclose(file);
+  return 0;
+}
+
+/**
  *  Init / Done
  */
 

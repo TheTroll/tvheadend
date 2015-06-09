@@ -999,6 +999,13 @@ http_stream(http_connection_t *hc, const char *remain, void *opaque)
 #endif
   }
 
+  if (ch)
+  {
+    access_t* access = access_get_by_username(hc->hc_username);
+    if (access->aa_convert_to_sd)
+      convert_channel_to_sd(ch, &ch);
+  }
+
   if(ch != NULL) {
     return http_stream_channel(hc, ch, weight);
   } else if(service != NULL) {

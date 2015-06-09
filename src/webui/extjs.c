@@ -490,6 +490,8 @@ extjs_config(http_connection_t *hc, const char *remain, void *opaque)
       save |= config_set_chicon_path(str);
     if ((str = http_arg_get(&hc->hc_req_args, "piconpath")))
       save |= config_set_picon_path(str);
+    if ((str = http_arg_get(&hc->hc_req_args, "chanconvpath")))
+      save |= config_set_chanconv_path(str);
     if ((str = http_arg_get(&hc->hc_req_args, "satip_rtsp")))
       ssave |= config_set_int("satip_rtsp", atoi(str));
     if ((str = http_arg_get(&hc->hc_req_args, "satip_weight")))

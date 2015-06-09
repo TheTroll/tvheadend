@@ -41,7 +41,7 @@ tvheadend.miscconf = function(panel, index) {
         root: 'config'
     },
     [
-        'server_name', 'muxconfpath', 'language',
+        'server_name', 'chanconvpath', 'muxconfpath', 'language',
         'tvhtime_update_enabled', 'tvhtime_ntp_enabled',
         'tvhtime_tolerance',
         'prefer_picon', 'chiconpath', 'piconpath',
@@ -88,6 +88,21 @@ tvheadend.miscconf = function(panel, index) {
         collapsible: true,
         animCollapse: true,
         items : [ dvbscanPath ]
+    });
+
+    var chanconvPath = new Ext.form.TextField({
+        name: 'chanconvpath',
+        fieldLabel: 'Conversion file path',
+        width: 400
+    });
+
+    var chanconvWrap = new Ext.form.FieldSet({
+        title: 'HD to SD channels list',
+        width: 700,
+        autoHeight: true,
+        collapsible: true,
+        animCollapse: true,
+        items : [ chanconvPath ]
     });
 
     /*
@@ -338,7 +353,7 @@ tvheadend.miscconf = function(panel, index) {
         }
     });
 
-    var _items = [serverWrap, languageWrap, dvbscanWrap, tvhtimePanel, piconPanel];
+    var _items = [serverWrap, languageWrap, dvbscanWrap, tvhtimePanel, piconPanel, chanconvWrap];
 
     if (satipPanel)
       _items.push(satipPanel);

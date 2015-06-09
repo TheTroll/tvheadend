@@ -369,7 +369,7 @@ access_dump_a(access_t *a)
   int first;
 
   tvh_strlcatf(buf, sizeof(buf), l,
-    "%s:%s [%c%c%c%c%c%c%c%c%c%c], conn=%u:s%u:r%u%s",
+    "%s:%s [%c%c%c%c%c%c%c%c%c%c], conn=%u:s%u:r%u (%d) %s",
     a->aa_representative ?: "<no-id>",
     a->aa_username ?: "<no-user>",
     a->aa_rights & ACCESS_STREAMING          ? 'S' : ' ',
@@ -385,6 +385,7 @@ access_dump_a(access_t *a)
     a->aa_conn_limit,
     a->aa_conn_limit_streaming,
     a->aa_conn_limit_dvr,
+    a->aa_convert_to_sd,
     a->aa_match ? ", matched" : "");
 
   if (a->aa_profiles) {
@@ -502,6 +503,8 @@ access_update(access_t *a, access_entry_t *ae)
   }
 
   a->aa_rights |= ae->ae_rights;
+
+  a->aa_convert_to_sd = ae->ae_convert_to_sd;
 }
 
 /**
@@ -1383,6 +1386,12 @@ const idclass_t access_entry_class = {
       .set      = access_entry_chtag_set,
       .get      = access_entry_chtag_get,
       .list     = channel_tag_class_get_list,
+    },
+    {
+      .type     = PT_BOOL,
+      .id       = "convert_to_sd",
+      .name     = "Convert to SD",
+      .off      = offsetof(access_entry_t, ae_convert_to_sd),
     },
     {
       .type     = PT_STR,

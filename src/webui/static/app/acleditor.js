@@ -9,14 +9,14 @@ tvheadend.acleditor = function(panel, index)
                'streaming,adv_streaming,htsp_streaming,' +
                'profile,conn_limit_type,conn_limit,' +
                'dvr,htsp_dvr,all_dvr,all_rw_dvr,' +
-	       'dvr_config,channel_min,channel_max,channel_tag,comment';
+	       'dvr_config,channel_min,channel_max,channel_tag,convert_to_sd,comment';
 
     var list2 = 'enabled,username,password,prefix,' +
                 'webui,admin,' +
                 'streaming,adv_streaming,htsp_streaming,' +
                 'profile,conn_limit_type,conn_limit,' +
                 'dvr,htsp_dvr,all_dvr,all_rw_dvr,' +
-                'failed_dvr,dvr_config,channel_min,channel_max,channel_tag,' +
+                'failed_dvr,dvr_config,channel_min,channel_max,channel_tag,convert_to_sd,' +
                 'comment';
 
     tvheadend.idnode_grid(panel, {
@@ -41,7 +41,8 @@ tvheadend.acleditor = function(panel, index)
             conn_limit_type:{ width: 160 },
             conn_limit:     { width: 160 },
             channel_min:    { width: 160 },
-            channel_max:    { width: 160 }
+            channel_max:    { width: 160 },
+            convert_to_sd:   { width: 140 },
         },
         tabIndex: index,
         edit: {

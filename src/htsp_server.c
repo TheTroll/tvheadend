@@ -2037,6 +2037,13 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
   if (!htsp_user_access_channel(htsp, ch))
     return htsp_error("User does not have access");
 
+  if (ch)
+  {
+    access_t* access = access_get_by_username(htsp->htsp_username);
+    if (access->aa_convert_to_sd)
+      convert_channel_to_sd(ch, &ch);
+  }
+
   weight = htsmsg_get_u32_or_default(in, "weight", 0);
   req90khz = htsmsg_get_u32_or_default(in, "90khz", 0);
 

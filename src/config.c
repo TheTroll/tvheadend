@@ -1660,3 +1660,14 @@ int config_set_picon_path ( const char *str )
 {
   return config_set_str("piconpath", str);
 }
+
+const char *config_get_chanconv_path ( void )
+{
+  return htsmsg_get_str(config, "chanconvpath");
+}
+
+int config_set_chanconv_path ( const char *str )
+{
+  return config_set_str("chanconvpath", str);
+}
+
