@@ -518,7 +518,7 @@ void *timeshift_reader ( void *p )
 
               /* Set position */
               } else {
-                tvhlog(LOG_DEBUG, "timeshift", "ts %d enter timeshift mode",
+                tvhinfo("timeshift", "ts %d enter timeshift mode",
                        ts->id);
                 timeshift_writer_flush(ts);
                 pthread_mutex_lock(&ts->rdwr_mutex);
@@ -541,7 +541,7 @@ void *timeshift_reader ( void *p )
             /* Check keyframe mode */
             keyframe      = (speed < 0) || (speed > 400);
             if (keyframe != keyframe_mode) {
-              tvhlog(LOG_DEBUG, "timeshift", "using keyframe mode? %s",
+              tvhinfo("timeshift", "using keyframe mode? %s",
                      keyframe ? "yes" : "no");
               keyframe_mode = keyframe;
               if (keyframe) {
@@ -554,7 +554,7 @@ void *timeshift_reader ( void *p )
             cur_speed  = speed;
             if (speed != 100 || ts->state != TS_LIVE)
               ts->state = speed == 0 ? TS_PAUSE : TS_PLAY;
-            tvhlog(LOG_DEBUG, "timeshift", "ts %d change speed %d",
+            tvhinfo("timeshift", "ts %d change speed %d",
                    ts->id, speed);
           }
 
