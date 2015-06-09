@@ -127,7 +127,8 @@ typedef struct transcoder {
   ((x) == AV_CODEC_ID_H264 || (x) == AV_CODEC_ID_MPEG2VIDEO || \
    (x) == AV_CODEC_ID_VP8  || /* (x) == AV_CODEC_ID_VP9 || */ \
    (x) == AV_CODEC_ID_AAC  || \
-   (x) == AV_CODEC_ID_MP2  || (x) == AV_CODEC_ID_VORBIS)
+   (x) == AV_CODEC_ID_MP2  || (x) == AV_CODEC_ID_VORBIS || \
+   (x) == AV_CODEC_ID_H265 )
 
 /**
  * 
@@ -1269,6 +1270,9 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 
       break;
 
+    case SCT_HEVC:
+      octx->pix_fmt    = PIX_FMT_YUV420P;
+      break;
     default:
       break;
     }

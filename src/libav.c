@@ -127,6 +127,9 @@ codec_id2streaming_component_type(enum AVCodecID id)
   case AV_CODEC_ID_H264:
     type = SCT_H264;
     break;
+  case AV_CODEC_ID_H265:
+    type = SCT_HEVC;
+    break;
   case AV_CODEC_ID_MPEG2VIDEO:
     type = SCT_MPEG2VIDEO;
     break;
