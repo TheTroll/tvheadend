@@ -1350,10 +1350,20 @@ convert_channel_to_sd(channel_t* in_ch, channel_t** out_ch)
 
        if (line_out_chan[0] != '\0' && !strncmp(line_in_chan, in_channame, 127))
        {
-         *out_ch = channel_find_by_name(line_out_chan);
-         tvhlog(LOG_INFO, "main", "[%s] request converted to [%s]", in_channame, line_out_chan);
          fclose(file);
-         return 1;
+
+         channel_t* out = channel_find_by_name(line_out_chan);
+         if (out)
+         {
+            *out_ch = out;
+            tvhlog(LOG_INFO, "main", "[%s] request converted to [%s]", in_channame, line_out_chan);
+            return 1;
+         }
+         else
+         {
+            tvherror("main", "cannot convert [%s] to [%s]", in_channame, line_out_chan);
+            return 0;
+         }
        }
     }
   }
