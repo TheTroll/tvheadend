@@ -320,14 +320,17 @@ transcoder_get_decoder(transcoder_t *t, streaming_component_type_t ty)
     return NULL;
   }
 
-  codec = avcodec_find_decoder(codec_id);
+  if (codec_id == AV_CODEC_ID_H264)
+     codec = avcodec_find_decoder_by_name("h264");
+  else
+     codec = avcodec_find_decoder(codec_id);
   if (!codec) {
     tvherror("transcode", "%04X: Unable to find %s decoder",
 	     shortid(t), streaming_component_type2txt(ty));
     return NULL;
   }
 
-  tvhtrace("transcode", "%04X: Using decoder %s", shortid(t), codec->name);
+  tvhinfo("transcode", "%04X: Using decoder %s", shortid(t), codec->name);
 
   return codec;
 }
