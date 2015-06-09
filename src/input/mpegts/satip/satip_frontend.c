@@ -658,14 +658,12 @@ satip_frontend_decode_rtcp( satip_frontend_t *lfe, const char *name,
       if (sl > 0 && l - 16 >= sl) {
         rtcp[sl + 16] = '\0';
         s = (char *)rtcp + 16;
-        tvhtrace("satip", "Status string: '%s'", s);
+        tvhdebug("satip", "Status string: '%s'", s);
         status = SIGNAL_NONE;
         if (strncmp(s, "ver=0.9;tuner=", 14) == 0 ||
             strncmp(s, "ver=1.2;tuner=", 14) == 0) {
           n = http_tokenize(s + 14, argv, 4, ',');
           if (n < 4)
-            return;
-          if (atoi(argv[0]) != lfe->sf_number)
             return;
           mmi->tii_stats.signal =
             atoi(argv[1]) * 0xffff / lfe->sf_device->sd_sig_scale;
