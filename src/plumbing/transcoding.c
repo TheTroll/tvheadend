@@ -32,6 +32,9 @@
 #include "parsers/bitstream.h"
 #include "parsers/parser_avc.h"
 
+#define ENABLE_VDPAU 0
+
+
 LIST_HEAD(transcoder_stream_list, transcoder_stream);
 
 struct transcoder;
@@ -1077,7 +1080,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 
   if (!avcodec_is_open(ictx)) {
     // Try to open VPDAU
-    if (icodec->id == AV_CODEC_ID_H264)
+    if (ENABLE_VDPAU && icodec->id == AV_CODEC_ID_H264)
     {
       int ret;
 
