@@ -48,6 +48,8 @@ struct th_subscription_list subscriptions_remove;
 static gtimer_t             subscription_reschedule_timer;
 static int                  subscription_postpone;
 
+static void log_subscription(th_subscription_t *s, int on);
+
 /**
  *
  */
@@ -247,6 +249,9 @@ subscription_show_info(th_subscription_t *s)
     tvh_strlcatf(buf, sizeof(buf), l, ", client=\"%s\"", s->ths_client);
 
   tvhlog(LOG_INFO, "subscription", "%04X: %s", shortid(s), buf);
+
+  log_subscription(s, 1);
+
   service_source_info_free(&si);
 }
 
@@ -585,6 +590,8 @@ subscription_unsubscribe(th_subscription_t *s, int quiet)
   if (s->ths_client)
     tvh_strlcatf(buf, sizeof(buf), l, ", client=\"%s\"", s->ths_client);
   tvhlog(quiet ? LOG_TRACE : LOG_INFO, "subscription", "%04X: %s", shortid(s), buf);
+
+  log_subscription(s, 0);
 
   if (t) {
     s->ths_flags &= ~SUBSCRIPTION_ONESHOT;
@@ -1082,3 +1089,29 @@ subscription_dummy_join(const char *id, int first)
   tvhlog(LOG_NOTICE, "subscription",
          "%04X: Dummy join %s ok", shortid(s), id);
 }
+
+
+static void log_subscription(th_subscription_t *s, int on)
+{
+  char buffer[512], t[128];
+  struct tm tm;
+  struct timeval time;
+  FILE *file = NULL;
+
+  file=fopen("/root/.hts/tvheadend/subscription.log", "a");
+  if (file)
+  {
+    gettimeofday(&time, NULL);
+    localtime_r(&time.tv_sec, &tm);
+    strftime(t, sizeof(t), "%F %T", &tm);// %d %H:%M:%S", &tm);
+
+    sprintf(buffer, "%s#%s#%s#%s#%s#%s#%04X#%s#%s\n", t, on?"ON":"OFF",
+              s->ths_username?:"", s->ths_client?:"", s->ths_hostname?:"",
+              s->ths_title?:"", shortid(s), s->ths_channel ? channel_get_name(s->ths_channel) : "none",
+              ((s->ths_prch && s->ths_prch->prch_pro)?s->ths_prch->prch_pro->pro_name:NULL)?:"");
+
+    fwrite(buffer, strlen(buffer), 1, file);
+    fclose(file);
+  }
+}
+
