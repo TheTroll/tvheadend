@@ -1093,12 +1093,14 @@ subscription_dummy_join(const char *id, int first)
 
 static void log_subscription(th_subscription_t *s, int on)
 {
-  char buffer[512], t[128];
+  char buffer[512], t[128], path[512];
   struct tm tm;
   struct timeval time;
   FILE *file = NULL;
 
-  file=fopen("/root/.hts/tvheadend/subscription.log", "a");
+  hts_settings_buildpath(path, sizeof(path), "subscription.log");
+
+  file=fopen(path, "a");
   if (file)
   {
     gettimeofday(&time, NULL);
