@@ -792,7 +792,7 @@ http_stream_service(http_connection_t *hc, service_t *service, int weight)
     s = subscription_create_from_service(&prch, NULL, weight, "HTTP",
                                          prch.prch_flags | SUBSCRIPTION_STREAMING,
                                          hc->hc_peer_ipstr,
-				         hc->hc_username,
+				         hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:NULL),
 				         http_arg_get(&hc->hc_args, "User-Agent"),
 				         NULL);
     if(s) {
@@ -869,7 +869,7 @@ http_stream_mux(http_connection_t *hc, mpegts_mux_t *mm, int weight)
     s = subscription_create_from_mux(&prch, NULL, weight ?: 10, "HTTP",
                                      prch.prch_flags |
                                      SUBSCRIPTION_STREAMING,
-                                     hc->hc_peer_ipstr, hc->hc_username,
+                                     hc->hc_peer_ipstr, hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:NULL),
                                      http_arg_get(&hc->hc_args, "User-Agent"),
                                      NULL);
     if (s) {
@@ -933,7 +933,7 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
     s = subscription_create_from_channel(&prch,
                  NULL, weight, "HTTP",
                  prch.prch_flags | SUBSCRIPTION_STREAMING,
-                 hc->hc_peer_ipstr, hc->hc_username,
+                 hc->hc_peer_ipstr, hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:NULL),
                  http_arg_get(&hc->hc_args, "User-Agent"),
                  NULL);
 
