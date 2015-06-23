@@ -381,7 +381,7 @@ SRCS-LIBAV = \
 	src/plumbing/transcoding.c \
 	src/plumbing/vdpau.c
 LDFLAGS += -lX11 -lvdpau
-SRCS-$(CONFIG_LIBAV) += $(SRCS_LIBAV)
+SRCS-$(CONFIG_LIBAV) += $(SRCS-LIBAV)
 I18N-C += $(SRCS-LIBAV)
 
 # Tvhcsa
