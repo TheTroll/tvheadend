@@ -64,7 +64,7 @@ mpegts_input_dbus_notify(mpegts_input_t *mi, int64_t subs)
  * *************************************************************************/
 
 static const char *
-mpegts_input_class_get_title ( idnode_t *in )
+mpegts_input_class_get_title ( idnode_t *in, const char *lang )
 {
   static char buf[512];
   mpegts_input_t *mi = (mpegts_input_t*)in;
@@ -92,7 +92,7 @@ mpegts_input_class_network_set ( void *obj, const void *p )
 }
 
 htsmsg_t *
-mpegts_input_class_network_enum ( void *obj )
+mpegts_input_class_network_enum ( void *obj, const char *lang )
 {
   htsmsg_t *p, *m;
 
@@ -109,7 +109,7 @@ mpegts_input_class_network_enum ( void *obj )
 }
 
 char *
-mpegts_input_class_network_rend ( void *obj )
+mpegts_input_class_network_rend ( void *obj, const char *lang )
 {
   char *str;
   mpegts_network_link_t *mnl;  
@@ -117,7 +117,7 @@ mpegts_input_class_network_rend ( void *obj )
   htsmsg_t        *l = htsmsg_create_list();
 
   LIST_FOREACH(mnl, &mi->mi_networks, mnl_mi_link)
-    htsmsg_add_str(l, NULL, idnode_get_title(&mnl->mnl_network->mn_id));
+    htsmsg_add_str(l, NULL, idnode_get_title(&mnl->mnl_network->mn_id, lang));
 
   str = htsmsg_list_2_csv(l);
   htsmsg_destroy(l);
@@ -126,7 +126,7 @@ mpegts_input_class_network_rend ( void *obj )
 }
 
 static void
-mpegts_input_enabled_notify ( void *p )
+mpegts_input_enabled_notify ( void *p, const char *lang )
 {
   mpegts_input_t *mi = p;
   mpegts_mux_instance_t *mmi;
@@ -194,7 +194,7 @@ mpegts_input_add_keyval(htsmsg_t *l, const char *key, const char *val)
 }
 
 static htsmsg_t *
-mpegts_input_class_linked_enum( void * self )
+mpegts_input_class_linked_enum( void * self, const char *lang )
 {
   mpegts_input_t *mi = self, *mi2;
   tvh_input_t *ti;
@@ -205,7 +205,7 @@ mpegts_input_class_linked_enum( void * self )
       mi2 = (mpegts_input_t *)ti;
       if (mi2 != mi)
         mpegts_input_add_keyval(m, idnode_uuid_as_str(&ti->ti_id),
-                                   idnode_get_title(&mi2->ti_id));
+                                   idnode_get_title(&mi2->ti_id, lang));
   }
   return m;
 }
@@ -213,7 +213,7 @@ mpegts_input_class_linked_enum( void * self )
 const idclass_t mpegts_input_class =
 {
   .ic_class      = "mpegts_input",
-  .ic_caption    = "MPEGTS Input",
+  .ic_caption    = N_("MPEG-TS Input"),
   .ic_event      = "mpegts_input",
   .ic_perm_def   = ACCESS_ADMIN,
   .ic_get_title  = mpegts_input_class_get_title,
@@ -221,7 +221,7 @@ const idclass_t mpegts_input_class =
     {
       .type     = PT_BOOL,
       .id       = "enabled",
-      .name     = "Enabled",
+      .name     = N_("Enabled"),
       .off      = offsetof(mpegts_input_t, mi_enabled),
       .notify   = mpegts_input_enabled_notify,
       .def.i    = 1,
@@ -229,7 +229,7 @@ const idclass_t mpegts_input_class =
     {
       .type     = PT_INT,
       .id       = "priority",
-      .name     = "Priority",
+      .name     = N_("Priority"),
       .off      = offsetof(mpegts_input_t, mi_priority),
       .def.i    = 1,
       .opts     = PO_ADVANCED
@@ -237,7 +237,7 @@ const idclass_t mpegts_input_class =
     {
       .type     = PT_INT,
       .id       = "spriority",
-      .name     = "Streaming Priority",
+      .name     = N_("Streaming Priority"),
       .off      = offsetof(mpegts_input_t, mi_streaming_priority),
       .def.i    = 1,
       .opts     = PO_ADVANCED
@@ -245,21 +245,21 @@ const idclass_t mpegts_input_class =
     {
       .type     = PT_STR,
       .id       = "displayname",
-      .name     = "Name",
+      .name     = N_("Name"),
       .off      = offsetof(mpegts_input_t, mi_name),
       .notify   = idnode_notify_title_changed,
     },
     {
       .type     = PT_BOOL,
       .id       = "ota_epg",
-      .name     = "Over-the-air EPG",
+      .name     = N_("Over-the-air EPG"),
       .off      = offsetof(mpegts_input_t, mi_ota_epg),
       .def.i    = 1,
     },
     {
       .type     = PT_BOOL,
       .id       = "initscan",
-      .name     = "Initial Scan",
+      .name     = N_("Initial Scan"),
       .off      = offsetof(mpegts_input_t, mi_initscan),
       .def.i    = 1,
       .opts     = PO_ADVANCED,
@@ -267,7 +267,7 @@ const idclass_t mpegts_input_class =
     {
       .type     = PT_BOOL,
       .id       = "idlescan",
-      .name     = "Idle Scan",
+      .name     = N_("Idle Scan"),
       .off      = offsetof(mpegts_input_t, mi_idlescan),
       .def.i    = 1,
       .opts     = PO_ADVANCED,
@@ -275,7 +275,7 @@ const idclass_t mpegts_input_class =
     {
       .type     = PT_STR,
       .id       = "networks",
-      .name     = "Networks",
+      .name     = N_("Networks"),
       .islist   = 1,
       .set      = mpegts_input_class_network_set,
       .get      = mpegts_input_class_network_get,
@@ -285,7 +285,7 @@ const idclass_t mpegts_input_class =
     {
       .type     = PT_STR,
       .id       = "linked",
-      .name     = "Linked Input",
+      .name     = N_("Linked Input"),
       .set      = mpegts_input_class_linked_set,
       .get      = mpegts_input_class_linked_get,
       .list     = mpegts_input_class_linked_enum,

@@ -22,6 +22,7 @@
 
 include $(dir $(lastword $(MAKEFILE_LIST))).config.mk
 PROG    := $(BUILDDIR)/tvheadend
+LANGUAGES ?= bg cs de en en_GB fr he hr it pl
 
 #
 # Common compiler flags
@@ -97,6 +98,8 @@ BUNDLE_FLAGS = ${BUNDLE_FLAGS-yes}
 #
 
 MKBUNDLE = $(PYTHON) $(ROOTDIR)/support/mkbundle
+XGETTEXT2 ?= $(XGETTEXT) --language=C --add-comments=/ -k_ -kN_ -s
+MSGMERGE ?= msgmerge
 
 #
 # Debug/Output
@@ -113,7 +116,8 @@ endif
 #
 # Core
 #
-SRCS =  src/version.c \
+SRCS-1 = \
+	src/version.c \
 	src/uuid.c \
 	src/main.c \
 	src/tvhlog.c \
@@ -168,17 +172,23 @@ SRCS =  src/version.c \
 	src/profile.c \
 	src/bouquet.c \
 	src/lock.c
+SRCS = $(SRCS-1)
+I18N-C = $(SRCS-1)
 
-SRCS-${CONFIG_UPNP} += \
+SRCS-UPNP = \
 	src/upnp.c
+SRCS-${CONFIG_UPNP} += $(SRCS-UPNP)
+I18N-C += $(SRCS-UPNP)
 
 # SATIP Server
-SRCS-${CONFIG_SATIP_SERVER} += \
+SRCS-SATIP-SERVER = \
 	src/satip/server.c \
 	src/satip/rtsp.c \
 	src/satip/rtp.c
+SRCS-${CONFIG_SATIP_SERVER} += $(SRCS-SATIP-SERVER)
+I18N-C += $(SRCS-SATIP-SERVER)
 
-SRCS += \
+SRCS-2 = \
 	src/api.c \
 	src/api/api_status.c \
 	src/api/api_idnode.c \
@@ -195,9 +205,10 @@ SRCS += \
 	src/api/api_dvr.c \
 	src/api/api_caclient.c \
 	src/api/api_profile.c \
-	src/api/api_bouquet.c
+	src/api/api_bouquet.c \
+	src/api/api_language.c
 
-SRCS += \
+SRCS-2 += \
 	src/parsers/parsers.c \
 	src/parsers/bitstream.c \
 	src/parsers/parser_h264.c \
@@ -205,22 +216,26 @@ SRCS += \
 	src/parsers/parser_avc.c \
 	src/parsers/parser_teletext.c \
 
-SRCS += src/epggrab/module.c\
+SRCS-2 += \
+	src/epggrab/module.c\
 	src/epggrab/channel.c\
 	src/epggrab/module/pyepg.c\
 	src/epggrab/module/xmltv.c\
 
-SRCS += src/plumbing/tsfix.c \
+SRCS-2 += \
+	src/plumbing/tsfix.c \
 	src/plumbing/globalheaders.c
 
-SRCS += src/dvr/dvr_db.c \
+SRCS-2 += \
+	src/dvr/dvr_db.c \
 	src/dvr/dvr_rec.c \
 	src/dvr/dvr_autorec.c \
 	src/dvr/dvr_timerec.c \
 	src/dvr/dvr_config.c \
 	src/dvr/dvr_cutpoints.c \
 
-SRCS += src/webui/webui.c \
+SRCS-2 += \
+	src/webui/webui.c \
 	src/webui/comet.c \
 	src/webui/extjs.c \
 	src/webui/simpleui.c \
@@ -228,18 +243,22 @@ SRCS += src/webui/webui.c \
 	src/webui/html.c\
 	src/webui/webui_api.c\
 
-SRCS += src/muxer.c \
+SRCS-2 += \
+	src/muxer.c \
 	src/muxer/muxer_pass.c \
 	src/muxer/muxer_tvh.c \
 	src/muxer/tvh/ebml.c \
 	src/muxer/tvh/mkmux.c \
+
+SRCS += $(SRCS-2)
+I18N-C += $(SRCS-2)
 
 #
 # Optional code
 #
 
 # MPEGTS core, order by usage (psi lib, tsdemux)
-SRCS-$(CONFIG_MPEGTS) += \
+SRCS-MPEGTS = \
 	src/descrambler/descrambler.c \
 	src/descrambler/caclient.c \
 	src/descrambler/caid.c \
@@ -258,22 +277,28 @@ SRCS-$(CONFIG_MPEGTS) += \
 	src/input/mpegts/fastscan.c \
 	src/input/mpegts/mpegts_mux_sched.c \
         src/input/mpegts/mpegts_network_scan.c
+SRCS-$(CONFIG_MPEGTS) += $(SRCS-MPEGTS)
+I18N-C += $(SRCS-MPEGTS)
 
 # MPEGTS DVB
-SRCS-${CONFIG_MPEGTS_DVB} += \
+SRCS-MPEGTS-DVB = \
         src/input/mpegts/mpegts_network_dvb.c \
         src/input/mpegts/mpegts_mux_dvb.c \
         src/input/mpegts/scanfile.c
+SRCS-${CONFIG_MPEGTS_DVB} += $(SRCS-MPEGTS-DVB)
+I18N-C += $(SRCS-MPEGTS-DVB)
 
 # MPEGTS EPG
-SRCS-$(CONFIG_MPEGTS) += \
+SRCS-MPEGTS-EPG = \
 	src/epggrab/otamux.c\
 	src/epggrab/module/eit.c \
 	src/epggrab/support/freesat_huffman.c \
-	src/epggrab/module/opentv.c \
+	src/epggrab/module/opentv.c
+SRCS-$(CONFIG_MPEGTS) += $(SRCS-MPEGTS-EPG)
+I18N-C += $(SRCS-MPEGTS-EPG)
 
 # LINUX DVB
-SRCS-${CONFIG_LINUXDVB} += \
+SRCS-LINUXDVB = \
         src/input/mpegts/linuxdvb/linuxdvb.c \
         src/input/mpegts/linuxdvb/linuxdvb_adapter.c \
         src/input/mpegts/linuxdvb/linuxdvb_frontend.c \
@@ -282,22 +307,27 @@ SRCS-${CONFIG_LINUXDVB} += \
         src/input/mpegts/linuxdvb/linuxdvb_switch.c \
         src/input/mpegts/linuxdvb/linuxdvb_rotor.c \
         src/input/mpegts/linuxdvb/linuxdvb_en50494.c
+SRCS-${CONFIG_LINUXDVB} += $(SRCS-LINUXDVB)
+I18N-C += $(SRCS-LINUXDVB)
 
 # SATIP Client
-SRCS-${CONFIG_SATIP_CLIENT} += \
+SRCS-SATIP-CLIENT = \
 	src/input/mpegts/satip/satip.c \
 	src/input/mpegts/satip/satip_frontend.c \
 	src/input/mpegts/satip/satip_satconf.c \
 	src/input/mpegts/satip/satip_rtsp.c
+SRCS-${CONFIG_SATIP_CLIENT} += $(SRCS-SATIP-CLIENT)
+I18N-C += $(SRCS-SATIP-CLIENT)
 
 # HDHOMERUN
-SRCS_HDHOMERUN = \
+SRCS-HDHOMERUN = \
         src/input/mpegts/tvhdhomerun/tvhdhomerun.c \
         src/input/mpegts/tvhdhomerun/tvhdhomerun_frontend.c
-SRCS-${CONFIG_HDHOMERUN_CLIENT} += $(SRCS_HDHOMERUN)
+SRCS-${CONFIG_HDHOMERUN_CLIENT} += $(SRCS-HDHOMERUN)
+I18N-C += $(SRCS-HDHOMERUN)
 
 # IPTV
-SRCS-${CONFIG_IPTV} += \
+SRCS-IPTV = \
 	src/input/mpegts/iptv/iptv.c \
         src/input/mpegts/iptv/iptv_mux.c \
         src/input/mpegts/iptv/iptv_service.c \
@@ -306,64 +336,91 @@ SRCS-${CONFIG_IPTV} += \
         src/input/mpegts/iptv/iptv_rtsp.c \
         src/input/mpegts/iptv/iptv_rtcp.c \
         src/input/mpegts/iptv/iptv_pipe.c
+SRCS-${CONFIG_IPTV} += $(SRCS-IPTV)
+I18N-C += $(SRCS-IPTV)
 
 # TSfile
-SRCS-$(CONFIG_TSFILE) += \
+SRCS-TSFILE = \
         src/input/mpegts/tsfile/tsfile.c \
         src/input/mpegts/tsfile/tsfile_input.c \
-        src/input/mpegts/tsfile/tsfile_mux.c \
+        src/input/mpegts/tsfile/tsfile_mux.c
+SRCS-$(CONFIG_TSFILE) += $(SRCS-TSFILE)
+I18N-C += $(SRCS-TSFILE)
 
 # Timeshift
-SRCS-${CONFIG_TIMESHIFT} += \
+SRCS-TIMESHIFT = \
 	src/timeshift.c \
 	src/timeshift/timeshift_filemgr.c \
 	src/timeshift/timeshift_writer.c \
-	src/timeshift/timeshift_reader.c \
+	src/timeshift/timeshift_reader.c
+SRCS-${CONFIG_TIMESHIFT} += $(SRCS-TIMESHIFT)
+I18N-C += $(SRCS-TIMESHIFT)
 
 # Inotify
-SRCS-${CONFIG_INOTIFY} += \
-	src/dvr/dvr_inotify.c \
+SRCS-INOTIFY = \
+	src/dvr/dvr_inotify.c
+SRCS-${CONFIG_INOTIFY} += $(SRCS-INOTIFY)
+I18N-C += $(SRCS-INOTIFY)
 
 # Avahi
-SRCS-$(CONFIG_AVAHI) += src/avahi.c
+SRCS-AVAHI = \
+	src/avahi.c
+SRCS-$(CONFIG_AVAHI) += $(SRCS-AVAHI)
+I18N-C += $(SRCS-AVAHI)
 
 # Bonjour
-SRCS-$(CONFIG_BONJOUR) += src/bonjour.c
+SRCS-BONJOUR = \
+	src/bonjour.c
+SRCS-$(CONFIG_BONJOUR) = $(SRCS-BONJOUR)
+I18N-C += $(SRCS-BONJOUR)
 
 # libav
-SRCS_LIBAV = \
+SRCS-LIBAV = \
 	src/libav.c \
 	src/muxer/muxer_libav.c \
 	src/plumbing/transcoding.c \
 	src/plumbing/vdpau.c
 LDFLAGS += -lX11 -lvdpau
 SRCS-$(CONFIG_LIBAV) += $(SRCS_LIBAV)
+I18N-C += $(SRCS-LIBAV)
 
 # Tvhcsa
-SRCS-${CONFIG_TVHCSA} += \
+SRCS-TVHCSA = \
 	src/descrambler/tvhcsa.c
+SRCS-${CONFIG_TVHCSA} += $(SRCS-TVHCSA)
+I18N-C += $(SRCS-TVHCSA)
 
 # CWC
-SRCS-${CONFIG_CWC} += \
+SRCS-CWC = \
 	src/descrambler/cwc.c \
 	src/descrambler/emm_reass.c
+SRCS-${CONFIG_CWC} += $(SRCS-CWC)
+I18N-C += $(SRCS-CWC)
 	
 # CAPMT
-SRCS-${CONFIG_CAPMT} += \
+SRCS-CAPMT = \
 	src/descrambler/capmt.c
+SRCS-${CONFIG_CAPMT} += $(SRCS-CAPMT)
+I18N-C += $(SRCS-CAPMT)
 
 # CONSTCW
-SRCS-${CONFIG_CONSTCW} += \
+SRCS-CONSTCW = \
 	src/descrambler/constcw.c
+SRCS-${CONFIG_CONSTCW} += $(SRCS-CONSTCW)
+I18N-C += $(SRCS-CONSTCW)
 
 # DVB CAM
-SRCS-${CONFIG_LINUXDVB_CA} += \
+SRCS-DVBCAM = \
 	src/input/mpegts/linuxdvb/linuxdvb_ca.c \
 	src/descrambler/dvbcam.c
+SRCS-${CONFIG_LINUXDVB_CA} += $(SRCS-DVBCAM)
+I18N-C += $(SRCS-DVBCAM)
 
 # TSDEBUGCW
-SRCS-${CONFIG_TSDEBUG} += \
+SRCS-TSDEBUG = \
 	src/descrambler/tsdebugcw.c
+SRCS-${CONFIG_TSDEBUG} += $(SRCS-TSDEBUG)
+I18N-C += $(SRCS-TSDEBUG)
 
 # FFdecsa
 ifneq ($(CONFIG_DVBCSA),yes)
@@ -394,6 +451,23 @@ BUNDLES-yes               += data/conf
 BUNDLES-${CONFIG_DVBSCAN} += data/dvb-scan
 BUNDLES                    = $(BUNDLES-yes)
 ALL-$(CONFIG_DVBSCAN)     += check_dvb_scan
+
+#
+# Internationalization
+#
+PO-FILES = $(foreach f,$(LANGUAGES),intl/tvheadend.$(f).po)
+SRCS += src/tvh_locale.c
+
+POC_PY=PYTHONIOENCODING=utf-8 $(PYTHON) support/poc.py
+
+define merge-po
+	@if ! test -r "$(1)"; then \
+	  sed -e 's/Content-Type: text\/plain; charset=CHARSET/Content-Type: text\/plain; charset=utf-8/' < "$(2)" > "$(1).new"; \
+	else \
+	  $(MSGMERGE) -o $(1).new $(1) $(2); \
+	fi
+	@mv $(1).new $(1)
+endef
 
 #
 # Add-on modules
@@ -440,7 +514,7 @@ reconfigure:
 	$(ROOTDIR)/configure $(CONFIGURE_ARGS)
 
 # Binary
-${PROG}: check_config make_webui $(OBJS) $(ALLDEPS)
+${PROG}: check_config make_webui $(OBJS)
 	$(CC) -o $@ $(OBJS) $(CFLAGS) $(LDFLAGS)
 
 # Object
@@ -455,7 +529,8 @@ ${BUILDDIR}/%.so: ${SRCS_EXTRA}
 
 # Clean
 clean:
-	rm -rf ${BUILDDIR}/src ${BUILDDIR}/bundle* ${BUILDDIR}/build.o ${BUILDDIR}/timestamp.*
+	rm -rf ${BUILDDIR}/src ${BUILDDIR}/bundle* ${BUILDDIR}/build.o ${BUILDDIR}/timestamp.* \
+	       src/tvh_locale_inc.c
 	find . -name "*~" | xargs rm -f
 	$(MAKE) -f Makefile.webui clean
 
@@ -488,12 +563,55 @@ $(BUILDDIR)/timestamp.c: FORCE
 	@echo 'const char* build_timestamp = "'`date -Iseconds`'";' >> $@
 
 $(BUILDDIR)/timestamp.o: $(BUILDDIR)/timestamp.c
-	@mkdir -p $(dir $@)
 	$(CC) -c -o $@ $<
 
 $(BUILDDIR)/build.o: $(BUILDDIR)/build.c
 	@mkdir -p $(dir $@)
 	$(CC) -c -o $@ $<
+
+# Internationalization
+.PHONY: intl
+intl:
+	@printf "Building tvheadend.pot\n"
+	@$(XGETTEXT2) -o intl/tvheadend.pot.new $(I18N-C)
+	@sed -e 's/^"Language: /"Language: en/' < intl/tvheadend.pot.new > intl/tvheadend.pot
+	$(MAKE) -f Makefile.webui LANGUAGES="$(LANGUAGES)" WEBUI=std intl
+	$(MAKE)
+
+intl/tvheadend.pot:
+
+#intl/tvheadend.en_GB.po: intl/tvheadend.pot
+#	$(call merge-po,$@,$<)
+
+#intl/tvheadend.de.po: intl/tvheadend.pot
+#	$(call merge-po,$@,$<)
+
+#intl/tvheadend.fr.po: intl/tvheadend.pot
+#	$(call merge-po,$@,$<)
+
+#intl/tvheadend.cs.po: intl/tvheadend.pot
+#	$(call merge-po,$@,$<)
+
+#intl/tvheadend.pl.po: intl/tvheadend.pot
+#	$(call merge-po,$@,$<)
+
+#intl/tvheadend.bg.po: intl/tvheadend.pot
+#	$(call merge-po,$@,$<)
+
+#intl/tvheadend.he.po: intl/tvheadend.pot
+#	$(call merge-po,$@,$<)
+
+#intl/tvheadend.hr.po: intl/tvheadend.pot
+#	$(call merge-po,$@,$<)
+
+#intl/tvheadend.it.po: intl/tvheadend.pot
+#	$(call merge-po,$@,$<)
+
+$(BUILDDIR)/src/tvh_locale.o: src/tvh_locale_inc.c
+src/tvh_locale_inc.c: $(PO-FILES)
+	@printf "Building $@\n"
+	@$(POC_PY) --in="$(PO-FILES)" > $@.new
+	@mv $@.new $@
 
 # Bundle files
 $(BUILDDIR)/bundle.o: $(BUILDDIR)/bundle.c
@@ -506,7 +624,7 @@ $(BUILDDIR)/bundle.c: check_dvb_scan make_webui
 
 .PHONY: make_webui
 make_webui:
-	$(MAKE) -f Makefile.webui all
+	$(MAKE) -f Makefile.webui LANGUAGES="$(LANGUAGES)" all
 
 # Static FFMPEG
 

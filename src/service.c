@@ -57,7 +57,7 @@ struct service_queue service_all;
 struct service_queue service_raw_all;
 
 static void
-service_class_notify_enabled ( void *obj )
+service_class_notify_enabled ( void *obj, const char *lang )
 {
   service_t *t = (service_t *)obj;
   if (t->s_enabled && t->s_auto != SERVICE_AUTO_OFF)
@@ -73,10 +73,10 @@ service_class_channel_get ( void *obj )
 }
 
 static char *
-service_class_channel_rend ( void *obj )
+service_class_channel_rend ( void *obj, const char *lang )
 {
   service_t *svc = obj;
-  return idnode_list_get_csv1(&svc->s_channels);
+  return idnode_list_get_csv1(&svc->s_channels, lang);
 }
 
 static int
@@ -89,19 +89,8 @@ service_class_channel_set
                           service_mapper_create);
 }
 
-static htsmsg_t *
-service_class_channel_enum
-  ( void *obj )
-{
-  htsmsg_t *m = htsmsg_create_map();
-  htsmsg_add_str(m, "type",  "api");
-  htsmsg_add_str(m, "uri",   "channel/list");
-  htsmsg_add_str(m, "event", "channel");
-  return m;
-}
-
 static const char *
-service_class_get_title ( idnode_t *self )
+service_class_get_title ( idnode_t *self, const char *lang )
 {
   return service_get_full_channel_name((service_t *)self);
 }
@@ -144,19 +133,19 @@ service_class_caid_get ( void *obj )
 }
 
 static htsmsg_t *
-service_class_auto_list ( void *o )
+service_class_auto_list ( void *o, const char *lang )
 {
   static const struct strtab tab[] = {
-    { "Auto Check Enabled",  0 },
-    { "Auto Check Disabled", 1 },
-    { "Missing In PAT/SDT",  2 }
+    { N_("Auto Check Enabled"),  0 },
+    { N_("Auto Check Disabled"), 1 },
+    { N_("Missing In PAT/SDT"),  2 }
   };
-  return strtab2htsmsg(tab);
+  return strtab2htsmsg(tab, 1, lang);
 }
 
 const idclass_t service_class = {
   .ic_class      = "service",
-  .ic_caption    = "Service",
+  .ic_caption    = N_("Service"),
   .ic_event      = "service",
   .ic_perm_def   = ACCESS_ADMIN,
   .ic_delete     = service_class_delete,
@@ -166,14 +155,14 @@ const idclass_t service_class = {
     {
       .type     = PT_BOOL,
       .id       = "enabled",
-      .name     = "Enabled",
+      .name     = N_("Enabled"),
       .off      = offsetof(service_t, s_enabled),
       .notify   = service_class_notify_enabled,
     },
     {
       .type     = PT_INT,
       .id       = "auto",
-      .name     = "Automatic Checking",
+      .name     = N_("Automatic Checking"),
       .list     = service_class_auto_list,
       .off      = offsetof(service_t, s_auto),
     },
@@ -181,30 +170,30 @@ const idclass_t service_class = {
       .type     = PT_STR,
       .islist   = 1,
       .id       = "channel",
-      .name     = "Channel",
+      .name     = N_("Channel"),
       .get      = service_class_channel_get,
       .set      = service_class_channel_set,
-      .list     = service_class_channel_enum,
+      .list     = channel_class_get_list,
       .rend     = service_class_channel_rend,
       .opts     = PO_NOSAVE
     },
     {
       .type     = PT_INT,
       .id       = "priority",
-      .name     = "Priority (-10..10)",
+      .name     = N_("Priority (-10..10)"),
       .off      = offsetof(service_t, s_prio),
     },
     {
       .type     = PT_BOOL,
       .id       = "encrypted",
-      .name     = "Encrypted",
+      .name     = N_("Encrypted"),
       .get      = service_class_encrypted_get,
       .opts     = PO_NOSAVE | PO_RDONLY
     },
     {
       .type     = PT_STR,
       .id       = "caid",
-      .name     = "CAID",
+      .name     = N_("CAID"),
       .get      = service_class_caid_get,
       .opts     = PO_NOSAVE | PO_RDONLY | PO_HIDDEN,
     },
@@ -214,7 +203,7 @@ const idclass_t service_class = {
 
 const idclass_t service_raw_class = {
   .ic_class      = "service_raw",
-  .ic_caption    = "Service Raw",
+  .ic_caption    = N_("Service Raw"),
   .ic_event      = "service_raw",
   .ic_perm_def   = ACCESS_ADMIN,
   .ic_delete     = service_class_delete,
@@ -846,7 +835,7 @@ service_set_enabled(service_t *t, int enabled, int _auto)
   if (t->s_enabled != !!enabled) {
     t->s_enabled = !!enabled;
     t->s_auto = _auto;
-    service_class_notify_enabled(t);
+    service_class_notify_enabled(t, NULL);
     service_request_save(t, 0);
     idnode_notify_changed(&t->s_id);
   }

@@ -35,7 +35,6 @@
 #if ENABLE_LOCKOWNER || ENABLE_ANDROID
 #include <sys/syscall.h>
 #endif
-
 #include "queue.h"
 #include "avg.h"
 #include "hts_strtab.h"
@@ -43,6 +42,8 @@
 #include "tvhlog.h"
 
 #include "redblack.h"
+
+#include "tvh_locale.h"
 
 #define STRINGIFY(s) # s
 #define SRCLINEID() SRCLINEID2(__FILE__, __LINE__)

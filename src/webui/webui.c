@@ -44,6 +44,8 @@
 #include "tcp.h"
 #include "config.h"
 #include "atomic.h"
+#include "lang_codes.h"
+#include "intlconv.h"
 #if ENABLE_MPEGTS
 #include "input.h"
 #endif
@@ -1159,7 +1161,7 @@ page_dvrfile(http_connection_t *hc, const char *remain, void *opaque)
   dvr_entry_t *de;
   char *fname;
   char *basename;
-  char *str;
+  char *str, *str0;
   char range_buf[255];
   char disposition[256];
   off_t content_len, chunk;
@@ -1205,12 +1207,17 @@ page_dvrfile(http_connection_t *hc, const char *remain, void *opaque)
   basename = strrchr(fname, '/');
   if (basename) {
     basename++; /* Skip '/' */
+    str0 = intlconv_utf8safestr(intlconv_charset_id("ASCII", 1, 1),
+                                basename, strlen(basename) * 2);
     htsbuf_queue_init(&q, 0);
     htsbuf_append_and_escape_url(&q, basename);
     str = htsbuf_to_string(&q);
-    snprintf(disposition, sizeof(disposition), "attachment; filename=\"%s\"", str);
+    snprintf(disposition, sizeof(disposition),
+             "attachment; filename=\"%s\"; filename*=utf-8''%s",
+             str0, str);
     htsbuf_queue_flush(&q);
     free(str);
+    free(str0);
   } else {
     disposition[0] = 0;
   }
@@ -1398,6 +1405,70 @@ favicon(http_connection_t *hc, const char *remain, void *opaque)
   return 0;
 }
 
+/**
+ *
+ */
+static int http_file_test(const char *path)
+{
+  fb_file *fb = fb_open(path, 0, 0);
+  if (fb) {
+    fb_close(fb);
+    return 0;
+  }
+  return -1;
+}
+
+/**
+ *
+ */
+static int
+http_redir(http_connection_t *hc, const char *remain, void *opaque)
+{
+  const char *lang;
+  char *components[3];
+  char buf[256];
+  int nc;
+
+  if (!remain)
+    return HTTP_STATUS_BAD_REQUEST;
+  nc = http_tokenize((char *)remain, components, 3, '/');
+  if(!nc)
+    return HTTP_STATUS_BAD_REQUEST;
+
+  if (nc == 1) {
+    if (!strcmp(components[0], "locale.js")) {
+      lang = tvh_gettext_get_lang(hc->hc_access->aa_lang);
+      if (lang) {
+        snprintf(buf, sizeof(buf), "src/webui/static/intl/tvh.%s.js.gz", lang);
+        if (!http_file_test(buf)) {
+          snprintf(buf, sizeof(buf), "/static/intl/tvh.%s.js.gz", lang);
+          http_redirect(hc, buf, NULL);
+          return 0;
+        }
+      }
+      snprintf(buf, sizeof(buf), "tvh_locale={};tvh_locale_lang='';");
+      http_send_header(hc, 200, "text/javascript; charset=UTF-8", strlen(buf), 0, NULL, 10, 0, NULL, NULL);
+      tvh_write(hc->hc_fd, buf, strlen(buf));
+      return 0;
+    }
+  }
+
+  if (nc >= 2) {
+    if (!strcmp(components[0], "docs")) {
+      lang = tvh_gettext_get_lang(hc->hc_access->aa_lang);
+      snprintf(buf, sizeof(buf), "docs/html/%s/%s%s%s", lang, components[1],
+                                 nc > 2 ? "/" : "", nc > 2 ? components[1] : "");
+      if (http_file_test(buf)) lang = "en";
+      snprintf(buf, sizeof(buf), "/docs/%s/%s%s%s", lang, components[1],
+                                 nc > 2 ? "/" : "", nc > 2 ? components[1] : "");
+      http_redirect(hc, buf, NULL);
+      return 0;
+    }
+  }
+
+  return HTTP_STATUS_BAD_REQUEST;
+}
+
 int page_statedump(http_connection_t *hc, const char *remain, void *opaque);
 
 /**
@@ -1430,6 +1501,8 @@ webui_init(int xspf)
   http_path_add("/stream",  NULL, http_stream,  ACCESS_STREAMING);
 
   http_path_add("/imagecache", NULL, page_imagecache, ACCESS_ANONYMOUS);
+
+  http_path_add("/redir",  NULL, http_redir, ACCESS_ANONYMOUS);
 
   webui_static_content("/static",        "src/webui/static");
   webui_static_content("/docs",          "docs/html");

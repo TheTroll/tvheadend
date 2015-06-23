@@ -85,10 +85,10 @@ channel_class_services_get ( void *obj )
 }
 
 static char *
-channel_class_services_rend ( void *obj )
+channel_class_services_rend ( void *obj, const char *lang )
 {
   channel_t *ch = obj;
-  return idnode_list_get_csv2(&ch->ch_services);
+  return idnode_list_get_csv2(&ch->ch_services, lang);
 }
 
 static int
@@ -101,7 +101,7 @@ channel_class_services_set ( void *obj, const void *p )
 }
 
 static htsmsg_t *
-channel_class_services_enum ( void *obj )
+channel_class_services_enum ( void *obj, const char *lang )
 {
   htsmsg_t *e, *m = htsmsg_create_map();
   htsmsg_add_str(m, "type",  "api");
@@ -121,10 +121,10 @@ channel_class_tags_get ( void *obj )
 }
 
 static char *
-channel_class_tags_rend ( void *obj )
+channel_class_tags_rend ( void *obj, const char *lang )
 {
   channel_t *ch = obj;
-  return idnode_list_get_csv2(&ch->ch_ctms);
+  return idnode_list_get_csv2(&ch->ch_ctms, lang);
 }
 
 static int
@@ -143,7 +143,7 @@ channel_class_tags_set ( void *obj, const void *p )
 }
 
 static void
-channel_class_icon_notify ( void *obj )
+channel_class_icon_notify ( void *obj, const char *lang )
 {
   channel_t *ch = obj;
   if (!ch->ch_load)
@@ -159,14 +159,14 @@ channel_class_get_icon ( void *obj )
 }
 
 static const char *
-channel_class_get_title ( idnode_t *self )
+channel_class_get_title ( idnode_t *self, const char *lang )
 {
   return channel_get_name((channel_t*)self);
 }
 
 /* exported for others */
 htsmsg_t *
-channel_class_get_list(void *o)
+channel_class_get_list(void *o, const char *lang)
 {
   htsmsg_t *m = htsmsg_create_map();
   htsmsg_t *p = htsmsg_create_map();
@@ -243,7 +243,7 @@ channel_class_epggrab_set ( void *o, const void *v )
 }
 
 static htsmsg_t *
-channel_class_epggrab_list ( void *o )
+channel_class_epggrab_list ( void *o, const char *lang )
 {
   htsmsg_t *e, *m = htsmsg_create_map();
   htsmsg_add_str(m, "type",  "api");
@@ -284,7 +284,7 @@ channel_class_bouquet_set ( void *o, const void *v )
 
 const idclass_t channel_class = {
   .ic_class      = "channel",
-  .ic_caption    = "Channel",
+  .ic_caption    = N_("Channel"),
   .ic_event      = "channel",
   .ic_save       = channel_class_save,
   .ic_get_title  = channel_class_get_title,
@@ -293,13 +293,13 @@ const idclass_t channel_class = {
     {
       .type     = PT_BOOL,
       .id       = "enabled",
-      .name     = "Enabled",
+      .name     = N_("Enabled"),
       .off      = offsetof(channel_t, ch_enabled),
     },
     {
       .type     = PT_STR,
       .id       = "name",
-      .name     = "Name",
+      .name     = N_("Name"),
       .off      = offsetof(channel_t, ch_name),
       .get      = channel_class_get_name,
       .notify   = channel_class_icon_notify, /* try to re-render default icon path */
@@ -308,35 +308,35 @@ const idclass_t channel_class = {
       .type     = PT_S64,
       .intsplit = CHANNEL_SPLIT,
       .id       = "number",
-      .name     = "Number",
+      .name     = N_("Number"),
       .off      = offsetof(channel_t, ch_number),
       .get      = channel_class_get_number,
     },
     {
       .type     = PT_STR,
       .id       = "icon",
-      .name     = "User Icon",
+      .name     = N_("User Icon"),
       .off      = offsetof(channel_t, ch_icon),
       .notify   = channel_class_icon_notify,
     },
     {
       .type     = PT_STR,
       .id       = "icon_public_url",
-      .name     = "Icon URL",
+      .name     = N_("Icon URL"),
       .get      = channel_class_get_icon,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_HIDDEN,
     },
     {
       .type     = PT_BOOL,
       .id       = "epgauto",
-      .name     = "Auto EPG Channel",
+      .name     = N_("Auto EPG Channel"),
       .off      = offsetof(channel_t, ch_epgauto),
     },
     {
       .type     = PT_STR,
       .islist   = 1,
       .id       = "epggrab",
-      .name     = "EPG Source",
+      .name     = N_("EPG Source"),
       .set      = channel_class_epggrab_set,
       .get      = channel_class_epggrab_get,
       .list     = channel_class_epggrab_list,
@@ -345,14 +345,14 @@ const idclass_t channel_class = {
     {
       .type     = PT_INT,
       .id       = "dvr_pre_time",
-      .name     = "DVR Pre", // TODO: better text?
+      .name     = N_("DVR Pre"), // TODO: better text?
       .off      = offsetof(channel_t, ch_dvr_extra_time_pre),
       .opts     = PO_ADVANCED
     },
     {
       .type     = PT_INT,
       .id       = "dvr_pst_time",
-      .name     = "DVR Post", // TODO: better text?
+      .name     = N_("DVR Post"), // TODO: better text?
       .off      = offsetof(channel_t, ch_dvr_extra_time_post),
       .opts     = PO_ADVANCED
     },
@@ -360,7 +360,7 @@ const idclass_t channel_class = {
       .type     = PT_STR,
       .islist   = 1,
       .id       = "services",
-      .name     = "Services",
+      .name     = N_("Services"),
       .get      = channel_class_services_get,
       .set      = channel_class_services_set,
       .list     = channel_class_services_enum,
@@ -370,7 +370,7 @@ const idclass_t channel_class = {
       .type     = PT_STR,
       .islist   = 1,
       .id       = "tags",
-      .name     = "Tags",
+      .name     = N_("Tags"),
       .get      = channel_class_tags_get,
       .set      = channel_class_tags_set,
       .list     = channel_tag_class_get_list,
@@ -379,7 +379,7 @@ const idclass_t channel_class = {
     {
       .type     = PT_STR,
       .id       = "bouquet",
-      .name     = "Bouquet (auto)",
+      .name     = N_("Bouquet (auto)"),
       .get      = channel_class_bouquet_get,
       .set      = channel_class_bouquet_set,
       .list     = bouquet_class_get_list,
@@ -1044,14 +1044,14 @@ channel_tag_class_delete(idnode_t *self)
 }
 
 static const char *
-channel_tag_class_get_title (idnode_t *self)
+channel_tag_class_get_title (idnode_t *self, const char *lang)
 {
   channel_tag_t *ct = (channel_tag_t *)self;
   return ct->ct_name ?: "";
 }
 
 static void
-channel_tag_class_icon_notify ( void *obj )
+channel_tag_class_icon_notify ( void *obj, const char *lang )
 {
   (void)channel_tag_get_icon(obj);
 }
@@ -1066,7 +1066,7 @@ channel_tag_class_get_icon ( void *obj )
 
 /* exported for others */
 htsmsg_t *
-channel_tag_class_get_list(void *o)
+channel_tag_class_get_list(void *o, const char *lang)
 {
   htsmsg_t *m = htsmsg_create_map();
   htsmsg_t *p = htsmsg_create_map();
@@ -1080,7 +1080,7 @@ channel_tag_class_get_list(void *o)
 
 const idclass_t channel_tag_class = {
   .ic_class      = "channeltag",
-  .ic_caption    = "Channel Tag",
+  .ic_caption    = N_("Channel Tag"),
   .ic_event      = "channeltag",
   .ic_save       = channel_tag_class_save,
   .ic_get_title  = channel_tag_class_get_title,
@@ -1089,57 +1089,57 @@ const idclass_t channel_tag_class = {
     {
       .type     = PT_BOOL,
       .id       = "enabled",
-      .name     = "Enabled",
+      .name     = N_("Enabled"),
       .off      = offsetof(channel_tag_t, ct_enabled),
     },
     {
       .type     = PT_U32,
       .id       = "index",
-      .name     = "Sort Index",
+      .name     = N_("Sort Index"),
       .off      = offsetof(channel_tag_t, ct_index),
     },
     {
       .type     = PT_STR,
       .id       = "name",
-      .name     = "Name",
+      .name     = N_("Name"),
       .off      = offsetof(channel_tag_t, ct_name),
     },
     {
       .type     = PT_BOOL,
       .id       = "internal",
-      .name     = "Internal",
+      .name     = N_("Internal"),
       .off      = offsetof(channel_tag_t, ct_internal),
     },
     {
       .type     = PT_BOOL,
       .id       = "private",
-      .name     = "Private",
+      .name     = N_("Private"),
       .off      = offsetof(channel_tag_t, ct_private),
     },
     {
       .type     = PT_STR,
       .id       = "icon",
-      .name     = "Icon (full URL)",
+      .name     = N_("Icon (full URL)"),
       .off      = offsetof(channel_tag_t, ct_icon),
       .notify   = channel_tag_class_icon_notify,
     },
     {
       .type     = PT_STR,
       .id       = "icon_public_url",
-      .name     = "Icon URL",
+      .name     = N_("Icon URL"),
       .get      = channel_tag_class_get_icon,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_HIDDEN,
     },
     {
       .type     = PT_BOOL,
       .id       = "titled_icon",
-      .name     = "Icon has title",
+      .name     = N_("Icon has title"),
       .off      = offsetof(channel_tag_t, ct_titled_icon),
     },
     {
       .type     = PT_STR,
       .id       = "comment",
-      .name     = "Comment",
+      .name     = N_("Comment"),
       .off      = offsetof(channel_tag_t, ct_comment),
     },
     {}

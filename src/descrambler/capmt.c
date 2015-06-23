@@ -298,7 +298,7 @@ static void capmt_send_client_info(capmt_t *capmt);
 static inline const char *
 capmt_name(capmt_t *capmt)
 {
-  return idnode_get_title(&capmt->cac_id);
+  return idnode_get_title(&capmt->cac_id, NULL);
 }
 
 static inline int
@@ -1676,7 +1676,7 @@ capmt_thread(void *aux)
     ts.tv_sec = time(NULL) + d;
     ts.tv_nsec = 0;
 
-    tvhlog(LOG_INFO, "capmt", "%s: Automatic reconnection attempt in in %d seconds", idnode_get_title(&capmt->cac_id), d);
+    tvhlog(LOG_INFO, "capmt", "%s: Automatic reconnection attempt in in %d seconds", idnode_get_title(&capmt->cac_id, NULL), d);
 
     pthread_cond_timedwait(&capmt->capmt_cond, &capmt->capmt_mutex, &ts);
 
@@ -2156,29 +2156,29 @@ capmt_conf_changed(caclient_t *cac)
 }
 
 static htsmsg_t *
-caclient_capmt_class_oscam_mode_list ( void *o )
+caclient_capmt_class_oscam_mode_list ( void *o, const char *lang )
 {
   static const struct strtab tab[] = {
-    { "OSCam net protocol (rev >= 10389)", CAPMT_OSCAM_NET_PROTO },
-    { "OSCam pc-nodmx (rev >= 9756)",      CAPMT_OSCAM_UNIX_SOCKET },
-    { "OSCam TCP (rev >= 9574)",           CAPMT_OSCAM_TCP },
-    { "OSCam (rev >= 9095)",               CAPMT_OSCAM_MULTILIST },
-    { "Older OSCam",                       CAPMT_OSCAM_OLD },
-    { "Wrapper (capmt_ca.so)",             CAPMT_OSCAM_SO_WRAPPER },
+    { N_("OSCam net protocol (rev >= 10389)"), CAPMT_OSCAM_NET_PROTO },
+    { N_("OSCam pc-nodmx (rev >= 9756)"),      CAPMT_OSCAM_UNIX_SOCKET },
+    { N_("OSCam TCP (rev >= 9574)"),           CAPMT_OSCAM_TCP },
+    { N_("OSCam (rev >= 9095)"),               CAPMT_OSCAM_MULTILIST },
+    { N_("Older OSCam"),                       CAPMT_OSCAM_OLD },
+    { N_("Wrapper (capmt_ca.so)"),             CAPMT_OSCAM_SO_WRAPPER },
   };
-  return strtab2htsmsg(tab);
+  return strtab2htsmsg(tab, 1, lang);
 }
 
 const idclass_t caclient_capmt_class =
 {
   .ic_super      = &caclient_class,
   .ic_class      = "caclient_capmt",
-  .ic_caption    = "CAPMT (Linux DVBAPI)",
+  .ic_caption    = N_("CAPMT (Linux DVBAPI)"),
   .ic_properties = (const property_t[]){
     {
       .type     = PT_INT,
       .id       = "mode",
-      .name     = "Mode",
+      .name     = N_("Mode"),
       .off      = offsetof(capmt_t, capmt_oscam),
       .list     = caclient_capmt_class_oscam_mode_list,
       .def.i    = CAPMT_OSCAM_MULTILIST,
@@ -2186,14 +2186,14 @@ const idclass_t caclient_capmt_class =
     {
       .type     = PT_STR,
       .id       = "camdfilename",
-      .name     = "Camd.socket Filename / IP Address (TCP mode)",
+      .name     = N_("Camd.socket Filename / IP Address (TCP mode)"),
       .off      = offsetof(capmt_t, capmt_sockfile),
       .def.s    = "/tmp/camd.socket",
     },
     {
       .type     = PT_INT,
       .id       = "port",
-      .name     = "Listen/Connect Port",
+      .name     = N_("Listen/Connect Port"),
       .off      = offsetof(capmt_t, capmt_port),
       .def.i    = 9000
     },

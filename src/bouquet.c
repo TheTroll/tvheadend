@@ -159,7 +159,7 @@ bouquet_find_by_source(const char *name, const char *src, int create)
   bqs.bq_src = (char *)src;
   bq = RB_FIND(&bouquets, &bqs, bq_link, _bq_cmp);
   if (bq) {
-    if (name && *name && strcmp(name, bq->bq_name)) {
+    if (name && *name && bq->bq_name && strcmp(name, bq->bq_name)) {
       tvhwarn("bouquet", "bouquet name '%s' changed to '%s'", bq->bq_name ?: "", name);
       free(bq->bq_name);
       bq->bq_name = strdup(name);
@@ -266,7 +266,7 @@ bouquet_add_service(bouquet_t *bq, service_t *s, uint64_t lcn, uint32_t tag)
 
   if (!idnode_set_exists(bq->bq_services, &s->s_id)) {
     tvhtrace("bouquet", "add service %s to %s", s->s_nicename, bq->bq_name ?: "<unknown>");
-    idnode_set_add(bq->bq_services, &s->s_id, NULL);
+    idnode_set_add(bq->bq_services, &s->s_id, NULL, NULL);
     bq->bq_saveflag = 1;
   }
 
@@ -301,7 +301,7 @@ bouquet_add_service(bouquet_t *bq, service_t *s, uint64_t lcn, uint32_t tag)
 
   if (!bq->bq_in_load &&
       !idnode_set_exists(bq->bq_active_services, &s->s_id))
-    idnode_set_add(bq->bq_active_services, &s->s_id, NULL);
+    idnode_set_add(bq->bq_active_services, &s->s_id, NULL, NULL);
 }
 
 /*
@@ -385,7 +385,7 @@ bouquet_completed(bouquet_t *bq, uint32_t seen)
   remove = idnode_set_create(0);
   for (z = 0; z < bq->bq_services->is_count; z++)
     if (!idnode_set_exists(bq->bq_active_services, bq->bq_services->is_array[z]))
-      idnode_set_add(remove, bq->bq_services->is_array[z], NULL);
+      idnode_set_add(remove, bq->bq_services->is_array[z], NULL, NULL);
   for (z = 0; z < remove->is_count; z++)
     bouquet_remove_service(bq, (service_t *)remove->is_array[z]);
   idnode_set_free(remove);
@@ -545,7 +545,7 @@ bouquet_class_delete(idnode_t *self)
 }
 
 static const char *
-bouquet_class_get_title (idnode_t *self)
+bouquet_class_get_title (idnode_t *self, const char *lang)
 {
   bouquet_t *bq = (bouquet_t *)self;
 
@@ -556,7 +556,7 @@ bouquet_class_get_title (idnode_t *self)
 
 /* exported for others */
 htsmsg_t *
-bouquet_class_get_list(void *o)
+bouquet_class_get_list(void *o, const char *lang)
 {
   htsmsg_t *m = htsmsg_create_map();
   htsmsg_add_str(m, "type",  "api");
@@ -566,7 +566,7 @@ bouquet_class_get_list(void *o)
 }
 
 static void
-bouquet_class_rescan_notify0 ( bouquet_t *bq )
+bouquet_class_rescan_notify0 ( bouquet_t *bq, const char *lang )
 {
   void mpegts_mux_bouquet_rescan ( const char *src, const char *extra );
   mpegts_mux_bouquet_rescan(bq->bq_src, bq->bq_comment);
@@ -574,32 +574,32 @@ bouquet_class_rescan_notify0 ( bouquet_t *bq )
 }
 
 static void
-bouquet_class_rescan_notify ( void *obj )
+bouquet_class_rescan_notify ( void *obj, const char *lang )
 {
   bouquet_t *bq = obj;
 
   if (bq->bq_rescan)
-    bouquet_class_rescan_notify0(bq);
+    bouquet_class_rescan_notify0(bq, lang);
 }
 
 static void
-bouquet_class_enabled_notify ( void *obj )
+bouquet_class_enabled_notify ( void *obj, const char *lang )
 {
   bouquet_t *bq = obj;
 
   if (bq->bq_enabled)
-    bouquet_class_rescan_notify0(bq);
+    bouquet_class_rescan_notify0(bq, lang);
   bouquet_map_to_channels(bq);
 }
 
 static void
-bouquet_class_maptoch_notify ( void *obj )
+bouquet_class_maptoch_notify ( void *obj, const char *lang )
 {
   bouquet_map_to_channels((bouquet_t *)obj);
 }
 
 static void
-bouquet_class_mapnolcn_notify ( void *obj )
+bouquet_class_mapnolcn_notify ( void *obj, const char *lang )
 {
   bouquet_t *bq = obj;
   service_t *t;
@@ -620,7 +620,7 @@ bouquet_class_mapnolcn_notify ( void *obj )
 }
 
 static void
-bouquet_class_mapnoname_notify ( void *obj )
+bouquet_class_mapnoname_notify ( void *obj, const char *lang )
 {
   bouquet_t *bq = obj;
   service_t *t;
@@ -640,7 +640,7 @@ bouquet_class_mapnoname_notify ( void *obj )
 }
 
 static void
-bouquet_class_mapradio_notify ( void *obj )
+bouquet_class_mapradio_notify ( void *obj, const char *lang )
 {
   bouquet_t *bq = obj;
   service_t *t;
@@ -660,7 +660,7 @@ bouquet_class_mapradio_notify ( void *obj )
 }
 
 static void
-bouquet_class_chtag_notify ( void *obj )
+bouquet_class_chtag_notify ( void *obj, const char *lang )
 {
   bouquet_t *bq = obj;
   service_t *t;
@@ -688,7 +688,7 @@ bouquet_class_chtag_notify ( void *obj )
 }
 
 static void
-bouquet_class_lcn_offset_notify ( void *obj )
+bouquet_class_lcn_offset_notify ( void *obj, const char *lang )
 {
   if (((bouquet_t *)obj)->bq_in_load)
     return;
@@ -709,7 +709,7 @@ bouquet_class_chtag_ref_get ( void *obj )
 }
 
 static char *
-bouquet_class_chtag_ref_rend ( void *obj )
+bouquet_class_chtag_ref_rend ( void *obj, const char *lang )
 {
   bouquet_t *bq = obj;
   if (bq->bq_chtag_ptr)
@@ -755,11 +755,12 @@ bouquet_class_services_get ( void *obj )
 }
 
 static char *
-bouquet_class_services_rend ( void *obj )
+bouquet_class_services_rend ( void *obj, const char *lang )
 {
   bouquet_t *bq = obj;
+  const char *sc = N_("Services Count %zi");
   char buf[32];
-  snprintf(buf, sizeof(buf), "Services Count %zi", bq->bq_services->is_count);
+  snprintf(buf, sizeof(buf), tvh_gettext_lang(lang, sc), bq->bq_services->is_count);
   return strdup(buf);
 }
 
@@ -788,7 +789,7 @@ bouquet_class_services_count_get ( void *obj )
 
 const idclass_t bouquet_class = {
   .ic_class      = "bouquet",
-  .ic_caption    = "Bouquet",
+  .ic_caption    = N_("Bouquet"),
   .ic_event      = "bouquet",
   .ic_perm_def   = ACCESS_ADMIN,
   .ic_save       = bouquet_class_save,
@@ -798,14 +799,14 @@ const idclass_t bouquet_class = {
     {
       .type     = PT_BOOL,
       .id       = "enabled",
-      .name     = "Enabled",
+      .name     = N_("Enabled"),
       .off      = offsetof(bouquet_t, bq_enabled),
       .notify   = bouquet_class_enabled_notify,
     },
     {
       .type     = PT_BOOL,
       .id       = "rescan",
-      .name     = "Rescan",
+      .name     = N_("Rescan"),
       .off      = offsetof(bouquet_t, bq_rescan),
       .notify   = bouquet_class_rescan_notify,
       .opts     = PO_NOSAVE,
@@ -813,42 +814,42 @@ const idclass_t bouquet_class = {
     {
       .type     = PT_BOOL,
       .id       = "maptoch",
-      .name     = "Auto-Map to Channels",
+      .name     = N_("Auto-Map to Channels"),
       .off      = offsetof(bouquet_t, bq_maptoch),
       .notify   = bouquet_class_maptoch_notify,
     },
     {
       .type     = PT_BOOL,
       .id       = "mapnolcn",
-      .name     = "Map Zero Numbers",
+      .name     = N_("Map Zero Numbers"),
       .off      = offsetof(bouquet_t, bq_mapnolcn),
       .notify   = bouquet_class_mapnolcn_notify,
     },
     {
       .type     = PT_BOOL,
       .id       = "mapnoname",
-      .name     = "Map No Name",
+      .name     = N_("Map No Name"),
       .off      = offsetof(bouquet_t, bq_mapnoname),
       .notify   = bouquet_class_mapnoname_notify,
     },
     {
       .type     = PT_BOOL,
       .id       = "mapradio",
-      .name     = "Map Radio",
+      .name     = N_("Map Radio"),
       .off      = offsetof(bouquet_t, bq_mapradio),
       .notify   = bouquet_class_mapradio_notify,
     },
     {
       .type     = PT_BOOL,
       .id       = "chtag",
-      .name     = "Create Tag",
+      .name     = N_("Create Tag"),
       .off      = offsetof(bouquet_t, bq_chtag),
       .notify   = bouquet_class_chtag_notify,
     },
     {
       .type     = PT_STR,
       .id       = "chtag_ref",
-      .name     = "Channel Tag Reference",
+      .name     = N_("Channel Tag Reference"),
       .get      = bouquet_class_chtag_ref_get,
       .set      = bouquet_class_chtag_ref_set,
       .rend     = bouquet_class_chtag_ref_rend,
@@ -857,13 +858,13 @@ const idclass_t bouquet_class = {
     {
       .type     = PT_STR,
       .id       = "name",
-      .name     = "Name",
+      .name     = N_("Name"),
       .off      = offsetof(bouquet_t, bq_name),
     },
     {
       .type     = PT_STR,
       .id       = "source",
-      .name     = "Source",
+      .name     = N_("Source"),
       .off      = offsetof(bouquet_t, bq_src),
       .opts     = PO_RDONLY,
     },
@@ -871,7 +872,7 @@ const idclass_t bouquet_class = {
       .type     = PT_STR,
       .islist   = 1,
       .id       = "services",
-      .name     = "Services",
+      .name     = N_("Services"),
       .get      = bouquet_class_services_get,
       .set      = bouquet_class_services_set,
       .rend     = bouquet_class_services_rend,
@@ -880,27 +881,27 @@ const idclass_t bouquet_class = {
     {
       .type     = PT_U32,
       .id       = "services_seen",
-      .name     = "# Seen Services",
+      .name     = N_("# Seen Services"),
       .off      = offsetof(bouquet_t, bq_services_seen),
       .opts     = PO_RDONLY,
     },
     {
       .type     = PT_U32,
       .id       = "services_count",
-      .name     = "# Services",
+      .name     = N_("# Services"),
       .get      = bouquet_class_services_count_get,
       .opts     = PO_RDONLY | PO_NOSAVE,
     },
     {
       .type     = PT_STR,
       .id       = "comment",
-      .name     = "Comment",
+      .name     = N_("Comment"),
       .off      = offsetof(bouquet_t, bq_comment),
     },
     {
       .type     = PT_U32,
       .id       = "lcn_off",
-      .name     = "Channel Number Offset",
+      .name     = N_("Channel Number Offset"),
       .off      = offsetof(bouquet_t, bq_lcn_offset),
       .notify   = bouquet_class_lcn_offset_notify,
     },

@@ -22,6 +22,7 @@
 
 IAM=$(lastword $(MAKEFILE_LIST))
 WEBDIR ?= src/webui
+LANGUAGES ?= bg cs de en en_GB fr he hr it pl
 ROOTPATH = static
 
 ifneq ($(WEBUI),)
@@ -33,6 +34,9 @@ CSS_PY = PYTHONIOENCODING=utf-8 $(PYTHON) support/css.py
 RUN_JS = PYTHONIOENCODING=utf-8 $(PYTHON) vendor/rjsmin-1.0.10/rjsmin.py
 RUN_CSS = PYTHONIOENCODING=utf-8 $(PYTHON) vendor/rcssmin-1.0.5/rcssmin.py
 GZIPCMD += -n
+XGETTEXT2 ?= $(XGETTEXT) --language=JavaScript --from-code=utf-8  --add-comments=/ -k_ -kN_ -s
+MSGMERGE ?= msgmerge
+POJS_PY = PYTHONIOENCODING=utf-8 $(PYTHON) support/pojs.py
 
 ifeq ($(WEBUI),std)
 DEBUG =
@@ -69,6 +73,7 @@ CSS += static/app/ext.css
 # extjs extensions
 #
 
+JAVASCRIPT += $(ROOTPATH)/app/i18n.js
 JAVASCRIPT += $(ROOTPATH)/app/extensions.js
 JAVASCRIPT += $(ROOTPATH)/livegrid/livegrid-all.js
 JAVASCRIPT += $(ROOTPATH)/lovcombo/lovcombo-all.js
@@ -85,6 +90,7 @@ JAVASCRIPT += $(EXTJSPATH)/examples/ux/gridfilters/filter/NumericFilter.js
 JAVASCRIPT += $(EXTJSPATH)/examples/ux/gridfilters/filter/StringFilter.js
 JAVASCRIPT += $(EXTJSPATH)/examples/ux/gridfilters/menu/ListMenu.js
 JAVASCRIPT += $(EXTJSPATH)/examples/ux/gridfilters/menu/RangeMenu.js
+JAVASCRIPT += $(ROOTPATH)/app/i18n-post.js
 
 #
 # app itself
@@ -93,7 +99,6 @@ JAVASCRIPT += $(EXTJSPATH)/examples/ux/gridfilters/menu/RangeMenu.js
 JAVASCRIPT += $(ROOTPATH)/app/namespace.js
 JAVASCRIPT += $(ROOTPATH)/smoothie.js
 JAVASCRIPT += $(ROOTPATH)/app/comet.js
-JAVASCRIPT += $(ROOTPATH)/app/tableeditor.js
 JAVASCRIPT += $(ROOTPATH)/app/cteditor.js
 JAVASCRIPT += $(ROOTPATH)/app/acleditor.js
 
@@ -143,6 +148,12 @@ CSS_SRC = $(foreach f,$(CSS),$(WEBDIR)/$(f))
 JAVASCRIPT_TV_SRC = $(foreach f,$(JAVASCRIPT_TV),$(WEBDIR)/$(f))
 CSS_TV_SRC = $(foreach f,$(CSS_TV),$(WEBDIR)/$(f))
 
+#
+# Internationalization
+#
+PO-FILES = $(foreach f,$(LANGUAGES),intl/js/tvheadend.js.$(f).po)
+JSI-FILES = $(foreach f,$(LANGUAGES),src/webui/static/intl/tvh.$(f).js.gz)
+
 endif # WEBUI defined
 
 ifndef V
@@ -171,16 +182,37 @@ define GO_CSS
 	@stat --printf="%-35n %7s\n" $@
 endef
 
+define merge-po
+	@if ! test -r "$(1)"; then \
+	  sed -e 's/Content-Type: text\/plain; charset=CHARSET/Content-Type: text\/plain; charset=utf-8/' < "$(2)" > "$(1).new"; \
+	else \
+	  $(MSGMERGE) -o $(1).new $(1) $(2); \
+	fi
+	@mv $(1).new $(1)
+endef
+
+define go-po
+	@printf "Building $(1)\n"
+	@mkdir -p $(dir $(1))
+	$(VV)$(POJS_PY) --in="$(2)" > $(1).new
+	@echo "tvh_locale_lang = '$(subst .,,$(suffix $(basename $(2))))';" >> $(1).new
+	$(VV)$(GZIPCMD) -c $(1).new > $@.new2
+	@rm $(1).new
+	@mv $(1).new2 $(1)
+endef
+
 all:
 	$(MAKE) -f $(IAM) WEBUI=std   compile-std
 	$(MAKE) -f $(IAM) WEBUI=debug compile-debug
 
 $(WEBDIR)/extjs-std.c: $(JAVASCRIPT_SRC) $(CSS_SRC)
 	$(VV)printf 'extjs_lcss(hq, "static/tvh.css.gz");\n' > $@
+	$(VV)printf 'extjs_load(hq, "redir/locale.js");\r\n' >> $@
 	$(VV)printf 'extjs_load(hq, "static/tvh.js.gz");\n' >> $@
 
 $(WEBDIR)/extjs-debug.c: $(JAVASCRIPT_SRC) $(CSS_SRC)
 	$(VV)printf '$(foreach f,$(CSS),extjs_lcss(hq, "$(f)");\r\n)' > $@
+	$(VV)printf 'extjs_load(hq, "redir/locale.js");\r\n' >> $@
 	$(VV)printf '$(foreach f,$(JAVASCRIPT),extjs_load(hq, "$(f)");\r\n)' >> $@
 
 $(WEBDIR)/extjs-tv-std.c: $(JAVASCRIPT_TV_SRC) $(CSS_TV_SRC)
@@ -206,12 +238,81 @@ $(WEBDIR)/$(ROOTPATH)/tvh-tv.css.gz: $(CSS_TV_SRC)
 .PHONY: compile-std
 compile-std: $(WEBDIR)/$(ROOTPATH)/tvh.js.gz $(WEBDIR)/$(ROOTPATH)/tvh.css.gz \
              $(WEBDIR)/$(ROOTPATH)/tvh-tv.js.gz $(WEBDIR)/$(ROOTPATH)/tvh-tv.css.gz \
-             $(WEBDIR)/extjs-std.c $(WEBDIR)/extjs-tv-std.c
+             $(WEBDIR)/extjs-std.c $(WEBDIR)/extjs-tv-std.c $(JSI-FILES)
 	@echo "WEBUI std finished"
 	
 .PHONY: compile-debug
 compile-debug: $(WEBDIR)/extjs-debug.c $(WEBDIR)/extjs-tv-debug.c
 	@echo "WEBUI debug finished"
+
+# Internationalization
+.PHONY: intl
+intl:
+	@printf "Building intl/js/tvheadend.js.pot\n"
+	@$(XGETTEXT2) -o intl/js/tvheadend.js.pot.new $(JAVASCRIPT_SRC)
+	@sed -e 's/^"Language: /"Language: en/' < intl/js/tvheadend.js.pot.new > intl/js/tvheadend.js.pot
+
+intl/js/tvheadend.js.pot:
+
+#intl/js/tvheadend.js.en.po: intl/js/tvheadend.js.pot
+#	$(call merge-po,$@,$<)
+
+#intl/js/tvheadend.js.en_GB.po: intl/js/tvheadend.js.pot
+#	$(call merge-po,$@,$<)
+
+#intl/js/tvheadend.js.de.po: intl/js/tvheadend.js.pot
+#	$(call merge-po,$@,$<)
+
+#intl/js/tvheadend.js.fr.po: intl/js/tvheadend.js.pot
+#	$(call merge-po,$@,$<)
+
+#intl/js/tvheadend.js.cs.po: intl/js/tvheadend.js.pot
+#	$(call merge-po,$@,$<)
+
+#intl/js/tvheadend.js.pl.po: intl/js/tvheadend.js.pot
+#	$(call merge-po,$@,$<)
+
+#intl/js/tvheadend.js.bg.po: intl/js/tvheadend.js.pot
+#	$(call merge-po,$@,$<)
+
+#intl/js/tvheadend.js.he.po: intl/js/tvheadend.js.pot
+#	$(call merge-po,$@,$<)
+
+intl/js/tvheadend.js.hr.po: intl/js/tvheadend.js.pot
+	$(call merge-po,$@,$<)
+
+intl/js/tvheadend.js.it.po: intl/js/tvheadend.js.pot
+	$(call merge-po,$@,$<)
+
+src/webui/static/intl/tvh.en.js.gz: intl/js/tvheadend.js.en.po
+	$(call go-po,$@,$<)
+
+src/webui/static/intl/tvh.en_GB.js.gz: intl/js/tvheadend.js.en_GB.po
+	$(call go-po,$@,$<)
+
+src/webui/static/intl/tvh.de.js.gz: intl/js/tvheadend.js.de.po
+	$(call go-po,$@,$<)
+
+src/webui/static/intl/tvh.fr.js.gz: intl/js/tvheadend.js.fr.po
+	$(call go-po,$@,$<)
+
+src/webui/static/intl/tvh.cs.js.gz: intl/js/tvheadend.js.cs.po
+	$(call go-po,$@,$<)
+
+src/webui/static/intl/tvh.pl.js.gz: intl/js/tvheadend.js.pl.po
+	$(call go-po,$@,$<)
+
+src/webui/static/intl/tvh.bg.js.gz: intl/js/tvheadend.js.bg.po
+	$(call go-po,$@,$<)
+
+src/webui/static/intl/tvh.he.js.gz: intl/js/tvheadend.js.he.po
+	$(call go-po,$@,$<)
+
+src/webui/static/intl/tvh.hr.js.gz: intl/js/tvheadend.js.hr.po
+	$(call go-po,$@,$<)
+
+src/webui/static/intl/tvh.it.js.gz: intl/js/tvheadend.js.it.po
+	$(call go-po,$@,$<)
 
 .PHONY:
 clean:

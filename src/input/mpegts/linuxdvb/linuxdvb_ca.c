@@ -122,7 +122,7 @@ linuxdvb_ca_class_save ( idnode_t *in )
 }
 
 static void
-linuxdvb_ca_class_enabled_notify ( void *p )
+linuxdvb_ca_class_enabled_notify ( void *p, const char *lang )
 {
   linuxdvb_ca_t *lca = (linuxdvb_ca_t *) p;
 
@@ -146,12 +146,12 @@ linuxdvb_ca_class_enabled_notify ( void *p )
     close(lca->lca_ca_fd);
     lca->lca_ca_fd = -1;
 
-    idnode_notify_title_changed(&lca->lca_id);
+    idnode_notify_title_changed(&lca->lca_id, lang);
   }
 }
 
 static void
-linuxdvb_ca_class_high_bitrate_notify ( void *p )
+linuxdvb_ca_class_high_bitrate_notify ( void *p, const char *lang )
 {
   linuxdvb_ca_t *lca = (linuxdvb_ca_t *) p;
   ciplus13_app_ai_data_rate_info(lca, lca->lca_high_bitrate_mode ?
@@ -160,7 +160,7 @@ linuxdvb_ca_class_high_bitrate_notify ( void *p )
 }
 
 static const char *
-linuxdvb_ca_class_get_title ( idnode_t *in )
+linuxdvb_ca_class_get_title ( idnode_t *in, const char *lang )
 {
   linuxdvb_ca_t *lca = (linuxdvb_ca_t *) in;
   static char buf[256];
@@ -178,35 +178,35 @@ linuxdvb_ca_class_get_title ( idnode_t *in )
 const idclass_t linuxdvb_ca_class =
 {
   .ic_class      = "linuxdvb_ca",
-  .ic_caption    = "Linux DVB CA",
+  .ic_caption    = N_("Linux DVB CA"),
   .ic_save       = linuxdvb_ca_class_save,
-  .ic_get_title   = linuxdvb_ca_class_get_title,
+  .ic_get_title  = linuxdvb_ca_class_get_title,
   .ic_properties = (const property_t[]) {
     {
       .type     = PT_BOOL,
       .id       = "enabled",
-      .name     = "Enabled",
+      .name     = N_("Enabled"),
       .off      = offsetof(linuxdvb_ca_t, lca_enabled),
       .notify   = linuxdvb_ca_class_enabled_notify,
     },
     {
       .type     = PT_BOOL,
       .id       = "high_bitrate_mode",
-      .name     = "High Bitrate Mode (CI+ CAMs Only)",
+      .name     = N_("High Bitrate Mode (CI+ CAMs Only)"),
       .off      = offsetof(linuxdvb_ca_t, lca_high_bitrate_mode),
       .notify   = linuxdvb_ca_class_high_bitrate_notify,
     },
     {
       .type     = PT_BOOL,
       .id       = "pin_reply",
-      .name     = "Reply to CAM PIN Enquiries",
+      .name     = N_("Reply to CAM PIN Enquiries"),
       .off      = offsetof(linuxdvb_ca_t, lca_pin_reply),
       .opts     = PO_ADVANCED,
     },
     {
       .type     = PT_STR,
       .id       = "pin",
-      .name     = "PIN",
+      .name     = N_("PIN"),
       .off      = offsetof(linuxdvb_ca_t, lca_pin_str),
       .opts     = PO_ADVANCED | PO_PASSWORD,
       .def.s    = "1234",
@@ -214,7 +214,7 @@ const idclass_t linuxdvb_ca_class =
     {
       .type     = PT_STR,
       .id       = "pin_match",
-      .name     = "PIN Enquiry Match String",
+      .name     = N_("PIN Enquiry Match String"),
       .off      = offsetof(linuxdvb_ca_t, lca_pin_match_str),
       .opts     = PO_ADVANCED,
       .def.s    = "PIN",
@@ -222,7 +222,7 @@ const idclass_t linuxdvb_ca_class =
     {
       .type     = PT_INT,
       .id       = "capmt_interval",
-      .name     = "CAPMT Interval (ms)",
+      .name     = N_("CAPMT Interval (ms)"),
       .off      = offsetof(linuxdvb_ca_t, lca_capmt_interval),
       .opts     = PO_ADVANCED,
       .def.i    = 100,
@@ -230,7 +230,7 @@ const idclass_t linuxdvb_ca_class =
     {
       .type     = PT_INT,
       .id       = "capmt_query_interval",
-      .name     = "CAPMT Query Interval (ms)",
+      .name     = N_("CAPMT Query Interval (ms)"),
       .off      = offsetof(linuxdvb_ca_t, lca_capmt_query_interval),
       .opts     = PO_ADVANCED,
       .def.i    = 1200,
@@ -238,21 +238,21 @@ const idclass_t linuxdvb_ca_class =
     {
       .type     = PT_BOOL,
       .id       = "query_before_ok_descrambling",
-      .name     = "Send CAPMT Query",
+      .name     = N_("Send CAPMT Query"),
       .off      = offsetof(linuxdvb_ca_t, lca_capmt_query),
       .opts     = PO_ADVANCED,
     },
     {
       .type     = PT_STR,
       .id       = "ca_path",
-      .name     = "Device Path",
+      .name     = N_("Device Path"),
       .opts     = PO_RDONLY | PO_NOSAVE,
       .off      = offsetof(linuxdvb_ca_t, lca_ca_path),
     },
     {
       .type     = PT_STR,
       .id       = "slot_state",
-      .name     = "Slot State",
+      .name     = N_("Slot State"),
       .opts     = PO_RDONLY | PO_NOSAVE,
       .off      = offsetof(linuxdvb_ca_t, lca_state_str),
     },
@@ -471,7 +471,7 @@ linuxdvb_ca_ai_callback(void *arg, uint8_t slot_id, uint16_t session_num,
     snprintf(lca->lca_cam_menu_string, sizeof(lca->lca_cam_menu_string),
              "%.*s", menu_string_len, menu_string);
 
-    idnode_notify_title_changed(&lca->lca_id);
+    idnode_notify_title_changed(&lca->lca_id, NULL);
 
     return 0;
 }
@@ -736,7 +736,7 @@ linuxdvb_ca_monitor ( void *aux )
     if (lca->lca_state != state) {
       tvhlog(LOG_INFO, "linuxdvb", "CAM slot %u status changed to %s",
              csi.num, lca->lca_state_str);
-      idnode_notify_title_changed(&lca->lca_id);
+      idnode_notify_title_changed(&lca->lca_id, NULL);
       lca->lca_state = state;
     }
 

@@ -62,16 +62,16 @@ linuxdvb_adapter_class_get_childs ( idnode_t *in )
   linuxdvb_adapter_t *la = (linuxdvb_adapter_t*)in;
   idnode_set_t *is = idnode_set_create(0);
   LIST_FOREACH(lfe, &la->la_frontends, lfe_link)
-    idnode_set_add(is, &lfe->ti_id, NULL);
+    idnode_set_add(is, &lfe->ti_id, NULL, NULL);
 #if ENABLE_LINUXDVB_CA
   LIST_FOREACH(lca, &la->la_ca_devices, lca_link)
-    idnode_set_add(is, &lca->lca_id, NULL);
+    idnode_set_add(is, &lca->lca_id, NULL, NULL);
 #endif
   return is;
 }
 
 static const char *
-linuxdvb_adapter_class_get_title ( idnode_t *in )
+linuxdvb_adapter_class_get_title ( idnode_t *in, const char *lang )
 {
   linuxdvb_adapter_t *la = (linuxdvb_adapter_t*)in;
   return la->la_name ?: la->la_rootpath;
@@ -80,7 +80,7 @@ linuxdvb_adapter_class_get_title ( idnode_t *in )
 const idclass_t linuxdvb_adapter_class =
 {
   .ic_class      = "linuxdvb_adapter",
-  .ic_caption    = "LinuxDVB Adapter",
+  .ic_caption    = N_("LinuxDVB Adapter"),
   .ic_event      = "linuxdvb_adapter",
   .ic_save       = linuxdvb_adapter_class_save,
   .ic_get_childs = linuxdvb_adapter_class_get_childs,
@@ -89,7 +89,7 @@ const idclass_t linuxdvb_adapter_class =
     {
       .type     = PT_STR,
       .id       = "rootpath",
-      .name     = "Device Path",
+      .name     = N_("Device Path"),
       .opts     = PO_RDONLY,
       .off      = offsetof(linuxdvb_adapter_t, la_rootpath),
     },

@@ -60,7 +60,7 @@ static struct strtab filtcmptab[] = {
 
 static void
 api_idnode_grid_conf
-  ( htsmsg_t *args, api_idnode_grid_conf_t *conf )
+  ( access_t *perm, htsmsg_t *args, api_idnode_grid_conf_t *conf )
 {
   htsmsg_field_t *f, *f2;
   htsmsg_t *filter, *e;
@@ -104,6 +104,7 @@ api_idnode_grid_conf
   }
 
   /* Sort */
+  conf->sort.lang = perm->aa_lang;
   if ((str = htsmsg_get_str(args, "sort"))) {
     conf->sort.key = str;
     if ((str = htsmsg_get_str(args, "dir")) && !strcasecmp(str, "DESC"))
@@ -127,7 +128,7 @@ api_idnode_grid
   api_idnode_grid_callback_t cb = opaque;
 
   /* Grid configuration */
-  api_idnode_grid_conf(args, &conf);
+  api_idnode_grid_conf(perm, args, &conf);
 
   /* Create list */
   pthread_mutex_lock(&global_lock);
@@ -143,8 +144,9 @@ api_idnode_grid
     e = htsmsg_create_map();
     htsmsg_add_str(e, "uuid", idnode_uuid_as_str(ins.is_array[i]));
     in = ins.is_array[i];
-    idnode_perm_set(in, perm);
-    idnode_read0(in, e, flist, 0);
+    if (idnode_perm(in, perm, NULL))
+      continue;
+    idnode_read0(in, e, flist, 0, perm->aa_lang);
     idnode_perm_unset(in);
     htsmsg_add_msg(list, NULL, e);
     if (conf.limit > 0) conf.limit--;
@@ -196,12 +198,12 @@ api_idnode_load_by_class
       if (_enum) {
         e = htsmsg_create_map();
         htsmsg_add_str(e, "key", idnode_uuid_as_str(in));
-        htsmsg_add_str(e, "val", idnode_get_title(in));
+        htsmsg_add_str(e, "val", idnode_get_title(in, perm->aa_lang));
 
       /* Full record */
       } else {
         htsmsg_t *flist = api_idnode_flist_conf(args, "list");
-        e = idnode_serialize0(in, flist, 0);
+        e = idnode_serialize0(in, flist, 0, perm->aa_lang);
         htsmsg_destroy(flist);
       }
 
@@ -268,9 +270,9 @@ api_idnode_load
         err = EPERM;
         continue;
       }
-      m = idnode_serialize0(in, flist, 0);
+      m = idnode_serialize0(in, flist, 0, perm->aa_lang);
       if (meta > 0)
-        htsmsg_add_msg(m, "meta", idclass_serialize0(in->in_class, flist, 0));
+        htsmsg_add_msg(m, "meta", idclass_serialize0(in->in_class, flist, 0, perm->aa_lang));
       htsmsg_add_msg(l, NULL, m);
       count++;
       idnode_perm_unset(in);
@@ -288,9 +290,9 @@ api_idnode_load
         err = EPERM;
       } else {
         l = htsmsg_create_list();
-        m = idnode_serialize0(in, flist, 0);
+        m = idnode_serialize0(in, flist, 0, perm->aa_lang);
         if (meta > 0)
-          htsmsg_add_msg(m, "meta", idclass_serialize0(in->in_class, flist, 0));
+          htsmsg_add_msg(m, "meta", idclass_serialize0(in->in_class, flist, 0, perm->aa_lang));
         htsmsg_add_msg(l, NULL, m);
         idnode_perm_unset(in);
       }
@@ -410,8 +412,11 @@ api_idnode_tree
   /* Root node */
   if (isroot && node) {
     htsmsg_t *m;
-    idnode_perm_set(node, perm);
-    m = idnode_serialize(node);
+    if (idnode_perm(node, perm, NULL)) {
+      pthread_mutex_unlock(&global_lock);
+      return EINVAL;
+    }
+    m = idnode_serialize(node, perm->aa_lang);
     idnode_perm_unset(node);
     htsmsg_add_u32(m, "leaf", idnode_is_leaf(node));
     htsmsg_add_msg(*resp, NULL, m);
@@ -421,12 +426,13 @@ api_idnode_tree
     idnode_set_t *v = node ? idnode_get_childs(node) : rootfn(perm);
     if (v) {
       int i;
-      idnode_set_sort_by_title(v);
+      idnode_set_sort_by_title(v, perm->aa_lang);
       for(i = 0; i < v->is_count; i++) {
         idnode_t *in = v->is_array[i];
         htsmsg_t *m;
-        idnode_perm_set(in, perm);
-        m = idnode_serialize(v->is_array[i]);
+        if (idnode_perm(in, perm, NULL))
+          continue;
+        m = idnode_serialize(v->is_array[i], perm->aa_lang);
         idnode_perm_unset(in);
         htsmsg_add_u32(m, "leaf", idnode_is_leaf(v->is_array[i]));
         htsmsg_add_msg(*resp, NULL, m);
@@ -462,7 +468,7 @@ api_idnode_class
   }
 
   err   = 0;
-  *resp = idclass_serialize0(idc, flist, 0);
+  *resp = idclass_serialize0(idc, flist, 0, perm->aa_lang);
 
 exit:
   pthread_mutex_unlock(&global_lock);
