@@ -630,7 +630,7 @@ subscription_unsubscribe(th_subscription_t *s, int quiet)
 th_subscription_t *
 subscription_create
   (profile_chain_t *prch, int weight, const char *name,
-   int flags, st_callback_t *cb, const char *hostname,
+   int flags, st_callback_t *cb, const char *hostname, int port, 
    const char *username, const char *client)
 {
   th_subscription_t *s = calloc(1, sizeof(th_subscription_t));
@@ -666,6 +666,7 @@ subscription_create
   s->ths_prch              = prch && prch->prch_st ? prch : NULL;
   s->ths_title             = strdup(name);
   s->ths_hostname          = hostname ? strdup(hostname) : NULL;
+  s->ths_port              = port;
   s->ths_username          = username ? strdup(username) : NULL;
   s->ths_client            = client   ? strdup(client)   : NULL;
   s->ths_total_err         = 0;
@@ -710,6 +711,7 @@ subscription_create_from_channel_or_service(profile_chain_t *prch,
                                             const char *name,
                                             int flags,
                                             const char *hostname,
+					    int port,
                                             const char *username,
                                             const char *client,
                                             int *error,
@@ -731,7 +733,7 @@ subscription_create_from_channel_or_service(profile_chain_t *prch,
     ch = prch->prch_id;
 
   s = subscription_create(prch, weight, name, flags, subscription_input,
-                          hostname, username, client);
+                          hostname, port, username, client);
   if (tvhtrace_enabled()) {
     const char *pro_name = prch->prch_pro ? (prch->prch_pro->pro_name ?: "") : "<none>";
     if (ch)
@@ -776,13 +778,14 @@ subscription_create_from_channel(profile_chain_t *prch,
 				 const char *name,
 				 int flags,
 				 const char *hostname,
+				 int port,
 				 const char *username,
 				 const char *client,
 				 int *error)
 {
   assert(prch->prch_st);
   return subscription_create_from_channel_or_service
-           (prch, ti, weight, name, flags, hostname, username, client,
+           (prch, ti, weight, name, flags, hostname, port, username, client,
             error, NULL);
 }
 
@@ -802,7 +805,7 @@ subscription_create_from_service(profile_chain_t *prch,
 {
   assert(prch->prch_st);
   return subscription_create_from_channel_or_service
-           (prch, ti, weight, name, flags, hostname, username, client,
+           (prch, ti, weight, name, flags, hostname, 0, username, client,
             error, prch->prch_id);
 }
 
@@ -829,7 +832,7 @@ subscription_create_from_mux(profile_chain_t *prch,
     return NULL;
 
   return subscription_create_from_channel_or_service
-    (prch, ti, weight, name, flags, hostname, username, client,
+    (prch, ti, weight, name, flags, hostname, 0, username, client,
      error, (service_t *)s);
 }
 #endif
@@ -1107,8 +1110,8 @@ static void log_subscription(th_subscription_t *s, int on)
     localtime_r(&time.tv_sec, &tm);
     strftime(t, sizeof(t), "%F %T", &tm);// %d %H:%M:%S", &tm);
 
-    sprintf(buffer, "%s#%s#%s#%s#%s#%s#%04X#%s#%s\n", t, on?"ON":"OFF",
-              s->ths_username?:"", s->ths_client?:"", s->ths_hostname?:"",
+    sprintf(buffer, "%s#%s#%s#%s#%s@%d#%s#%04X#%s#%s\n", t, on?"ON":"OFF",
+              s->ths_username?:"", s->ths_client?:"", s->ths_hostname?:"",s->ths_port,
               s->ths_title?:"", shortid(s), s->ths_channel ? channel_get_name(s->ths_channel) : "none",
               ((s->ths_prch && s->ths_prch->prch_pro)?s->ths_prch->prch_pro->pro_name:NULL)?:"");
 

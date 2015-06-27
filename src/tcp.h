@@ -86,6 +86,7 @@ int tcp_write_queue(int fd, htsbuf_queue_t *q);
 int tcp_read_timeout(int fd, void *buf, size_t len, int timeout);
 
 char *tcp_get_str_from_ip(const struct sockaddr *sa, char *dst, size_t maxlen);
+char *tcp_get_str_from_ip_port(const struct sockaddr *sa, char *dst, size_t maxlen, int* port);
 
 struct sockaddr *tcp_get_ip_from_str(const char *str, struct sockaddr *sa);
 

@@ -135,6 +135,7 @@ typedef struct htsp_connection {
 
   char *htsp_logname;
   char *htsp_peername;
+  int  htsp_peerport;
   char *htsp_username;
   char *htsp_clientname;
   char *htsp_language; // for async updates
@@ -2107,6 +2108,7 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
 					      SUBSCRIPTION_PACKET |
 					      SUBSCRIPTION_STREAMING,
 					      htsp->htsp_peername,
+					      htsp->htsp_peerport,
 					      htsp->htsp_granted_access->aa_representative,
 					      htsp->htsp_clientname,
 					      NULL);
@@ -2862,10 +2864,11 @@ htsp_serve(int fd, void **opaque, struct sockaddr_storage *source,
   htsp_connection_t htsp;
   char buf[50];
   htsp_subscription_t *s;
-  
+  int port;
+
   // Note: global_lock held on entry
 
-  tcp_get_str_from_ip((struct sockaddr*)source, buf, 50);
+  tcp_get_str_from_ip_port((struct sockaddr*)source, buf, 50, &port);
 
   memset(&htsp, 0, sizeof(htsp_connection_t));
   *opaque = &htsp;
@@ -2877,6 +2880,7 @@ htsp_serve(int fd, void **opaque, struct sockaddr_storage *source,
   htsp_init_queue(&htsp.htsp_hmq_epg, 0);
 
   htsp.htsp_peername = strdup(buf);
+  htsp.htsp_peerport = port;
   htsp_update_logname(&htsp);
 
   htsp.htsp_fd = fd;

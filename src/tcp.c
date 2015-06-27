@@ -377,6 +377,34 @@ tcp_get_str_from_ip(const struct sockaddr *sa, char *dst, size_t maxlen)
 /**
  *
  */
+char *
+tcp_get_str_from_ip_port(const struct sockaddr *sa, char *dst, size_t maxlen, int* port)
+{
+  if (sa == NULL || dst == NULL)
+    return NULL;
+
+  *port = 0;
+
+  switch(sa->sa_family)
+  {
+    case AF_INET:
+      inet_ntop(AF_INET, &(((struct sockaddr_in*)sa)->sin_addr), dst, maxlen);
+      *port = (int) ntohs(((struct sockaddr_in*)sa)->sin_port);
+      break;
+    case AF_INET6:
+      inet_ntop(AF_INET6, &(((struct sockaddr_in6*)sa)->sin6_addr), dst, maxlen);
+      break;
+    default:
+      strncpy(dst, "Unknown AF", maxlen);
+      return NULL;
+  }
+
+  return dst;
+}
+
+/**
+ *
+ */
 struct sockaddr *
 tcp_get_ip_from_str(const char *src, struct sockaddr *sa)
 {

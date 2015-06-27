@@ -102,6 +102,7 @@ typedef struct th_subscription {
   streaming_message_t *ths_start_message;
 
   char *ths_hostname;
+  int ths_port;
   char *ths_username;
   char *ths_client;
   char *ths_dvrfile;
@@ -149,6 +150,7 @@ subscription_create_from_channel(struct profile_chain *prch,
 				 const char *name,
 				 int flags,
 				 const char *hostname,
+				 int port,
 				 const char *username,
 				 const char *client,
 				 int *error);
@@ -183,6 +185,7 @@ th_subscription_t *subscription_create(struct profile_chain *prch,
                                        int weight, const char *name,
 				       int flags, st_callback_t *cb,
 				       const char *hostname,
+				       int port,
 				       const char *username,
 				       const char *client);
 

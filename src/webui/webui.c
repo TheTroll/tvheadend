@@ -935,7 +935,7 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
     s = subscription_create_from_channel(&prch,
                  NULL, weight, "HTTP",
                  prch.prch_flags | SUBSCRIPTION_STREAMING,
-                 hc->hc_peer_ipstr, hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:NULL),
+                 hc->hc_peer_ipstr, hc->hc_peer_port, hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:NULL),
                  http_arg_get(&hc->hc_args, "User-Agent"),
                  NULL);
 
@@ -1270,7 +1270,7 @@ page_dvrfile(http_connection_t *hc, const char *remain, void *opaque)
   if (tcp_id && !hc->hc_no_output && content_len > 64*1024) {
     sub = subscription_create(NULL, 1, "HTTP",
                               SUBSCRIPTION_NONE, NULL,
-                              hc->hc_peer_ipstr, hc->hc_username,
+                              hc->hc_peer_ipstr, 0, hc->hc_username,
                               http_arg_get(&hc->hc_args, "User-Agent"));
     if (sub == NULL) {
       http_stream_postop(tcp_id);

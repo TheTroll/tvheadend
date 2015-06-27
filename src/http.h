@@ -122,6 +122,7 @@ typedef struct http_connection {
   int hc_fd;
   struct sockaddr_storage *hc_peer;
   char *hc_peer_ipstr;
+  int hc_peer_port;
   struct sockaddr_storage *hc_self;
   char *hc_representative;
 

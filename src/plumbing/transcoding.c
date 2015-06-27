@@ -1,3 +1,4 @@
+
 /**
  *  Transcoding
  *  Copyright (C) 2013 John Törnblom
@@ -1058,6 +1059,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   th_pkt_t *pkt2;
   VDPAU *vdpau;
   enum AVPixelFormat pixfmt;
+  int print_once=0;
 
   av_init_packet(&packet);
   av_init_packet(&packet2);
@@ -1079,6 +1081,9 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   vdpau = ictx->opaque;
 
   if (!avcodec_is_open(ictx)) {
+
+    print_once=1;
+
     // Try to open VPDAU
     if (ENABLE_VDPAU && icodec->id == AV_CODEC_ID_H264)
     {
@@ -1315,6 +1320,8 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   else
     pixfmt = ictx->pix_fmt;
 
+
+
   len = avpicture_get_size(pixfmt, ictx->width, ictx->height);
   deint = av_malloc(len);
 
@@ -1366,6 +1373,11 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
     tvherror("transcode", "%04X: Cannot scale frame", shortid(t));
     transcoder_stream_invalidate(ts);
     goto cleanup;
+  }
+  else
+  {
+   if (print_once)
+      tvhinfo("transcode", "%04X: %d->%d (AV_PIX_FMT_YUV420P=%d, AV_PIX_FMT_NV12=%d)", shortid(t), pixfmt, octx->pix_fmt, AV_PIX_FMT_YUV420P, AV_PIX_FMT_NV12);
   }
 
   vs->vid_enc_frame->format  = octx->pix_fmt;

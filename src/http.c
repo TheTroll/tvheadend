@@ -720,10 +720,12 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
   char *v, *argv[2];
   int n, rval = -1;
   char authbuf[150];
+  int port;
 
   hc->hc_url_orig = tvh_strdupa(hc->hc_url);
-  tcp_get_str_from_ip((struct sockaddr*)hc->hc_peer, authbuf, sizeof(authbuf));
+  tcp_get_str_from_ip_port((struct sockaddr*)hc->hc_peer, authbuf, sizeof(authbuf), &port);
   hc->hc_peer_ipstr = tvh_strdupa(authbuf);
+  hc->hc_peer_port = port;
   hc->hc_representative = hc->hc_peer_ipstr;
   hc->hc_username = NULL;
   hc->hc_password = NULL;
