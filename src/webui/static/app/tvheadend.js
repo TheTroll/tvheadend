@@ -89,7 +89,7 @@ tvheadend.AjaxConfirm = function(conf) {
 
 tvheadend.loading = function(on) {
     if (on)
-      Ext.getBody().mask(_('Loading... Please, wait...'), 'loading');
+      Ext.getBody().mask(_('Loading, please wait...'), 'loading');
     else
       Ext.getBody().unmask();
 };
@@ -375,7 +375,21 @@ function accessUpdate(o) {
             items: []
         });
 
-        tvheadend.miscconf(cp);
+        /* General */
+        var general = new Ext.TabPanel({
+            activeTab: 0,
+            autoScroll: true,
+            title: _('General'),
+            iconCls: 'general',
+            items: []
+        });
+
+
+        tvheadend.baseconf(general);
+        tvheadend.imgcacheconf(general);
+        tvheadend.satipsrvconf(general);
+        
+        cp.add(general);
 
         tvheadend.acleditor(cp);
         tvheadend.passwdeditor(cp);
@@ -388,8 +402,6 @@ function accessUpdate(o) {
             iconCls: 'hardware',
             items: []
         });
-
-        var idx = 0;
 
         if (tvheadend.capabilities.indexOf('tvadapters') !== -1)
             tvheadend.tvadapters(dvbin);
@@ -511,7 +523,7 @@ tvheadend.RootTabPanel = Ext.extend(Ext.TabPanel, {
         if (!this.loginTpl) {
             var tt = new Ext.Template(
                 '<li class="x-tab-login" id="{id}">',
-                '<span class="x-tab-strip-login {iconCls}">{text}</span></li>'
+                '<span class="x-tab-strip-login {iconCls} x-tab-strip-text">{text}</span></li>'
             );
             tt.disableFormats = true;
             tt.compile();
@@ -526,7 +538,7 @@ tvheadend.RootTabPanel = Ext.extend(Ext.TabPanel, {
         if (!this.loginCmdTpl) {
             var tt = new Ext.Template(
                 '<li class="x-tab-login" id="{id}"><a href="#">',
-                '<span class="x-tab-strip-login-cmd"></span></a></li>'
+                '<span class="x-tab-strip-login-cmd x-tab-strip-text"></span></a></li>'
             );
             tt.disableFormats = true;
             tt.compile();
@@ -542,7 +554,7 @@ tvheadend.RootTabPanel = Ext.extend(Ext.TabPanel, {
         if (!this.diskSpaceTpl) {
             var tt = new Ext.Template(
                 '<li class="x-tab-login" id="{id}">',
-                '<span class="x-tab-diskspace"></span></li>'
+                '<span class="x-tab-diskspace x-tab-strip-text"></span></li>'
             );
             tt.disableFormats = true;
             tt.compile();
