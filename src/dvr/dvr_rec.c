@@ -539,7 +539,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
     return -1;
 
   cfg = de->de_config;
-  if (cfg->dvr_storage == NULL || cfg->dvr_storage == '\0')
+  if (cfg->dvr_storage == NULL || *(cfg->dvr_storage) == '\0')
     return -1;
 
   localtime_r(&de->de_start, &tm);
@@ -1140,17 +1140,16 @@ dvr_get_disk_space_update(const char *path)
 static void
 dvr_get_disk_space_tcb(void *opaque, int dearmed)
 {
-  const char *path = opaque;
-  htsmsg_t *m;
+  if (!dearmed) {
+    htsmsg_t *m = htsmsg_create_map();
+    pthread_mutex_lock(&dvr_disk_space_mutex);
+    dvr_get_disk_space_update((char *)opaque);
+    htsmsg_add_s64(m, "freediskspace", dvr_bfree);
+    htsmsg_add_s64(m, "totaldiskspace", dvr_btotal);
+    pthread_mutex_unlock(&dvr_disk_space_mutex);
 
-  m = htsmsg_create_map();
-  pthread_mutex_lock(&dvr_disk_space_mutex);
-  dvr_get_disk_space_update(path);
-  htsmsg_add_s64(m, "freediskspace", dvr_bfree);
-  htsmsg_add_s64(m, "totaldiskspace", dvr_btotal);
-  pthread_mutex_unlock(&dvr_disk_space_mutex);
-
-  notify_by_msg("diskspaceUpdate", m);
+    notify_by_msg("diskspaceUpdate", m);
+  }
 
   free(opaque);
 }
