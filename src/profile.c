@@ -452,10 +452,15 @@ profile_find_by_list
   profile_t *pro, *res = NULL;
   htsmsg_field_t *f;
   const char *uuid, *uuid2;
+  char alt_sd[128];
+
+  sprintf(alt_sd, "%s-sd", alt);
 
   pro = profile_find_by_uuid(name);
   if (!pro)
     pro = profile_find_by_name(name, alt);
+  if (!pro)
+    pro = profile_find_by_name(name, alt_sd);
   if (!profile_verify(pro, sflags))
     pro = NULL;
   if (uuids) {
