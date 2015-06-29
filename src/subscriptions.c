@@ -1103,6 +1103,9 @@ static void log_subscription(th_subscription_t *s, int on)
   struct timeval time;
   FILE *file = NULL;
 
+  if (s->ths_username && !strcmp(s->ths_username, "tester"))
+	return;
+
   hts_settings_buildpath(path, sizeof(path), "subscription.log");
 
   file=fopen(path, "a");
