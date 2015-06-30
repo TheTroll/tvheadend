@@ -34,7 +34,7 @@
 #include "parsers/parser_avc.h"
 
 #define ENABLE_VDPAU 0
-
+#define ENABLE_QSVDEC 0
 
 LIST_HEAD(transcoder_stream_list, transcoder_stream);
 
@@ -326,7 +326,11 @@ transcoder_get_decoder(transcoder_t *t, streaming_component_type_t ty)
   }
 
   if (codec_id == AV_CODEC_ID_H264)
+#if (ENABLE_QSVDEC == 0)
      codec = avcodec_find_decoder_by_name("h264");
+#else
+     codec = avcodec_find_decoder_by_name("h264_qsv");
+#endif
   else
      codec = avcodec_find_decoder(codec_id);
   if (!codec) {
@@ -1059,7 +1063,6 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   th_pkt_t *pkt2;
   VDPAU *vdpau;
   enum AVPixelFormat pixfmt;
-  int print_once=0;
 
   av_init_packet(&packet);
   av_init_packet(&packet2);
@@ -1081,8 +1084,6 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   vdpau = ictx->opaque;
 
   if (!avcodec_is_open(ictx)) {
-
-    print_once=1;
 
     // Try to open VPDAU
     if (ENABLE_VDPAU && icodec->id == AV_CODEC_ID_H264)
@@ -1145,6 +1146,10 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
     goto cleanup;
   }
 
+  // HACK FOR QSV DECODING
+  if (!strcmp(icodec->name, "h264_qsv"))
+    vs->vid_dec_frame->reordered_opaque = vs->vid_dec_frame->pkt_pts;
+
   if (!got_picture)
     goto cleanup;
 
@@ -1175,6 +1180,14 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
     // Common settings
     octx->width           = vs->vid_width  ? vs->vid_width  : ictx->width;
     octx->height          = vs->vid_height ? vs->vid_height : ictx->height;
+
+    if (!strcmp(icodec->name, "h264_qsv"))
+    {
+      // FORCE FR FOR QSV DECODING
+      ictx->framerate.num = 25;
+      ictx->framerate.den = 1;
+      ictx->ticks_per_frame = 2;
+    }
 
     // Encoder uses "time_base" for bitrate calculation, but "time_base" from decoder
     // will be deprecated in the future, therefore calculate "time_base" from "framerate" if available.
@@ -1320,8 +1333,6 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   else
     pixfmt = ictx->pix_fmt;
 
-
-
   len = avpicture_get_size(pixfmt, ictx->width, ictx->height);
   deint = av_malloc(len);
 
@@ -1331,15 +1342,24 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 		 ictx->width, 
 		 ictx->height);
 
-  if (avpicture_deinterlace(&deint_pic,
+  if (strcmp(icodec->name, "h264_qsv"))
+  {
+    if (avpicture_deinterlace(&deint_pic,
 			    (AVPicture *)vs->vid_dec_frame,
 			    pixfmt,
 			    ictx->width,
 			    ictx->height) < 0) {
-    tvherror("transcode", "%04X: Cannot deinterlace frame", shortid(t));
-    transcoder_stream_invalidate(ts);
-    goto cleanup;
+      tvherror("transcode", "%04X: Cannot deinterlace frame", shortid(t));
+      transcoder_stream_invalidate(ts);
+      goto cleanup;
+    }
   }
+  else
+    av_picture_copy(&deint_pic,
+                            (AVPicture *)vs->vid_dec_frame,
+                            pixfmt,
+                            ictx->width,
+                            ictx->height);
 
   len = avpicture_get_size(octx->pix_fmt, octx->width, octx->height);
   buf = av_malloc(len + FF_INPUT_BUFFER_PADDING_SIZE);
@@ -1350,7 +1370,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
                  octx->pix_fmt,
                  octx->width, 
                  octx->height);
- 
+
   vs->vid_scaler = sws_getCachedContext(vs->vid_scaler,
 				    ictx->width,
 				    ictx->height,
@@ -1362,7 +1382,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 				    NULL,
 				    NULL,
 				    NULL);
- 
+
   if (sws_scale(vs->vid_scaler, 
 		(const uint8_t * const*)deint_pic.data, 
 		deint_pic.linesize, 
@@ -1374,11 +1394,9 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
     transcoder_stream_invalidate(ts);
     goto cleanup;
   }
-  else
-  {
-   if (print_once)
+/*  else
       tvhinfo("transcode", "%04X: %d->%d (AV_PIX_FMT_YUV420P=%d, AV_PIX_FMT_NV12=%d)", shortid(t), pixfmt, octx->pix_fmt, AV_PIX_FMT_YUV420P, AV_PIX_FMT_NV12);
-  }
+*/
 
   vs->vid_enc_frame->format  = octx->pix_fmt;
   vs->vid_enc_frame->width   = octx->width;
