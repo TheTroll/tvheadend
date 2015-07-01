@@ -34,7 +34,8 @@
 #include "parsers/parser_avc.h"
 
 #define ENABLE_VDPAU 0
-#define ENABLE_QSVDEC 0
+#define ENABLE_QSVDEC_H264 0
+#define ENABLE_QSVDEC_MPEG2 1
 
 LIST_HEAD(transcoder_stream_list, transcoder_stream);
 
@@ -326,10 +327,16 @@ transcoder_get_decoder(transcoder_t *t, streaming_component_type_t ty)
   }
 
   if (codec_id == AV_CODEC_ID_H264)
-#if (ENABLE_QSVDEC == 0)
+#if (ENABLE_QSVDEC_H264 == 0)
      codec = avcodec_find_decoder_by_name("h264");
 #else
      codec = avcodec_find_decoder_by_name("h264_qsv");
+#endif
+  else if (codec_id == AV_CODEC_ID_MPEG2VIDEO)
+#if (ENABLE_QSVDEC_MPEG2 == 0)
+     codec = avcodec_find_decoder_by_name("mpeg2video");
+#else
+     codec = avcodec_find_decoder_by_name("mpeg2_qsv");
 #endif
   else
      codec = avcodec_find_decoder(codec_id);
@@ -1147,7 +1154,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   }
 
   // HACK FOR QSV DECODING
-  if (!strcmp(icodec->name, "h264_qsv"))
+  if (!strcmp(icodec->name, "h264_qsv") || !strcmp(icodec->name, "mpeg2_qsv"))
     vs->vid_dec_frame->reordered_opaque = vs->vid_dec_frame->pkt_pts;
 
   if (!got_picture)
@@ -1181,7 +1188,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
     octx->width           = vs->vid_width  ? vs->vid_width  : ictx->width;
     octx->height          = vs->vid_height ? vs->vid_height : ictx->height;
 
-    if (!strcmp(icodec->name, "h264_qsv"))
+    if (!strcmp(icodec->name, "h264_qsv") || !strcmp(icodec->name, "mpeg2_qsv"))
     {
       // FORCE FR FOR QSV DECODING
       ictx->framerate.num = 25;
@@ -1342,7 +1349,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 		 ictx->width, 
 		 ictx->height);
 
-  if (strcmp(icodec->name, "h264_qsv"))
+  if (strcmp(icodec->name, "h264_qsv") && strcmp(icodec->name, "mpeg2_qsv"))
   {
     if (avpicture_deinterlace(&deint_pic,
 			    (AVPicture *)vs->vid_dec_frame,
