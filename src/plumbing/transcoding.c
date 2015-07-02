@@ -1070,6 +1070,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   th_pkt_t *pkt2;
   VDPAU *vdpau;
   enum AVPixelFormat pixfmt;
+  AVFrame *frame_to_encode;
 
   av_init_packet(&packet);
   av_init_packet(&packet2);
@@ -1176,12 +1177,6 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 
   vs->vid_enc_frame->sample_aspect_ratio.num = vs->vid_dec_frame->sample_aspect_ratio.num;
   vs->vid_enc_frame->sample_aspect_ratio.den = vs->vid_dec_frame->sample_aspect_ratio.den;
-
-  // HACK Sample A/R and force the real A/R
-  vs->vid_enc_frame->sample_aspect_ratio.num = 1;
-  vs->vid_enc_frame->sample_aspect_ratio.num = 1;
-  octx->sample_aspect_ratio.num = 1;
-  octx->sample_aspect_ratio.den = 1;
 
   if(!avcodec_is_open(octx)) {
     // Common settings
@@ -1335,6 +1330,13 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
     }
   }
 
+  // When using mpeg2_qsv, skip scaling and deinterlacing!
+  if (!strcmp(icodec->name, "mpeg2_qsv"))
+  {
+    frame_to_encode = vs->vid_dec_frame;
+    goto skip_vpp;
+  }
+
   if (vdpau->initialized)
     pixfmt = AV_PIX_FMT_YUV420P;
   else
@@ -1349,7 +1351,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 		 ictx->width, 
 		 ictx->height);
 
-  if (strcmp(icodec->name, "h264_qsv") && strcmp(icodec->name, "mpeg2_qsv"))
+  if (strcmp(icodec->name, "h264_qsv"))
   {
     if (avpicture_deinterlace(&deint_pic,
 			    (AVPicture *)vs->vid_dec_frame,
@@ -1418,7 +1420,10 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   else if (ictx->coded_frame && ictx->coded_frame->pts != AV_NOPTS_VALUE)
     vs->vid_enc_frame->pts = vs->vid_dec_frame->pts;
 
-  ret = avcodec_encode_video2(octx, &packet2, vs->vid_enc_frame, &got_output);
+  frame_to_encode = vs->vid_enc_frame;
+
+skip_vpp:
+  ret = avcodec_encode_video2(octx, &packet2, frame_to_encode, &got_output);
   if (ret < 0) {
     tvherror("transcode", "%04X: Error encoding frame", shortid(t));
     transcoder_stream_invalidate(ts);
@@ -1794,13 +1799,19 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
 
   if(tp->tp_resolution > 0) {
 
-    tvhinfo("transcode", "Forcing 16/9 A/R");
-    double aspect = 16.0/9.0; 
+    vs->vid_height = MIN(tp->tp_resolution, ssc->ssc_height);
 
-    //  vs->vid_height = MIN(tp->tp_resolution, ssc->ssc_height);
-    vs->vid_height = tp->tp_resolution;
+    // SW scaling SD->SD crashes...
+    if (strcmp(icodec->name, "mpeg2_qsv") && (vs->vid_height == 576))
+    {
+      tvhinfo("transcode", "%04X: SD->SD SW scaling crashes, forcing dest height to 600", shortid(t));
+      vs->vid_height = 600;
+    }
+
     vs->vid_height += vs->vid_height & 1; /* Must be even */
- 
+
+    double aspect = (double)ssc->ssc_width / ssc->ssc_height;
+
     vs->vid_width = vs->vid_height * aspect;
     vs->vid_width += vs->vid_width & 1;   /* Must be even */
   } else {
