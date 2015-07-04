@@ -493,7 +493,9 @@ profile_find_by_list
     if (profile_check_validity(uuids, pro, sflags))
       return pro;
 
-    return NULL;
+    // A profile that cannot be served was requested
+    if (name)
+      return NULL;
   }
 
   // Try with the ones from the ACL list
