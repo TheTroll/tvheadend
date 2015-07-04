@@ -2071,6 +2071,13 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
 
   pro = profile_find_by_list(htsp->htsp_granted_access->aa_profiles, profile_id,
                              "htsp", SUBSCRIPTION_PACKET | SUBSCRIPTION_HTSP);
+  if (!pro)
+  {
+    tvhlog(LOG_ERR, "htsp", "Could not find a valid HTSP profile for this user");
+    free(hs);
+    return htsp_error("Stream setup error");
+  }
+
   if (pro->pro_prefersd)
       convert_channel_to_sd(ch, &ch);
 

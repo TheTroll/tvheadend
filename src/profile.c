@@ -445,42 +445,72 @@ profile_verify(profile_t *pro, int sflags)
 /*
  *
  */
+static int
+profile_check_validity(htsmsg_t *uuids, profile_t *pro, int sflags)
+{
+  htsmsg_field_t *f;
+  const char *uuid, *uuid2;
+
+  if (!pro)
+    return 0;
+
+  if (!uuids)
+    return profile_verify(pro, sflags);
+
+  uuid = idnode_uuid_as_str(&pro->pro_id);
+
+  HTSMSG_FOREACH(f, uuids) {
+    uuid2 = htsmsg_field_get_str(f) ?: "";
+    if (strcmp(uuid, uuid2) == 0 && profile_verify(pro, sflags))
+      return 1;
+  }
+
+  return 0;
+}
+
+/*
+ *
+ */
 profile_t *
 profile_find_by_list
   (htsmsg_t *uuids, const char *name, const char *alt, int sflags)
 {
-  profile_t *pro, *res = NULL;
+  profile_t *pro;
   htsmsg_field_t *f;
-  const char *uuid, *uuid2;
-  char alt_sd[128];
+  const char *uuid;
 
-  sprintf(alt_sd, "%s-sd", alt);
+  if (name || alt) 
+  {
+    char alt_sd[128];
+    sprintf(alt_sd, "%s-sd", alt);
 
-  pro = profile_find_by_uuid(name);
-  if (!pro)
+    // Try with the specified name and alt
     pro = profile_find_by_name(name, alt);
-  if (!pro)
+    if (profile_check_validity(uuids, pro, sflags))
+      return pro;
+    // Try with the specified name and alt-sd
     pro = profile_find_by_name(name, alt_sd);
-  if (!profile_verify(pro, sflags))
-    pro = NULL;
-  if (uuids) {
-    uuid = pro ? idnode_uuid_as_str(&pro->pro_id) : "";
-    HTSMSG_FOREACH(f, uuids) {
-      uuid2 = htsmsg_field_get_str(f) ?: "";
-      if (strcmp(uuid, uuid2) == 0 && profile_verify(pro, sflags))
-        return pro;
-      if (!res) {
-        res = profile_find_by_uuid(uuid2);
-        if (!profile_verify(res, sflags))
-          res = NULL;
-      }
-    }
-  } else {
-    res = pro;
+    if (profile_check_validity(uuids, pro, sflags))
+      return pro;
+
+    return NULL;
   }
-  if (!res)
-    res = profile_find_by_name((sflags & SUBSCRIPTION_HTSP) ? "htsp" : NULL, NULL);
-  return res;
+
+  // Try with the ones from the ACL list
+  if (uuids) {
+    HTSMSG_FOREACH(f, uuids) {
+      uuid = htsmsg_field_get_str(f) ?: "";
+      pro = profile_find_by_uuid(uuid);
+      if (profile_verify(pro, sflags))
+        return pro;
+    }
+  }
+  // User has no ACL list, take htsp or the default one
+  else
+    return profile_find_by_name((sflags & SUBSCRIPTION_HTSP) ? "htsp" : NULL, NULL);
+
+  // Failed...
+  return NULL;
 }
 
 /*
