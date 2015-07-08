@@ -1066,7 +1066,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   AVDictionary *opts;
   AVPacket packet, packet2;
   AVPicture deint_pic;
-  uint8_t *buf, *deint;
+  uint8_t *buf, *buf2, *deint;
   int length, len, ret, got_picture, got_output, got_ref;
   video_stream_t *vs = (video_stream_t*)ts;
   streaming_message_t *sm;
@@ -1087,7 +1087,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   icodec = vs->vid_icodec;
   ocodec = vs->vid_ocodec;
 
-  buf = deint = NULL;
+  buf = buf2 = deint = NULL;
   opts = NULL;
 
   got_ref = 0;
@@ -1351,11 +1351,11 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   if (pixfmt != AV_PIX_FMT_YUV420P)
   {
     len = avpicture_get_size(AV_PIX_FMT_YUV420P, ictx->width, ictx->height);
-    buf = av_malloc(len + FF_INPUT_BUFFER_PADDING_SIZE);
-    memset(buf, 0, len);
+    buf2 = av_malloc(len + FF_INPUT_BUFFER_PADDING_SIZE);
+    memset(buf2, 0, len);
 
     avpicture_fill((AVPicture *) vs->todeint_frame,
-                 buf,
+                 buf2,
                  AV_PIX_FMT_YUV420P,
                  ictx->width,
                  ictx->height);
@@ -1483,6 +1483,9 @@ skip_vpp:
 
   if(buf)
     av_free(buf);
+
+  if(buf2)
+    av_free(buf2);
 
   if(deint)
     av_free(deint);
