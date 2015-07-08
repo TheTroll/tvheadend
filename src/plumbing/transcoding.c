@@ -34,7 +34,7 @@
 #include "parsers/parser_avc.h"
 
 #define ENABLE_VDPAU 0
-#define ENABLE_QSVDEC_H264 0
+#define ENABLE_QSVDEC_H264 1
 #define ENABLE_QSVDEC_MPEG2 1
 
 LIST_HEAD(transcoder_stream_list, transcoder_stream);
@@ -92,6 +92,9 @@ typedef struct video_stream {
   AVFrame                   *vid_dec_frame;
   struct SwsContext         *vid_scaler;
   AVFrame                   *vid_enc_frame;
+
+  struct SwsContext         *todeint_scaler;
+  AVFrame                   *todeint_frame;
 
   int16_t                    vid_width;
   int16_t                    vid_height;
@@ -1071,6 +1074,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   VDPAU *vdpau;
   enum AVPixelFormat pixfmt;
   AVFrame *frame_to_encode;
+  AVFrame *deint_input_frame;
 
   av_init_packet(&packet);
   av_init_packet(&packet2);
@@ -1337,10 +1341,55 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
     goto skip_vpp;
   }
 
+  // VDPAU really outputs AV_PIX_FMT_YUV420P
   if (vdpau->initialized)
     pixfmt = AV_PIX_FMT_YUV420P;
   else
     pixfmt = ictx->pix_fmt;
+
+  // we need AV_PIX_FMT_YUV420P
+  if (pixfmt != AV_PIX_FMT_YUV420P)
+  {
+    len = avpicture_get_size(AV_PIX_FMT_YUV420P, ictx->width, ictx->height);
+    buf = av_malloc(len + FF_INPUT_BUFFER_PADDING_SIZE);
+    memset(buf, 0, len);
+
+    avpicture_fill((AVPicture *) vs->todeint_frame,
+                 buf,
+                 AV_PIX_FMT_YUV420P,
+                 ictx->width,
+                 ictx->height);
+
+    vs->todeint_scaler = sws_getCachedContext(vs->todeint_scaler,
+                                    ictx->width,
+                                    ictx->height,
+                                    pixfmt,
+                                    ictx->width,
+                                    ictx->height,
+                                    AV_PIX_FMT_YUV420P,
+                                    1,
+                                    NULL,
+                                    NULL,
+                                    NULL);
+
+    if (sws_scale(vs->todeint_scaler,
+                (const uint8_t * const*)vs->vid_dec_frame->data,
+                vs->vid_dec_frame->linesize,
+                0,
+                ictx->height,
+                vs->todeint_frame->data,
+                vs->todeint_frame->linesize) < 0) {
+      tvherror("transcode", "%04X: Cannot scale HW frame", shortid(t));
+      transcoder_stream_invalidate(ts);
+      goto cleanup;
+    }
+
+    pixfmt = AV_PIX_FMT_YUV420P;
+
+    deint_input_frame = vs->todeint_frame;;
+  }
+  else
+    deint_input_frame = vs->vid_dec_frame;
 
   len = avpicture_get_size(pixfmt, ictx->width, ictx->height);
   deint = av_malloc(len);
@@ -1351,24 +1400,15 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 		 ictx->width, 
 		 ictx->height);
 
-  if (strcmp(icodec->name, "h264_qsv"))
-  {
-    if (avpicture_deinterlace(&deint_pic,
-			    (AVPicture *)vs->vid_dec_frame,
+  if (avpicture_deinterlace(&deint_pic,
+			    (AVPicture *) deint_input_frame,
 			    pixfmt,
 			    ictx->width,
 			    ictx->height) < 0) {
-      tvherror("transcode", "%04X: Cannot deinterlace frame", shortid(t));
-      transcoder_stream_invalidate(ts);
-      goto cleanup;
-    }
+    tvherror("transcode", "%04X: Cannot deinterlace frame", shortid(t));
+    transcoder_stream_invalidate(ts);
+    goto cleanup;
   }
-  else
-    av_picture_copy(&deint_pic,
-                            (AVPicture *)vs->vid_dec_frame,
-                            pixfmt,
-                            ictx->width,
-                            ictx->height);
 
   len = avpicture_get_size(octx->pix_fmt, octx->width, octx->height);
   buf = av_malloc(len + FF_INPUT_BUFFER_PADDING_SIZE);
@@ -1730,8 +1770,14 @@ transcoder_destroy_video(transcoder_t *t, transcoder_stream_t *ts)
     av_free(vs->vid_octx);
   }
 
+  if(vs->todeint_frame)
+    av_free(vs->todeint_frame);
+
   if(vs->vid_dec_frame)
     av_free(vs->vid_dec_frame);
+
+  if(vs->todeint_scaler)
+    sws_freeContext(vs->todeint_scaler);
 
   if(vs->vid_scaler)
     sws_freeContext(vs->vid_scaler);
@@ -1791,8 +1837,13 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
   vs->vid_dec_frame = avcodec_alloc_frame();
   vs->vid_enc_frame = avcodec_alloc_frame();
 
+  vs->todeint_frame = avcodec_alloc_frame();
+
+
   avcodec_get_frame_defaults(vs->vid_dec_frame);
   avcodec_get_frame_defaults(vs->vid_enc_frame);
+
+  avcodec_get_frame_defaults(vs->todeint_frame);
 
   LIST_INSERT_HEAD(&t->t_stream_list, (transcoder_stream_t*)vs, ts_link);
 
