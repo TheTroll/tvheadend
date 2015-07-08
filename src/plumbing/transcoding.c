@@ -1335,7 +1335,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   }
 
   // When using mpeg2_qsv, skip scaling and deinterlacing!
-  if (!strcmp(icodec->name, "mpeg2_qsv"))
+  if ( (ictx->height == 576) && (!strcmp(icodec->name, "mpeg2_qsv") || !strcmp(icodec->name, "h264_qsv")) )
   {
     frame_to_encode = vs->vid_dec_frame;
     goto skip_vpp;
@@ -1359,6 +1359,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
                  AV_PIX_FMT_YUV420P,
                  ictx->width,
                  ictx->height);
+
 
     vs->todeint_scaler = sws_getCachedContext(vs->todeint_scaler,
                                     ictx->width,
@@ -1856,7 +1857,10 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
     vs->vid_height = MIN(tp->tp_resolution, ssc->ssc_height);
 
     // SW scaling SD->SD crashes...
-    if (strcmp(icodec->name, "mpeg2_qsv") && (vs->vid_height == 576))
+    if (	(vs->vid_height == 576) &&
+		(ssc->ssc_height == vs->vid_height) &&
+		(strcmp(icodec->name, "mpeg2_qsv") && strcmp(icodec->name, "h264_qsv"))
+       )
     {
       tvhinfo("transcode", "%04X: SD->SD SW scaling crashes, forcing dest height to 600", shortid(t));
       vs->vid_height = 600;
