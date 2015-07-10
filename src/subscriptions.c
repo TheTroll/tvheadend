@@ -48,8 +48,6 @@ struct th_subscription_list subscriptions_remove;
 static gtimer_t             subscription_reschedule_timer;
 static int                  subscription_postpone;
 
-static void log_subscription(th_subscription_t *s, int on);
-
 /**
  *
  */
@@ -249,8 +247,6 @@ subscription_show_info(th_subscription_t *s)
     tvh_strlcatf(buf, sizeof(buf), l, ", client=\"%s\"", s->ths_client);
 
   tvhlog(LOG_INFO, "subscription", "%04X: %s", shortid(s), buf);
-
-  log_subscription(s, 1);
 
   service_source_info_free(&si);
 }
@@ -593,7 +589,7 @@ subscription_unsubscribe(th_subscription_t *s, int quiet)
     tvh_strlcatf(buf, sizeof(buf), l, ", client=\"%s\"", s->ths_client);
   tvhlog(quiet ? LOG_TRACE : LOG_INFO, "subscription", "%04X: %s", shortid(s), buf);
 
-  log_subscription(s, 0);
+  subscription_log(s, 0);
 
   if (t) {
     s->ths_flags &= ~SUBSCRIPTION_ONESHOT;
@@ -750,6 +746,8 @@ subscription_create_from_channel_or_service(profile_chain_t *prch,
   s->ths_source  = ti;
   if (ch)
     LIST_INSERT_HEAD(&ch->ch_subscriptions, s, ths_channel_link);
+
+  subscription_log(s, 1);
 
 #if ENABLE_MPEGTS
   if (service && service->s_type == STYPE_RAW) {
@@ -1096,7 +1094,7 @@ subscription_dummy_join(const char *id, int first)
 }
 
 
-static void log_subscription(th_subscription_t *s, int on)
+void subscription_log(th_subscription_t *s, int on)
 {
   char buffer[512], t[128], path[512];
   struct tm tm;
@@ -1117,7 +1115,7 @@ static void log_subscription(th_subscription_t *s, int on)
 
     sprintf(buffer, "%s#%s#%s#%s#%s@%d#%s#%04X#%s#%s\n", t, on?"ON":"OFF",
               s->ths_username?:"", s->ths_client?:"", s->ths_hostname?:"",s->ths_port,
-              s->ths_title?:"", shortid(s), s->ths_channel ? channel_get_name(s->ths_channel) : "none",
+              s->ths_title?:"", shortid(s), s->ths_channel ? channel_get_name(s->ths_channel) : (s->ths_dvrfile?:"none"),
               ((s->ths_prch && s->ths_prch->prch_pro)?s->ths_prch->prch_pro->pro_name:NULL)?:"");
 
     fwrite(buffer, strlen(buffer), 1, file);

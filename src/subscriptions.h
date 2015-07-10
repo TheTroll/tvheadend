@@ -204,6 +204,7 @@ void subscription_unlink_service(th_subscription_t *s, int reason);
 
 void subscription_dummy_join(const char *id, int first);
 
+void subscription_log(th_subscription_t *s, int on);
 
 static inline int subscriptions_active(void)
   { return LIST_FIRST(&subscriptions) != NULL; }

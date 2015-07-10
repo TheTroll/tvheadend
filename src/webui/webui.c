@@ -1476,6 +1476,8 @@ page_dvrfile(http_connection_t *hc, const char *remain, void *opaque)
       strcat(basename, fname);
       sub->ths_dvrfile = basename;
     }
+
+    subscription_log(sub, 1);
   }
   pthread_mutex_unlock(&global_lock);
   if (tcp_id == NULL) {
