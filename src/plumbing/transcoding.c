@@ -1335,7 +1335,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   }
 
   // When using mpeg2_qsv, skip scaling and deinterlacing!
-  if ( (ictx->height == 576) && (!strcmp(icodec->name, "mpeg2_qsv") || !strcmp(icodec->name, "h264_qsv")) )
+  if ( (ictx->height <= 576) && (!strcmp(icodec->name, "mpeg2_qsv") || !strcmp(icodec->name, "h264_qsv")) )
   {
     frame_to_encode = vs->vid_dec_frame;
     goto skip_vpp;
@@ -1857,7 +1857,7 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
     vs->vid_height = MIN(tp->tp_resolution, ssc->ssc_height);
 
     // SW scaling SD->SD crashes...
-    if (	(vs->vid_height == 576) &&
+    if (	(vs->vid_height <= 576) &&
 		(ssc->ssc_height == vs->vid_height) &&
 		(strcmp(icodec->name, "mpeg2_qsv") && strcmp(icodec->name, "h264_qsv"))
        )
