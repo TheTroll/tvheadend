@@ -35,7 +35,7 @@
 
 #define ENABLE_VDPAU 0
 #define ENABLE_QSVDEC_H264 1
-#define ENABLE_QSVDEC_MPEG2 1
+#define ENABLE_QSVDEC_MPEG2 0
 
 LIST_HEAD(transcoder_stream_list, transcoder_stream);
 
