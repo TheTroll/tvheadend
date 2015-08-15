@@ -12,8 +12,6 @@ src/webui/static/tvh-tv.css.gz
 src/webui/static/tvh-tv.js.gz
 src/webui/static/tvh.css.gz
 
-data/dvb-scan
-
 libav_static
 libhdhomerun_static
 
