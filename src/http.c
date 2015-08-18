@@ -38,6 +38,7 @@
 #include "access.h"
 #include "notify.h"
 #include "channels.h"
+#include "config.h"
 
 void *http_server;
 
@@ -63,6 +64,9 @@ static struct strtab HTTP_versiontab[] = {
   { "HTTP/1.1",        HTTP_VERSION_1_1 },
   { "RTSP/1.0",        RTSP_VERSION_1_0 },
 };
+
+
+static void http_log(http_connection_t *hc, http_path_t *hp);
 
 /**
  *
@@ -562,6 +566,9 @@ http_exec(http_connection_t *hc, http_path_t *hp, char *remain)
     err = HTTP_STATUS_UNAUTHORIZED;
   else
     err = hp->hp_callback(hc, remain, hp->hp_opaque);
+
+  http_log(hc, hp);
+
   access_destroy(hc->hc_access);
   hc->hc_access = NULL;
 
@@ -1186,3 +1193,33 @@ http_server_done(void)
   }
   pthread_mutex_unlock(&global_lock);
 }
+
+static void http_log(http_connection_t *hc, http_path_t *hp)
+{
+  char buffer[512], t[128], path[512];
+  struct tm tm;
+  struct timeval time;
+  FILE *file = NULL;
+
+  if (!hp || !hp->hp_path || !strstr(hp->hp_path, "extjs.html"))
+	return;
+
+  if (hc->hc_username && !strcmp(hc->hc_username, "tester"))
+        return;
+
+  hts_settings_buildpath(path, sizeof(path), "http_access.log");
+
+  file=fopen(path, "a");
+  if (file)
+  {
+    gettimeofday(&time, NULL);
+    localtime_r(&time.tv_sec, &tm);
+    strftime(t, sizeof(t), "%F %T", &tm); // %d %H:%M:%S", &tm);
+
+    sprintf(buffer, "%s#%s#%s#%s#%s\n", t, hc->hc_username?:"", hc->hc_peer_ipstr?:"", hp?(hp->hp_path?:""):"", config_get_server_name());
+
+    fwrite(buffer, strlen(buffer), 1, file);
+    fclose(file);
+  }
+}
+

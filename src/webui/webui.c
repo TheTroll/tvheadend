@@ -143,6 +143,7 @@ page_root2(http_connection_t *hc, const char *remain, void *opaque)
   sprintf(tmp, "%s/", tvheadend_webroot);
   http_redirect(hc, tmp, &hc->hc_req_args);
   free(tmp);
+
   return 0;
 }
 
