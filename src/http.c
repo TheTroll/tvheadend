@@ -1223,7 +1223,7 @@ static void http_log(http_connection_t *hc, http_path_t *hp)
     localtime_r(&time.tv_sec, &tm);
     strftime(t, sizeof(t), "%F %T", &tm); // %d %H:%M:%S", &tm);
 
-    sprintf(buffer, "%s#%s#%s#%s#%s\n", t, hc->hc_username?:"", hc->hc_peer_ipstr?:"", hp?(hp->hp_path?:""):"", config_get_server_name());
+    sprintf(buffer, "%s#%s#%s@%d#%s#%s\n", t, hc->hc_username?:"", hc->hc_peer_ipstr?:"", hc->hc_peer_port, hp?(hp->hp_path?:""):"", config_get_server_name());
 
     fwrite(buffer, strlen(buffer), 1, file);
     fclose(file);
