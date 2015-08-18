@@ -42,6 +42,7 @@
 #include "atomic.h"
 #include "input.h"
 #include "dbus.h"
+#include "config.h"
 
 struct th_subscription_list subscriptions;
 struct th_subscription_list subscriptions_remove;
@@ -1113,10 +1114,10 @@ void subscription_log(th_subscription_t *s, int on)
     localtime_r(&time.tv_sec, &tm);
     strftime(t, sizeof(t), "%F %T", &tm);// %d %H:%M:%S", &tm);
 
-    sprintf(buffer, "%s#%s#%s#%s#%s@%d#%s#%04X#%s#%s\n", t, on?"ON":"OFF",
+    sprintf(buffer, "%s#%s#%s#%s#%s@%d#%s#%04X#%s#%s#%s\n", t, on?"ON":"OFF",
               s->ths_username?:"", s->ths_client?:"", s->ths_hostname?:"",s->ths_port,
               s->ths_title?:"", shortid(s), s->ths_channel ? channel_get_name(s->ths_channel) : (s->ths_dvrfile?:"none"),
-              ((s->ths_prch && s->ths_prch->prch_pro)?s->ths_prch->prch_pro->pro_name:NULL)?:"");
+              ((s->ths_prch && s->ths_prch->prch_pro)?s->ths_prch->prch_pro->pro_name:NULL)?:"", config_get_server_name());
 
     fwrite(buffer, strlen(buffer), 1, file);
     fclose(file);
