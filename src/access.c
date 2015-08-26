@@ -566,7 +566,7 @@ access_get(const char *username, const char *password, struct sockaddr *src)
 {
   access_t *a = access_alloc();
   access_entry_t *ae;
-  int nouser = username == NULL || username[0] == '\0';
+  int nouser = (username == NULL || !strcmp(username, "no-user")) || username[0] == '\0';
 
   if (!passwd_verify(username, password)) {
     a->aa_username = strdup(username);
