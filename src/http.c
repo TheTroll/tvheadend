@@ -40,6 +40,8 @@
 #include "channels.h"
 #include "config.h"
 
+#define PROXY_IP "10.4.0.1"
+
 void *http_server;
 
 static http_path_list_t http_paths;
@@ -520,8 +522,23 @@ http_access_verify(http_connection_t *hc, int mask)
   http_access_verify_ticket(hc);
 
   if (hc->hc_access == NULL) {
-    hc->hc_access = access_get(hc->hc_username, hc->hc_password,
-                               (struct sockaddr *)hc->hc_peer);
+    struct sockaddr real_peer = {0, }, *peer;
+    char authbuf[128]; int port; char *v;
+
+    tcp_get_str_from_ip_port((struct sockaddr*)hc->hc_peer, authbuf, sizeof(authbuf), &port);
+    peer = (struct sockaddr *)hc->hc_peer;
+
+    if (!strcmp(authbuf, PROXY_IP))
+    {
+      v = http_arg_get(&hc->hc_args, "x-forwarded-for");
+      if (v)
+      {
+        tcp_get_sockaddr(&real_peer, v);
+        peer = &real_peer;
+      }
+    }
+
+    hc->hc_access = access_get(hc->hc_username, hc->hc_password, peer);
     if (hc->hc_access == NULL)
       return -1;
   }
@@ -739,8 +756,6 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
   struct sockaddr real_peer = {0, };
 
   hc->hc_url_orig = tvh_strdupa(hc->hc_url);
-
-#define PROXY_IP "10.4.0.1"
 
   tcp_get_str_from_ip_port((struct sockaddr*)hc->hc_peer, authbuf, sizeof(authbuf), &port);
 
