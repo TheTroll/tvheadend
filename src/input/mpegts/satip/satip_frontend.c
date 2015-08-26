@@ -688,8 +688,12 @@ satip_frontend_decode_rtcp( satip_frontend_t *lfe, const char *name,
           n = http_tokenize(s, argv, 4, ',');
           if (n < 4)
             return;
-          if (atoi(argv[0]) != lfe->sf_number)
+/*          if (atoi(argv[0]) != lfe->sf_number)
+          {
+            tvhdebug("satip", "tuner=%d is not for me (%d)", atoi(argv[0]), lfe->sf_number);
             return;
+          }
+*/
           mmi->tii_stats.signal =
             atoi(argv[1]) * 0xffff / lfe->sf_device->sd_sig_scale;
           mmi->tii_stats.signal_scale =
