@@ -30,9 +30,6 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
-#include <openssl/sha.h>
-#include <openssl/rand.h>
-
 #include "tvheadend.h"
 #include "access.h"
 #include "settings.h"
@@ -116,7 +113,7 @@ access_ticket_create(const char *resource, access_t *a)
 
   at = calloc(1, sizeof(access_ticket_t));
 
-  RAND_bytes(buf, 20);
+  uuid_random(buf, 20);
 
   //convert to hexstring
   for(i=0; i<sizeof(buf); i++){
@@ -510,7 +507,7 @@ access_update(access_t *a, access_entry_t *ae)
     if(pro && pro->pro_name[0] != '\0') {
       if (a->aa_profiles == NULL)
         a->aa_profiles = htsmsg_create_list();
-      htsmsg_add_str_exclusive(a->aa_profiles, idnode_uuid_as_str(&pro->pro_id));
+      htsmsg_add_str_exclusive(a->aa_profiles, idnode_uuid_as_sstr(&pro->pro_id));
     }
   }
 
@@ -519,7 +516,7 @@ access_update(access_t *a, access_entry_t *ae)
     if(dvr && dvr->dvr_config_name[0] != '\0') {
       if (a->aa_dvrcfgs == NULL)
         a->aa_dvrcfgs = htsmsg_create_list();
-      htsmsg_add_str_exclusive(a->aa_dvrcfgs, idnode_uuid_as_str(&dvr->dvr_id));
+      htsmsg_add_str_exclusive(a->aa_dvrcfgs, idnode_uuid_as_sstr(&dvr->dvr_id));
      }
   }
 
@@ -534,7 +531,7 @@ access_update(access_t *a, access_entry_t *ae)
         if (ilm == NULL) {
           if (a->aa_chtags == NULL)
             a->aa_chtags = htsmsg_create_list();
-          htsmsg_add_str_exclusive(a->aa_chtags, idnode_uuid_as_str(&ct->ct_id));
+          htsmsg_add_str_exclusive(a->aa_chtags, idnode_uuid_as_sstr(&ct->ct_id));
         }
       }
     }
@@ -544,7 +541,7 @@ access_update(access_t *a, access_entry_t *ae)
       if(ct && ct->ct_name[0] != '\0') {
         if (a->aa_chtags == NULL)
           a->aa_chtags = htsmsg_create_list();
-        htsmsg_add_str_exclusive(a->aa_chtags, idnode_uuid_as_str(&ct->ct_id));
+        htsmsg_add_str_exclusive(a->aa_chtags, idnode_uuid_as_sstr(&ct->ct_id));
       }
     }
   }
@@ -1054,7 +1051,7 @@ access_entry_save(access_entry_t *ae)
 {
   htsmsg_t *c = htsmsg_create_map();
   idnode_save(&ae->ae_id, c);
-  hts_settings_save(c, "accesscontrol/%s", idnode_uuid_as_str(&ae->ae_id));
+  hts_settings_save(c, "accesscontrol/%s", idnode_uuid_as_sstr(&ae->ae_id));
   htsmsg_destroy(c);
 }
 
@@ -1092,7 +1089,7 @@ access_entry_class_delete(idnode_t *self)
 {
   access_entry_t *ae = (access_entry_t *)self;
 
-  hts_settings_remove("accesscontrol/%s", idnode_uuid_as_str(&ae->ae_id));
+  hts_settings_remove("accesscontrol/%s", idnode_uuid_as_sstr(&ae->ae_id));
   access_entry_destroy(ae);
 }
 
@@ -1485,7 +1482,6 @@ passwd_verify_digest2(const char *username, const uint8_t *digest,
                       const uint8_t *challenge,
                       const char *username2, const char *passwd2)
 {
-  SHA_CTX shactx;
   uint8_t d[20];
 
   if (username == NULL || username[0] == '\0' ||
@@ -1496,10 +1492,7 @@ passwd_verify_digest2(const char *username, const uint8_t *digest,
   if (strcmp(username, username2))
     return -1;
 
-  SHA1_Init(&shactx);
-  SHA1_Update(&shactx, (const uint8_t *)passwd2, strlen(passwd2));
-  SHA1_Update(&shactx, challenge, 32);
-  SHA1_Final(d, &shactx);
+  sha1_calc(d, (uint8_t *)passwd2, strlen(passwd2), challenge, 32);
 
   return memcmp(d, digest, 20) ? -1 : 0;
 }
@@ -1595,7 +1588,7 @@ passwd_entry_save(passwd_entry_t *pw)
 {
   htsmsg_t *c = htsmsg_create_map();
   idnode_save(&pw->pw_id, c);
-  hts_settings_save(c, "passwd/%s", idnode_uuid_as_str(&pw->pw_id));
+  hts_settings_save(c, "passwd/%s", idnode_uuid_as_sstr(&pw->pw_id));
   htsmsg_destroy(c);
 }
 
@@ -1610,7 +1603,7 @@ passwd_entry_class_delete(idnode_t *self)
 {
   passwd_entry_t *pw = (passwd_entry_t *)self;
 
-  hts_settings_remove("passwd/%s", idnode_uuid_as_str(&pw->pw_id));
+  hts_settings_remove("passwd/%s", idnode_uuid_as_sstr(&pw->pw_id));
   passwd_entry_destroy(pw);
 }
 
@@ -1723,18 +1716,9 @@ access_init(int createdefault, int noacl)
   access_entry_t *ae;
   const char *s;
 
-  static struct {
-    pid_t pid;
-    struct timeval tv;
-  } randseed;
-
   access_noacl = noacl;
   if (noacl)
     tvhlog(LOG_WARNING, "access", "Access control checking disabled");
-
-  randseed.pid = getpid();
-  gettimeofday(&randseed.tv, NULL);
-  RAND_seed(&randseed, sizeof(randseed));
 
   TAILQ_INIT(&access_entries);
   TAILQ_INIT(&access_tickets);
