@@ -42,6 +42,10 @@
 
 #define PROXY_IP "10.4.0.1"
 
+#if ENABLE_ANDROID
+#include <sys/socket.h>
+#endif
+
 void *http_server;
 
 static http_path_list_t http_paths;

@@ -557,11 +557,11 @@ channel_get_icon ( channel_t *ch )
 {
   static char buf[512], buf2[512];
   idnode_list_mapping_t *ilm;
-  const char *chicon = config_get_chicon_path(),
-             *picon  = config_get_picon_path(),
+  const char *chicon = config.chicon_path,
+             *picon  = config.picon_path,
              *icon   = ch->ch_icon,
              *chname;
-  uint32_t id, i, pick, prefer = config_get_prefer_picon() ? 1 : 0;
+  uint32_t id, i, pick, prefer = config.prefer_picon ? 1 : 0;
 
   if (icon && *icon == '\0')
     icon = NULL;
@@ -1202,7 +1202,7 @@ convert_channel_to_sd(channel_t* in_ch, channel_t** out_ch)
   if (!in_ch || !out_ch)
     return 0;
 
-  file_path = config_get_chanconv_path();
+  file_path = config.sdconv_path;
   file = fopen(file_path, "r");
   if (file == NULL) {
     tvherror("main", "Cannot open channel conversion file [%s]", file_path);

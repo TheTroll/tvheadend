@@ -24,14 +24,6 @@
 #include <sys/stat.h>
 #include <libgen.h> /* basename */
 
-#if ENABLE_ANDROID
-#include <sys/vfs.h>
-#define statvfs statfs
-#define fstatvfs fstatfs
-#else
-#include <sys/statvfs.h>
-#endif
-
 #include "htsstr.h"
 
 #include "tvheadend.h"
@@ -48,6 +40,14 @@
 #include "notify.h"
 
 #include "muxer.h"
+
+#if ENABLE_ANDROID
+#include <sys/vfs.h>
+#define statvfs statfs
+#define fstatvfs fstatfs
+#else
+#include <sys/statvfs.h>
+#endif
 
 /**
  *
@@ -172,9 +172,10 @@ dvr_rec_unsubscribe(dvr_entry_t *de)
 
 /**
  * Replace various chars with a dash
+ * - dosubs specifies if user demanded substitutions are performed
  */
 static char *
-cleanup_filename(dvr_config_t *cfg, char *s)
+cleanup_filename(dvr_config_t *cfg, char *s, int dosubs)
 {
   int len = strlen(s);
   char *s1, *p;
@@ -206,16 +207,19 @@ cleanup_filename(dvr_config_t *cfg, char *s)
       *s = '-';
 
     else if (cfg->dvr_whitespace_in_title &&
-             (*s == ' ' || *s == '\t'))
+             (*s == ' ' || *s == '\t') &&
+             dosubs)
       *s = '-';	
 
     else if (cfg->dvr_clean_title &&
              ((*s < 32) || (*s > 122) ||
-             (strchr("/:\\<>|*?\"", *s) != NULL)))
+             (strchr("/:\\<>|*?\"", *s) != NULL)) &&
+             dosubs)
       *s = '_';
 
     else if (cfg->dvr_windows_compatible_filenames &&
-             (strchr("/:\\<>|*?\"", *s) != NULL))
+             (strchr("/:\\<>|*?\"", *s) != NULL) &&
+             dosubs)
       *s = '_';
   }
 
@@ -532,6 +536,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
   char path[PATH_MAX];
   char ptmp[PATH_MAX];
   char number[16];
+  char *lastpath = NULL;
   int tally = 0;
   struct stat st;
   char *s, *x, *fmtstr, *dirsep;
@@ -540,6 +545,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
   htsmsg_t *m;
   size_t l, j;
   long max;
+  int dir_dosubs;
 
   if (de == NULL)
     return -1;
@@ -547,6 +553,10 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
   cfg = de->de_config;
   if (cfg->dvr_storage == NULL || *(cfg->dvr_storage) == '\0')
     return -1;
+
+  dir_dosubs = de->de_directory == NULL ||
+              (de->de_directory[0] == '$' &&
+               de->de_directory[1] == '$');
 
   localtime_r(&de->de_start, &tm);
 
@@ -580,7 +590,12 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
       strcpy(filename, dirsep + 1);
     else
       strcpy(filename, path + l);
-    htsstr_substitute(de->de_directory, ptmp, sizeof(ptmp), '$', dvr_subs_entry, de);
+    if (dir_dosubs) {
+      htsstr_substitute(de->de_directory+2, ptmp, sizeof(ptmp), '$', dvr_subs_entry, de);
+    } else {
+      strncpy(ptmp, de->de_directory, sizeof(ptmp)-1);
+      ptmp[sizeof(ptmp)-1] = '\0';
+    }
     s = ptmp;
     while (*s == '/')
       s++;
@@ -608,7 +623,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
       break;
     *(dirsep - 1) = '\0';
     if (*x) {
-      s = cleanup_filename(cfg, x);
+      s = cleanup_filename(cfg, x, dir_dosubs);
       tvh_strlcatf(filename, sizeof(filename), j, "%s/", s);
       free(s);
     }
@@ -660,25 +675,25 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
     }
 
     htsstr_substitute(filename + j, ptmp, sizeof(ptmp), '$', dvr_subs_tally, number);
-    s = cleanup_filename(cfg, ptmp);
-    if (s == NULL)
+    s = cleanup_filename(cfg, ptmp, 1);
+    if (s == NULL) {
+      free(lastpath);
       return -1;
+    }
 
     /* Construct the final filename */
     memcpy(path, filename, j);
     path[j] = '\0';
     htsstr_unescape_to(s, path + j, sizeof(path) - j);
+    free(s);
 
-    if (tally > 0) {
-      htsstr_unescape_to(filename + j, ptmp, sizeof(ptmp));
-      if (strcmp(ptmp, s) == 0) {
-        free(s);
+    if (lastpath) {
+      if (strcmp(path, lastpath) == 0) {
+        free(lastpath);
         tvherror("dvr", "unable to create unique name (missing $n in format string?)");
         return -1;
       }
     }
-
-    free(s);
 
     if(stat(path, &st) == -1) {
       tvhlog(LOG_DEBUG, "dvr", "File \"%s\" -- %s -- Using for recording",
@@ -689,9 +704,12 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
     tvhlog(LOG_DEBUG, "dvr", "Overwrite protection, file \"%s\" exists",
 	   path);
 
+    free(lastpath);
+    lastpath = strdup(path);
     tally++;
   }
 
+  free(lastpath);
   if (de->de_files == NULL)
     de->de_files = htsmsg_create_list();
   m = htsmsg_create_map();
