@@ -1,5 +1,5 @@
 /*
- *  API - General configuration related calls
+ *  API - Timeshift related calls
  *
  *  Copyright (C) 2015 Jaroslav Kysela
  *
@@ -21,25 +21,14 @@
 #include "channels.h"
 #include "access.h"
 #include "api.h"
-#include "config.h"
-
-static int
-api_config_capabilities(access_t *perm, void *opaque, const char *op,
-                        htsmsg_t *args, htsmsg_t **resp)
-{
-    *resp = tvheadend_capabilities_list(0);
-    return 0;
-}
+#include "timeshift.h"
 
 void
-api_config_init ( void )
+api_timeshift_init ( void )
 {
   static api_hook_t ah[] = {
-    { "config/capabilities", ACCESS_WEB_INTERFACE, api_config_capabilities, NULL },
-    { "config/load",         ACCESS_ADMIN, api_idnode_load_simple, &config },
-    { "config/save",         ACCESS_ADMIN, api_idnode_save_simple, &config },
-    { "tvhlog/config/load",  ACCESS_ADMIN, api_idnode_load_simple, &tvhlog_conf },
-    { "tvhlog/config/save",  ACCESS_ADMIN, api_idnode_save_simple, &tvhlog_conf },
+    { "timeshift/config/load", ACCESS_ADMIN, api_idnode_load_simple, &timeshift_conf },
+    { "timeshift/config/save", ACCESS_ADMIN, api_idnode_save_simple, &timeshift_conf },
     { NULL },
   };
 

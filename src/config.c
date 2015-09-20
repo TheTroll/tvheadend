@@ -24,11 +24,13 @@
 #include "settings.h"
 #include "config.h"
 #include "uuid.h"
+#include "access.h"
 #include "htsbuf.h"
 #include "spawn.h"
 #include "lock.h"
 #include "profile.h"
 #include "avahi.h"
+#include "url.h"
 #include "satip/server.h"
 
 void tvh_str_set(char **strp, const char *src);
@@ -1285,6 +1287,44 @@ config_migrate_v20 ( void )
 }
 
 /*
+ * v20 -> v21 : epggrab changes
+ */
+static void
+config_migrate_v21 ( void )
+{
+  htsmsg_t *c, *m, *e, *a;
+  htsmsg_field_t *f;
+  const char *str;
+  int64_t s64;
+
+  if ((c = hts_settings_load_r(1, "epggrab/config")) != NULL) {
+    str = htsmsg_get_str(c, "module");
+    m = htsmsg_get_map(c, "mod_enabled");
+    e = htsmsg_create_map();
+    if (m) {
+      HTSMSG_FOREACH(f, m) {
+        s64 = 0;
+        htsmsg_field_get_s64(f, &s64);
+        if ((s64 || !strcmp(str ?: "", f->hmf_name)) &&
+            f->hmf_name && f->hmf_name[0]) {
+          a = htsmsg_create_map();
+          htsmsg_add_bool(a, "enabled", 1);
+          htsmsg_add_msg(e, f->hmf_name, a);
+        }
+      }
+    }
+    htsmsg_delete_field(c, "mod_enabled");
+    htsmsg_delete_field(c, "module");
+    htsmsg_add_msg(c, "modules", e);
+    hts_settings_save(c, "epggrab/config");
+    htsmsg_destroy(c);
+  }
+}
+
+
+
+
+/*
  * Perform backup
  */
 static void
@@ -1400,7 +1440,8 @@ static const config_migrate_t config_migrate_table[] = {
   config_migrate_v17,
   config_migrate_v18,
   config_migrate_v19,
-  config_migrate_v20
+  config_migrate_v20,
+  config_migrate_v21
 };
 
 /*
@@ -1608,6 +1649,7 @@ void config_done ( void )
   free(config.chicon_path);
   free(config.picon_path);
   free(config.sdconv_path);
+  free(config.cors_origin);
   file_unlock(config_lock, config_lock_fd);
 }
 
@@ -1629,6 +1671,38 @@ void config_save ( void )
 static void config_class_save(idnode_t *self)
 {
   config_save();
+}
+
+static int
+config_class_cors_origin_set ( void *o, const void *v )
+{
+  const char *s = v;
+  url_t u;
+
+  while (s && *s && *s <= ' ')
+    s++;
+  if (*s == '*') {
+    prop_sbuf[0] = '*';
+    prop_sbuf[1] = '\0';
+  } else {
+    memset(&u, 0, sizeof(u));
+    urlparse(s, &u);
+    if (u.scheme && (!strcmp(u.scheme, "http") || !strcmp(u.scheme, "https")) && u.host) {
+      if (u.port)
+        snprintf(prop_sbuf, PROP_SBUF_LEN, "%s://%s:%d", u.scheme, u.host, u.port);
+      else
+        snprintf(prop_sbuf, PROP_SBUF_LEN, "%s://%s", u.scheme, u.host);
+    } else {
+      prop_sbuf[0] = '\0';
+    }
+    urlreset(&u);
+  }
+  if (strcmp(prop_sbuf, config.cors_origin ?: "")) {
+    free(config.cors_origin);
+    config.cors_origin = strdup(prop_sbuf);
+    return 1;
+  }
+  return 0;
 }
 
 static const void *
@@ -1716,6 +1790,14 @@ const idclass_t config_class = {
       .id     = "server_name",
       .name   = N_("Tvheadend server name"),
       .off    = offsetof(config_t, server_name),
+      .group  = 1
+    },
+    {
+      .type   = PT_STR,
+      .id     = "cors_origin",
+      .name   = N_("HTTP CORS Origin"),
+      .set    = config_class_cors_origin_set,
+      .off    = offsetof(config_t, cors_origin),
       .group  = 1
     },
     {

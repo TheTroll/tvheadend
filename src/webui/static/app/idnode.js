@@ -248,6 +248,7 @@ tvheadend.IdNodeField = function(conf)
     this.hexa = conf.hexa;
     this.group = conf.group;
     this.lorder = conf.lorder;
+    this.multiline = conf.multiline;
     this['enum'] = conf['enum'];
     this.store = null;
     if (this['enum'])
@@ -741,7 +742,8 @@ tvheadend.idnode_editor_field = function(f, conf)
 
 
         default:
-            return new Ext.form.TextField({
+            cons = f.multiline ? Ext.form.TextArea : Ext.form.TextField;
+            return new cons({
                 fieldLabel: f.caption,
                 name: f.id,
                 value: value,
@@ -2145,9 +2147,9 @@ tvheadend.idnode_simple = function(panel, conf)
 
         /* Top bar */
         abuttons.save = new Ext.Toolbar.Button({
-            tooltip: _('Save pending changes (marked with red border)'),
+            tooltip: conf.saveTooltip || _('Save pending changes (marked with red border)'),
             iconCls: 'save',
-            text: _('Save'),
+            text: conf.saveText || _('Save'),
             disabled: true,
             handler: function() {
                 var node = current.getForm().getFieldValues();
@@ -2205,10 +2207,14 @@ tvheadend.idnode_simple = function(panel, conf)
             });
         }
 
+        function fonchange(f, o, n) {
+            if (current)
+                conf.onchange(current, f, o, n);
+        }
+
         function form_build(d) {
 
-            fpanel = new Ext.form.FormPanel({
-                //title: conf.title || null,
+            var fpanel = new Ext.form.FormPanel({
                 frame: true,
                 border: true,
                 bodyStyle: 'padding: 5px',
@@ -2225,6 +2231,14 @@ tvheadend.idnode_simple = function(panel, conf)
             tvheadend.idnode_editor_form(d.props || d.params, d.meta,
                                          fpanel, { showpwd: conf.showpwd });
 
+            if (conf.onchange) {
+                var f = fpanel.getForm().items;
+                for (var i = 0; i < f.items.length; i++) {
+                   var it = f.items[i];
+                   it.on('check', fonchange);
+                   it.on('change', fonchange);
+                }
+            }
             return fpanel;
 
         }
@@ -2239,7 +2253,6 @@ tvheadend.idnode_simple = function(panel, conf)
             if (!force && current)
                 return;
             var params = conf.edit ? (conf.edit.params || {}) : {};
-            params.uuid = r.id;
             params.meta = 1;
             tvheadend.Ajax({
                 url: conf.url + '/load',

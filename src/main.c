@@ -154,7 +154,7 @@ const tvh_caps_t tvheadend_capabilities[] = {
   { "imagecache", (uint32_t*)&imagecache_conf.enabled },
 #endif
 #if ENABLE_TIMESHIFT
-  { "timeshift", &timeshift_enabled },
+  { "timeshift", (uint32_t *)&timeshift_conf.enabled },
 #endif
 #if ENABLE_TRACE
   { "trace",     NULL },
@@ -1214,4 +1214,20 @@ void
 scopedunlock(pthread_mutex_t **mtxp)
 {
   pthread_mutex_unlock(*mtxp);
+}
+
+
+/**
+ *
+ */
+htsmsg_t *tvheadend_capabilities_list(int check)
+{
+  const tvh_caps_t *tc = tvheadend_capabilities;
+  htsmsg_t *r = htsmsg_create_list();
+  while (tc->name) {
+    if (!check || !tc->enabled || *tc->enabled)
+      htsmsg_add_str(r, NULL, tc->name);
+    tc++;
+  }
+  return r;
 }

@@ -25,7 +25,7 @@
 #include "redblack.h"
 #include "access.h"
 
-#define TVH_API_VERSION 16
+#define TVH_API_VERSION 18
 
 /*
  * Command hook
@@ -79,6 +79,7 @@ void api_caclient_init      ( void );
 void api_profile_init       ( void );
 void api_language_init      ( void );
 void api_satip_server_init  ( void );
+void api_timeshift_init     ( void );
 
 /*
  * IDnode

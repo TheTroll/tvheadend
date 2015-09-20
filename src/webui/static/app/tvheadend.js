@@ -166,7 +166,7 @@ tvheadend.doQueryAnyMatch = function(q, forceAll) {
  * General capabilities
  */
 Ext.Ajax.request({
-    url: 'capabilities',
+    url: 'api/config/capabilities',
     success: function(d)
     {
         if (d && d.responseText)
@@ -423,7 +423,8 @@ function accessUpdate(o) {
         tvheadend.channel_tab(chepg);
         tvheadend.cteditor(chepg);
         tvheadend.bouquet(chepg);
-        tvheadend.epggrab(chepg);
+        tvheadend.epggrab_base(chepg);
+        tvheadend.epggrab_mod(chepg);
 
         cp.add(chepg);
 

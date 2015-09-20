@@ -31,19 +31,12 @@
 #include <sys/stat.h>
 
 #include "tvheadend.h"
-#include "access.h"
 #include "http.h"
 #include "webui.h"
 #include "dvr/dvr.h"
 #include "filebundle.h"
 #include "streaming.h"
-#include "profile.h"
-#include "epg.h"
-#include "muxer.h"
 #include "imagecache.h"
-#include "tcp.h"
-#include "config.h"
-#include "atomic.h"
 #include "lang_codes.h"
 #include "intlconv.h"
 #if ENABLE_MPEGTS
@@ -143,8 +136,24 @@ page_root(http_connection_t *hc, const char *remain, void *opaque)
 static int
 page_root2(http_connection_t *hc, const char *remain, void *opaque)
 {
-  if (!tvheadend_webroot) return 1;
-  http_redirect(hc, "/", &hc->hc_req_args, 0);
+  size_t l;
+  char *s;
+
+  /* not found checks */
+  if (!tvheadend_webroot)
+    return HTTP_STATUS_NOT_FOUND;
+  l = strlen(tvheadend_webroot);
+  if (strncmp(hc->hc_url, tvheadend_webroot, l) == 0 &&
+      hc->hc_url[l] == '/')
+    return HTTP_STATUS_NOT_FOUND;
+
+  /* redirect if url is not in the specified webroot */
+  if (!remain)
+    remain = "";
+  s = alloca(2 + strlen(remain));
+  s[0] = '/';
+  strcpy(s + 1, remain);
+  http_redirect(hc, s, &hc->hc_req_args, 0);
   return 0;
 }
 
@@ -1678,12 +1687,18 @@ int page_statedump(http_connection_t *hc, const char *remain, void *opaque);
 void
 webui_init(int xspf)
 {
+  const char *s;
+
   webui_xspf = xspf;
 
   if (tvheadend_webui_debug)
     tvhlog(LOG_INFO, "webui", "Running web interface in debug mode");
 
+  s = tvheadend_webroot;
+  tvheadend_webroot = NULL;
   http_path_add("", NULL, page_root2, ACCESS_WEB_INTERFACE);
+  tvheadend_webroot = s;
+
   http_path_add("/", NULL, page_root, ACCESS_WEB_INTERFACE);
   http_path_add("/login", NULL, page_login, ACCESS_WEB_INTERFACE);
   http_path_add("/logout", NULL, page_logout, ACCESS_WEB_INTERFACE);
