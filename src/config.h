@@ -33,6 +33,7 @@ typedef struct config {
   char *full_version;
   char *server_name;
   char *language;
+  char *info_area;
   char *muxconf_path;
   int prefer_picon;
   char *chicon_path;
@@ -42,6 +43,8 @@ typedef struct config {
   int tvhtime_ntp_enabled;
   uint32_t tvhtime_tolerance;
   char *cors_origin;
+  uint32_t cookie_expires;
+  int dscp;
 } config_t;
 
 extern const idclass_t config_class;

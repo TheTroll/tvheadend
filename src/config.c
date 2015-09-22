@@ -33,6 +33,8 @@
 #include "url.h"
 #include "satip/server.h"
 
+#include <netinet/ip.h>
+
 void tvh_str_set(char **strp, const char *src);
 int tvh_str_update(char **strp, const char *src);
 
@@ -1544,6 +1546,9 @@ config_boot ( const char *path, gid_t gid, uid_t uid )
 
   memset(&config, 0, sizeof(config));
   config.idnode.in_class = &config_class;
+  config.info_area = strdup("login,storage,time");
+  config.cookie_expires = 7;
+  config.dscp = -1;
 
   /* Generate default */
   if (!path) {
@@ -1645,6 +1650,7 @@ void config_done ( void )
   free(config.full_version);
   free(config.server_name);
   free(config.language);
+  free(config.info_area);
   free(config.muxconf_path);
   free(config.chicon_path);
   free(config.picon_path);
@@ -1734,6 +1740,75 @@ config_class_language_list ( void *o, const char *lang )
   return m;
 }
 
+static const void *
+config_class_info_area_get ( void *o )
+{
+  return htsmsg_csv_2_list(config.info_area, ',');
+}
+
+static int
+config_class_info_area_set ( void *o, const void *v )
+{
+  char *s = htsmsg_list_2_csv((htsmsg_t *)v, ',', 0);
+  if (strcmp(s ?: "", config.info_area ?: "")) {
+    free(config.info_area);
+    config.info_area = s;
+    return 1;
+  }
+  if (s)
+    free(s);
+  return 0;
+}
+
+static void
+config_class_info_area_list1 ( htsmsg_t *m, const char *key, const char *val )
+{
+  htsmsg_t *e = htsmsg_create_map();
+  htsmsg_add_str(e, "key", key);
+  htsmsg_add_str(e, "val", val);
+  htsmsg_add_msg(m, NULL, e);
+}
+
+static htsmsg_t *
+config_class_info_area_list ( void *o, const char *lang )
+{
+  htsmsg_t *m = htsmsg_create_list();
+  config_class_info_area_list1(m, "login", N_("Login/Logout"));
+  config_class_info_area_list1(m, "storage", N_("Storage space"));
+  config_class_info_area_list1(m, "time", N_("Time"));
+  return m;
+}
+
+static htsmsg_t *
+config_class_dscp_list ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("Default"), -1 },
+    { N_("CS0"),  IPTOS_CLASS_CS0 },
+    { N_("CS1"),  IPTOS_CLASS_CS1 },
+    { N_("AF11"), IPTOS_DSCP_AF11 },
+    { N_("AF12"), IPTOS_DSCP_AF12 },
+    { N_("AF13"), IPTOS_DSCP_AF13 },
+    { N_("CS2"),  IPTOS_CLASS_CS2 },
+    { N_("AF21"), IPTOS_DSCP_AF21 },
+    { N_("AF22"), IPTOS_DSCP_AF22 },
+    { N_("AF23"), IPTOS_DSCP_AF23 },
+    { N_("CS3"),  IPTOS_CLASS_CS3 },
+    { N_("AF31"), IPTOS_DSCP_AF31 },
+    { N_("AF32"), IPTOS_DSCP_AF32 },
+    { N_("AF33"), IPTOS_DSCP_AF33 },
+    { N_("CS4"),  IPTOS_CLASS_CS4 },
+    { N_("AF41"), IPTOS_DSCP_AF41 },
+    { N_("AF42"), IPTOS_DSCP_AF42 },
+    { N_("AF43"), IPTOS_DSCP_AF43 },
+    { N_("CS5"),  IPTOS_CLASS_CS5 },
+    { N_("EF"),   IPTOS_DSCP_EF },
+    { N_("CS6"),  IPTOS_CLASS_CS6 },
+    { N_("CS7"),  IPTOS_CLASS_CS7 },
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
 const idclass_t config_class = {
   .ic_snode      = &config.idnode,
   .ic_class      = "config",
@@ -1751,21 +1826,26 @@ const idclass_t config_class = {
          .number = 2,
       },
       {
-         .name   = N_("DVB Scan Files"),
+         .name   = N_("Web User Interface"),
          .number = 3,
       },
       {
-         .name   = N_("Time Update"),
+         .name   = N_("DVB Scan Files"),
          .number = 4,
       },
       {
-         .name   = N_("Picon"),
+         .name   = N_("Time Update"),
          .number = 5,
       },
       {
-         .name   = N_("SD Channels conv file"),
+         .name   = N_("Picon"),
          .number = 6,
       },
+      {
+         .name   = N_("SD Channels conv file"),
+         .number = 7,
+      },
+
       {}
   },
   .ic_properties = (const property_t[]){
@@ -1793,11 +1873,26 @@ const idclass_t config_class = {
       .group  = 1
     },
     {
+      .type   = PT_U32,
+      .id     = "cookie_expires",
+      .name   = N_("Cookie expiration (days)"),
+      .off    = offsetof(config_t, cookie_expires),
+      .group  = 1
+    },
+    {
       .type   = PT_STR,
       .id     = "cors_origin",
       .name   = N_("HTTP CORS Origin"),
       .set    = config_class_cors_origin_set,
       .off    = offsetof(config_t, cors_origin),
+      .group  = 1
+    },
+    {
+      .type   = PT_INT,
+      .id     = "dscp",
+      .name   = N_("DSCP/TOS for streaming"),
+      .off    = offsetof(config_t, dscp),
+      .list   = config_class_dscp_list,
       .group  = 1
     },
     {
@@ -1813,59 +1908,70 @@ const idclass_t config_class = {
     },
     {
       .type   = PT_STR,
+      .islist = 1,
+      .id     = "info_area",
+      .name   = N_("Information Area"),
+      .set    = config_class_info_area_set,
+      .get    = config_class_info_area_get,
+      .list   = config_class_info_area_list,
+      .opts   = PO_LORDER,
+      .group  = 3
+    },
+    {
+      .type   = PT_STR,
       .id     = "muxconfpath",
       .name   = N_("DVB scan files path"),
       .off    = offsetof(config_t, muxconf_path),
-      .group  = 3
+      .group  = 4
     },
     {
       .type   = PT_BOOL,
       .id     = "tvhtime_update_enabled",
       .name   = N_("Update time"),
       .off    = offsetof(config_t, tvhtime_update_enabled),
-      .group  = 4,
+      .group  = 5,
     },
     {
       .type   = PT_BOOL,
       .id     = "tvhtime_ntp_enabled",
       .name   = N_("Enable NTP driver"),
       .off    = offsetof(config_t, tvhtime_update_enabled),
-      .group  = 4,
+      .group  = 5,
     },
     {
       .type   = PT_U32,
       .id     = "tvhtime_tolerance",
       .name   = N_("Update tolerance (ms)"),
       .off    = offsetof(config_t, tvhtime_tolerance),
-      .group  = 4,
+      .group  = 5,
     },
     {
       .type   = PT_BOOL,
       .id     = "prefer_picon",
       .name   = N_("Prefer picons over channel name"),
       .off    = offsetof(config_t, prefer_picon),
-      .group  = 5,
+      .group  = 6,
     },
     {
       .type   = PT_STR,
       .id     = "chiconpath",
       .name   = N_("Channel icon path (see Help)"),
       .off    = offsetof(config_t, chicon_path),
-      .group  = 5,
+      .group  = 6,
     },
     {
       .type   = PT_STR,
       .id     = "piconpath",
       .name   = N_("Picon path (see Help)"),
       .off    = offsetof(config_t, picon_path),
-      .group  = 5,
+      .group  = 6,
     },
     {
       .type   = PT_STR,
       .id     = "sdconvpath",
       .name   = N_("HD to SD channels list"),
       .off    = offsetof(config_t, sdconv_path),
-      .group  = 6,
+      .group  = 7,
     },
     {}
   }
