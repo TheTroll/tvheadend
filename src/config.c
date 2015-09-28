@@ -1910,11 +1910,19 @@ const idclass_t config_class = {
       .type   = PT_STR,
       .islist = 1,
       .id     = "info_area",
-      .name   = N_("Information Area"),
+      .name   = N_("Information area"),
       .set    = config_class_info_area_set,
       .get    = config_class_info_area_get,
       .list   = config_class_info_area_list,
       .opts   = PO_LORDER,
+      .group  = 3
+    },
+    {
+      .type   = PT_STR,
+      .id     = "language_ui",
+      .name   = N_("User language"),
+      .list   = language_get_list,
+      .off    = offsetof(config_t, language_ui),
       .group  = 3
     },
     {
@@ -1960,6 +1968,13 @@ const idclass_t config_class = {
       .group  = 6,
     },
     {
+      .type   = PT_BOOL,
+      .id     = "chiconlowercase",
+      .name   = N_("Channel icon name lower-case"),
+      .off    = offsetof(config_t, chicon_lowercase),
+      .group  = 6,
+    },
+    {
       .type   = PT_STR,
       .id     = "piconpath",
       .name   = N_("Picon path (see Help)"),
@@ -1991,5 +2006,13 @@ const char *config_get_language ( void )
   const char *s = config.language;
   if (s == NULL || *s == '\0')
     return "eng";
+  return s;
+}
+
+const char *config_get_language_ui ( void )
+{
+  const char *s = config.language_ui;
+  if (s == NULL || *s == '\0')
+    return NULL;
   return s;
 }

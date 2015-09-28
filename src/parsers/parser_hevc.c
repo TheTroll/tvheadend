@@ -3,6 +3,24 @@
  *
  * This file is part of FFmpeg.
  *
+ * VPS/SPS/PPS decoders
+ *
+ * Based on hevc_ps.c from ffmpeg (www.ffmpeg.org)
+ *
+ * Copyright (C) 2012 - 2103 Guillaume Martres
+ * Copyright (C) 2012 - 2103 Mickael Raulet
+ * Copyright (C) 2012 - 2013 Gildas Cocherel
+ * Copyright (C) 2013 Vittorio Giovara
+ *
+ * This file is part of FFmpeg.
+ *
+ * slice header decoder
+ *
+ * Copyright (C) 2012 - 2013 Guillaume Martres
+ *
+ * This file is part of FFmpeg.
+ *
+ *
  * FFmpeg is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -18,22 +36,26 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "tvheadend.h"
+#include "parsers.h"
 #include "parser_hevc.h"
 #include "parser_avc.h"
 #include "bitstream.h"
+#include "service.h"
 
-#define NAL_VPS        32
-#define NAL_SPS        33
-#define NAL_PPS        34
-#define NAL_SEI_PREFIX 39
-#define NAL_SEI_SUFFIX 40
+#define IS_IRAP_NAL(nal_type) (nal_type >= 16 && nal_type <= 23)
 
+#define MAX_REFS 16
 #define MAX_SPATIAL_SEGMENTATION 4096 // max. value of u(12) field
 #define MAX_SUB_LAYERS 7
 #define MAX_VPS_COUNT 16
 #define MAX_SPS_COUNT 32
 #define MAX_PPS_COUNT 256
 #define MAX_SHORT_TERM_RPS_COUNT 64
+
+#define B_SLICE 0
+#define P_SLICE 1
+#define I_SLICE 2
 
 typedef struct HVCCNALUnitArray {
     uint8_t  NAL_unit_type;
@@ -142,7 +164,8 @@ static void hvcc_parse_ptl(bitstream_t *gb,
     general_ptl.profile_compatibility_flags = read_bits(gb, 32);
     general_ptl.constraint_indicator_flags  = read_bits64(gb, 48);
     general_ptl.level_idc                   = read_bits(gb, 8);
-    hvcc_update_ptl(hvcc, &general_ptl);
+    if (hvcc)
+        hvcc_update_ptl(hvcc, &general_ptl);
 
     for (i = 0; i < max_sub_layers_minus1; i++) {
         sub_layer_profile_present_flag[i] = read_bits1(gb);
@@ -522,7 +545,7 @@ static int hvcc_parse_sps(bitstream_t *gb,
     read_golomb_ue(gb); // pic_width_in_luma_samples
     read_golomb_ue(gb); // pic_height_in_luma_samples
 
-    if (read_bits1(gb)) {        // conformance_window_flag
+    if (read_bits1(gb)) {   // conformance_window_flag
         read_golomb_ue(gb); // conf_win_left_offset
         read_golomb_ue(gb); // conf_win_right_offset
         read_golomb_ue(gb); // conf_win_top_offset
@@ -767,19 +790,19 @@ static int hvcc_add_nal_unit(uint8_t *nal_buf, uint32_t nal_size,
      * and non-declarative SEI messages discarded?
      */
     switch (nal_type) {
-    case NAL_VPS:
-    case NAL_SPS:
-    case NAL_PPS:
-    case NAL_SEI_PREFIX:
-    case NAL_SEI_SUFFIX:
+    case HEVC_NAL_VPS:
+    case HEVC_NAL_SPS:
+    case HEVC_NAL_PPS:
+    case HEVC_NAL_SEI_PREFIX:
+    case HEVC_NAL_SEI_SUFFIX:
         ret = hvcc_array_add_nal_unit(nal_buf, nal_size, nal_type, hvcc);
         if (ret < 0)
             goto end;
-        else if (nal_type == NAL_VPS)
+        else if (nal_type == HEVC_NAL_VPS)
             ret = hvcc_parse_vps(&bs, hvcc);
-        else if (nal_type == NAL_SPS)
+        else if (nal_type == HEVC_NAL_SPS)
             ret = hvcc_parse_sps(&bs, hvcc);
-        else if (nal_type == NAL_PPS)
+        else if (nal_type == HEVC_NAL_PPS)
             ret = hvcc_parse_pps(&bs, hvcc);
         if (ret < 0)
             goto end;
@@ -820,9 +843,9 @@ static void hvcc_close(HEVCDecoderConfigurationRecord *hvcc)
 
     for (i = 0; i < hvcc->numOfArrays; i++) {
         hvcc->array[i].numNalus = 0;
-        free(&hvcc->array[i].nalUnit);
+        free(hvcc->array[i].nalUnit);
         hvcc->array[i].nalUnit = NULL;
-        free(&hvcc->array[i].nalUnitLength);
+        free(hvcc->array[i].nalUnitLength);
         hvcc->array[i].nalUnitLength = NULL;
     }
 
@@ -914,13 +937,13 @@ static int hvcc_write(sbuf_t *pb, HEVCDecoderConfigurationRecord *hvcc)
      */
     for (i = 0; i < hvcc->numOfArrays; i++)
         switch (hvcc->array[i].NAL_unit_type) {
-        case NAL_VPS:
+        case HEVC_NAL_VPS:
             vps_count += hvcc->array[i].numNalus;
             break;
-        case NAL_SPS:
+        case HEVC_NAL_SPS:
             sps_count += hvcc->array[i].numNalus;
             break;
-        case NAL_PPS:
+        case HEVC_NAL_PPS:
             pps_count += hvcc->array[i].numNalus;
             break;
         default:
@@ -1052,9 +1075,9 @@ int ff_hevc_annexb2mp4(AVIOContext *pb, const uint8_t *buf_in,
         buf += 4;
 
         switch (type) {
-        case NAL_VPS:
-        case NAL_SPS:
-        case NAL_PPS:
+        case HEVC_NAL_VPS:
+        case HEVC_NAL_SPS:
+        case HEVC_NAL_PPS:
             num_ps++;
             break;
         default:
@@ -1094,9 +1117,11 @@ int ff_hevc_annexb2mp4_buf(const uint8_t *buf_in, uint8_t **buf_out,
 int isom_write_hvcc(sbuf_t *pb, const uint8_t *data, int size)
 {
     int ret = 0;
-    uint8_t *buf, *end, *start = NULL;
+    sbuf_t sb;
+    uint8_t *buf, *end;
     HEVCDecoderConfigurationRecord hvcc;
 
+    sbuf_init(&sb);
     hvcc_init(&hvcc);
 
     if (size < 6) {
@@ -1113,12 +1138,10 @@ int isom_write_hvcc(sbuf_t *pb, const uint8_t *data, int size)
         goto end;
     }
 
-    ret = avc_parse_nal_units_buf(data, &start, &size);
-    if (ret < 0)
-        goto end;
+    size = avc_parse_nal_units(&sb, data, size);
 
-    buf = start;
-    end = start + size;
+    buf = sb.sb_data;
+    end = buf + size;
 
     while (end - buf > 4) {
         uint32_t len = MIN(RB32(buf), end - buf - 4);
@@ -1127,11 +1150,11 @@ int isom_write_hvcc(sbuf_t *pb, const uint8_t *data, int size)
         buf += 4;
 
         switch (type) {
-        case NAL_VPS:
-        case NAL_SPS:
-        case NAL_PPS:
-        case NAL_SEI_PREFIX:
-        case NAL_SEI_SUFFIX:
+        case HEVC_NAL_VPS:
+        case HEVC_NAL_SPS:
+        case HEVC_NAL_PPS:
+        case HEVC_NAL_SEI_PREFIX:
+        case HEVC_NAL_SEI_SUFFIX:
             ret = hvcc_add_nal_unit(buf, len, &hvcc);
             if (ret < 0)
                 goto end;
@@ -1147,7 +1170,7 @@ int isom_write_hvcc(sbuf_t *pb, const uint8_t *data, int size)
 
 end:
     hvcc_close(&hvcc);
-    free(start);
+    sbuf_free(&sb);
     return ret;
 }
 
@@ -1168,4 +1191,527 @@ hevc_convert_pkt(th_pkt_t *src)
 
   pkt->pkt_payload = pktbuf_make(payload.sb_data, payload.sb_ptr);
   return pkt;
+}
+
+/*
+ *
+ */
+
+typedef struct hevc_vps {
+  uint8_t valid: 1;
+  uint32_t num_units_in_tick;
+  uint32_t time_scale;
+} hevc_vps_t;
+
+typedef struct hevc_vui {
+  struct {
+    uint32_t num;
+    uint32_t den;
+  } sar;
+  uint32_t num_units_in_tick;
+  uint32_t time_scale;
+} hevc_vui_t;
+
+typedef struct hevc_sps {
+  uint8_t valid: 1;
+  uint8_t vps_id;
+  uint32_t width;
+  uint32_t height;
+  uint32_t ctb_width;
+  uint32_t ctb_height;
+  hevc_vui_t vui;
+} hevc_sps_t;
+
+typedef struct hevc_pps {
+  uint8_t valid: 1;
+  uint8_t dependent_slice_segments: 1;
+  uint8_t sps_id;
+  uint8_t num_extra_slice_header_bits;
+} hevc_pps_t;
+
+typedef struct hevc_private {
+
+  hevc_vps_t vps[MAX_VPS_COUNT];
+  hevc_sps_t sps[MAX_SPS_COUNT];
+  hevc_pps_t pps[MAX_PPS_COUNT];
+
+} hevc_private_t;
+
+static const uint8_t vui_sar[][2] = {
+  {  0,   1 },
+  {  1,   1 },
+  { 12,  11 },
+  { 10,  11 },
+  { 16,  11 },
+  { 40,  33 },
+  { 24,  11 },
+  { 20,  11 },
+  { 32,  11 },
+  { 80,  33 },
+  { 18,  11 },
+  { 15,  11 },
+  { 64,  33 },
+  { 160, 99 },
+  {  4,   3 },
+  {  3,   2 },
+  {  2,   1 },
+};
+
+static uint32_t ilog2(uint32_t v)
+{
+  uint32_t r;
+  while (v) {
+    v >>= 1;
+    r++;
+  }
+  return v;
+}
+
+static inline int check_width(uint32_t w)
+{
+  return w < 100 || w > 16384;
+}
+
+static inline int check_height(uint32_t h)
+{
+  return h < 100 || h > 16384;
+}
+
+void
+hevc_decode_vps(elementary_stream_t *st, bitstream_t *bs)
+{
+  hevc_private_t *p;
+  hevc_vps_t *vps;
+  uint32_t vps_id, max_sub_layers;
+  uint32_t sub_layer_ordering_info_present;
+  uint32_t max_layer_id, num_layer_sets;
+  uint32_t u, v;
+
+  if (read_bits1(bs)) /* zero bit */
+    return ;
+
+  if((p = st->es_priv) == NULL)
+    p = st->es_priv = calloc(1, sizeof(hevc_private_t));
+
+  skip_bits(bs, 15);  /* NAL type, Layer ID, Temporal ID */
+
+  vps_id = read_bits(bs, 4);
+  if (vps_id >= MAX_VPS_COUNT)
+    return;
+  vps = &p->vps[vps_id];
+
+  if (read_bits(bs, 2) != 3) /* vps_reserved_three_2bits */
+    return;
+
+  skip_bits(bs, 6); /* vps_max_sublayers */
+  max_sub_layers = read_bits(bs, 3) + 1;
+  skip_bits1(bs);   /* vps_temporal_id_nesting */
+
+  if (read_bits(bs, 16) != 0xffff) /* reserved */
+    return;
+
+  if (max_sub_layers > MAX_SUB_LAYERS)
+    return;
+
+  hvcc_parse_ptl(bs, NULL, max_sub_layers - 1);
+
+  sub_layer_ordering_info_present = read_bits1(bs);
+  u = sub_layer_ordering_info_present ? 0 : max_sub_layers - 1;
+  for ( ; u < max_sub_layers; u++) {
+    read_golomb_ue(bs); /* vps_max_dec_pic_buffering */
+    read_golomb_ue(bs); /* vps_num_reorder_pics */
+    read_golomb_ue(bs); /* vps_max_latency_increase */
+  }
+
+  max_layer_id   = read_bits(bs, 6); /* vps_max_layer_id */
+  num_layer_sets = read_golomb_ue(bs) + 1;
+  if (num_layer_sets < 1 || num_layer_sets > 1024 ||
+      (num_layer_sets - 1LL) * (max_layer_id + 1LL) > remaining_bits(bs))
+    return;
+
+  for (u = 1; u < num_layer_sets; u++)
+    for (v = 0; v < max_layer_id; v++)
+      skip_bits1(bs);  /* layer_id_included */
+
+  vps->valid = 1;
+
+  if (!read_bits1(bs)) { /* vps_timing_info_present */
+    vps->num_units_in_tick = read_bits(bs, 32);
+    vps->time_scale        = read_bits(bs, 32);
+  }
+}
+
+static int
+hevc_decode_vui(hevc_vui_t *vui, bitstream_t *bs)
+{
+  uint32_t u, sar_num, sar_den;
+  bitstream_t backup;
+
+  sar_num = 1;
+  sar_den = 1;
+  if (read_bits1(bs)) { /* sar_present */
+    u = read_bits(bs, 8);
+    if (u < ARRAY_SIZE(vui_sar)) {
+      sar_num = vui_sar[u][0];
+      sar_den = vui_sar[u][1];
+    } else if (u == 255) {
+      sar_num = read_bits(bs, 16);
+      sar_den = read_bits(bs, 16);
+    } else
+      return -1;
+  }
+  vui->sar.num = sar_num;
+  vui->sar.den = sar_den;
+
+  if (read_bits1(bs)) /* overscan_info_present */
+    skip_bits1(bs);   /* overscan_appropriate */
+
+  if (read_bits1(bs)) { /* video_signal_type_present */
+    skip_bits(bs, 3);   /* video_format */
+    skip_bits1(bs);     /* video_full_range */
+    if (read_bits1(bs)) { /* colour_description_present */
+      skip_bits(bs, 8); /* colour_primaries */
+      skip_bits(bs, 8); /* transfer_characteristic */
+      skip_bits(bs, 8); /* matrix_coeffs */
+    }
+  }
+
+  if (read_bits1(bs)) { /* chroma_loc_info_present */
+    read_golomb_ue(bs); /* chroma_sample_loc_type_top_field */
+    read_golomb_ue(bs); /* chroma_sample_loc_type_bottom_field */
+  }
+
+  skip_bits1(bs); /* neutra_chroma_indication_flag */
+  skip_bits1(bs); /* field_seq_flag */
+  skip_bits1(bs); /* frame_field_info_present_flag */
+
+  if (remaining_bits(bs) >= 68 && show_bits(bs, 21) == 0x100000)
+    u = 0; /* Invalid default display window */
+  else
+    u = read_bits1(bs); /* default_display_window */
+  /* Backup context in case an alternate header is detected */
+  memcpy(&backup, bs, sizeof(backup));
+  if (u) { /* default_display_window */
+    read_golomb_ue(bs); /* left_offset */
+    read_golomb_ue(bs); /* right_offset */
+    read_golomb_ue(bs); /* top_offset */
+    read_golomb_ue(bs); /* bottom_offset */
+  }
+
+  if (read_bits1(bs)) { /* vui_timing_info_present */
+    if (remaining_bits(bs) < 66) {
+      /* Strange VUI timing information */
+      memcpy(bs, &backup, sizeof(backup));
+    }
+    vui->num_units_in_tick = read_bits(bs, 32);
+    vui->time_scale        = read_bits(bs, 32);
+  }
+
+  return 0;
+}
+
+void
+hevc_decode_sps(elementary_stream_t *st, bitstream_t *bs)
+{
+  hevc_private_t *p;
+  hevc_vps_t *vps;
+  hevc_sps_t *sps;
+  uint32_t vps_id, sps_id, max_sub_layers, u, v, i;
+  uint32_t width, height;
+  uint32_t chroma_format_idc, bit_depth, bit_depth_chroma;
+  uint32_t log2_max_poc_lsb;
+  uint32_t log2_min_cb_size, log2_min_tb_size;
+  uint32_t log2_diff_max_min_coding_block_size;
+  uint32_t log2_diff_max_min_transform_block_size;
+  uint32_t log2_ctb_size, nb_st_rps;
+
+  if (read_bits1(bs)) /* zero bit */
+    return;
+
+  if((p = st->es_priv) == NULL)
+    p = st->es_priv = calloc(1, sizeof(hevc_private_t));
+
+  skip_bits(bs, 15);  /* NAL type, Layer ID, Temporal ID */
+
+  vps_id = read_bits(bs, 4);
+  if (vps_id >= MAX_VPS_COUNT)
+    return;
+  vps = &p->vps[vps_id];
+  if (!vps->valid)
+    return;
+
+  max_sub_layers = read_bits(bs, 3) + 1;
+  if (max_sub_layers > MAX_SUB_LAYERS)
+    return;
+  skip_bits1(bs);     /* temporal_id_nesting */
+
+  hvcc_parse_ptl(bs, NULL, max_sub_layers - 1);
+
+  sps_id = read_golomb_ue(bs);
+  if (sps_id >= MAX_SPS_COUNT)
+    return;
+  sps = &p->sps[sps_id];
+
+  chroma_format_idc = read_golomb_ue(bs);
+  if (chroma_format_idc == 3)
+    if (read_bits1(bs))   /* separate_colour_plane */
+      chroma_format_idc = 0;
+  width  = read_golomb_ue(bs);
+  height = read_golomb_ue(bs);
+  if (check_width(width) || check_height(height))
+    return;
+
+  if (read_bits1(bs)) { /* pic_conformance */
+    read_golomb_ue(bs); /* left_offset */
+    read_golomb_ue(bs); /* right_offset */
+    read_golomb_ue(bs); /* top_offset */
+    read_golomb_ue(bs); /* bottom_offset */
+  }
+
+  bit_depth        = read_golomb_ue(bs);
+  bit_depth_chroma = read_golomb_ue(bs);
+  if (chroma_format_idc && bit_depth_chroma != bit_depth)
+    return;
+
+  log2_max_poc_lsb = read_golomb_ue(bs) + 4;
+  if (log2_max_poc_lsb > 16)
+    return;
+
+  u = read_bits1(bs);   /* sublayer_ordering_info */
+  for (u = u ? 0 : max_sub_layers - 1; u < max_sub_layers; u++) {
+    read_golomb_ue(bs); /* max_dec_pic_buffering */
+    read_golomb_ue(bs); /* num_reorder_pics */
+    read_golomb_ue(bs); /* max_latency_increase */
+  }
+
+  log2_min_cb_size = read_golomb_ue(bs) + 3;
+  if (log2_min_cb_size < 3 || log2_min_cb_size > 30)
+    return;
+  log2_diff_max_min_coding_block_size = read_golomb_ue(bs);
+  if (log2_diff_max_min_coding_block_size > 30)
+    return;
+  log2_min_tb_size = read_golomb_ue(bs) + 2;
+  if (log2_min_tb_size >= log2_min_cb_size || log2_min_tb_size < 2)
+    return;
+  log2_diff_max_min_transform_block_size = read_golomb_ue(bs);
+  if (log2_diff_max_min_transform_block_size < 0 || log2_diff_max_min_transform_block_size > 30)
+    return;
+
+  read_golomb_ue(bs); /* max_transform_hierarchy_depth_inter */
+  read_golomb_ue(bs); /* max_transform_hierarchy_depth_intra */
+
+  if (read_bits1(bs)) { /* scaling_list_enable_flag */
+    if (read_bits1(bs)) { /* scaling_list_data */
+      for (u = 0; u < 4; u++) {
+        for (v = 0; v < 6; v += ((u == 3) ? 3 : 1)) {
+          if (read_bits1(bs)) { /* scaling_list_pred_mode */
+            read_golomb_ue(bs); /* delta */
+          } else {
+            if (u > 1)
+              read_golomb_se(bs); /* scaling_list_dc_coef */
+            i = MIN(64, 1 << (4 + (u << 1)));
+            while (i--)
+              read_golomb_se(bs); /* scaling_list_delta_coef */
+          }
+        }
+      }
+    }
+  }
+
+  skip_bits1(bs); /* amp_enabled */
+  skip_bits1(bs); /* sao_enabled */
+
+  if (read_bits1(bs)) { /* pcm_enabled */
+    skip_bits(bs, 4);   /* pcm.bit_depth */
+    skip_bits(bs, 4);   /* pcm.bit_depth_chroma */
+    read_golomb_ue(bs); /* pcm.log2_min_pcm_cb_size */
+    read_golomb_ue(bs); /* pcm.log2_max_pcm_cb_size */
+    skip_bits1(bs);     /* pcm.loop_filter_disable_flag */
+  }
+
+  nb_st_rps = read_golomb_ue(bs);
+  if (nb_st_rps > MAX_SHORT_TERM_RPS_COUNT)
+    return;
+
+  for (u = 0; u < nb_st_rps; u++) {
+    if (u > 0 && read_bits1(bs)) { /* rps_predict */
+      skip_bits1(bs);         /* delta_rps_sign */
+      read_golomb_ue(bs);     /* abs_delta_rps */
+    } else {
+      u = read_golomb_ue(bs); /* rps->num_negative_pics */
+      v = read_golomb_ue(bs); /* nb_positive_pics */
+      if (u > MAX_REFS || v > MAX_REFS)
+        return;
+      for (i = 0; i < u; i++) {
+        read_golomb_ue(bs);   /* delta_poc */
+        skip_bits1(bs);       /* used */
+      }
+      for (i = 0; i < v; i++) {
+        read_golomb_ue(bs);   /* delta_poc */
+        skip_bits1(bs);       /* used */
+      }
+    }
+  }
+
+  if (read_bits1(bs)) { /* long_term_ref_pics_present */
+    u = read_golomb_ue(bs); /* num_long_term_ref_pics_sps */
+    if (u > 31)
+      return;
+    for (i = 0; i < u; u++) {
+      skip_bits(bs, log2_max_poc_lsb);
+      skip_bits1(bs);
+    }
+  }
+
+  skip_bits1(bs); /* sps_temporal_mvp_enabled_flag */
+  skip_bits1(bs); /* sps_strong_intra_smoothing_enable_flag */
+
+  if (read_bits1(bs))  /* vui_present */
+    if (hevc_decode_vui(&sps->vui, bs))
+      return;
+
+  if (!vps->num_units_in_tick && !vps->time_scale &&
+      !sps->vui.num_units_in_tick && !sps->vui.time_scale)
+    return;
+
+  sps->width = width;
+  sps->height = height;
+
+  log2_ctb_size = log2_min_cb_size +
+                  log2_diff_max_min_coding_block_size;
+
+  sps->ctb_width  = (width  + (1 << log2_ctb_size) - 1) >> log2_ctb_size;
+  sps->ctb_height = (height + (1 << log2_ctb_size) - 1) >> log2_ctb_size;
+
+  sps->vps_id = vps_id;
+  sps->valid = 1;
+}
+
+void
+hevc_decode_pps(elementary_stream_t *st, bitstream_t *bs)
+{
+  hevc_private_t *p;
+  hevc_pps_t *pps;
+  uint32_t pps_id, sps_id;
+
+  if (read_bits1(bs)) /* zero bit */
+    return ;
+
+  if((p = st->es_priv) == NULL)
+    p = st->es_priv = calloc(1, sizeof(hevc_private_t));
+
+  skip_bits(bs, 15);  /* NAL type, Layer ID, Temporal ID */
+
+  pps_id = read_golomb_ue(bs);
+  if (pps_id >= MAX_PPS_COUNT)
+    return;
+  pps = &p->pps[pps_id];
+
+  sps_id = read_golomb_ue(bs);
+  if (sps_id >= MAX_SPS_COUNT || !p->sps[sps_id].valid)
+    return;
+
+  pps->sps_id = sps_id;
+  pps->dependent_slice_segments = read_bits1(bs);
+  skip_bits1(bs); /* output_flag_present */
+  pps->num_extra_slice_header_bits = read_bits(bs, 3);
+
+  pps->valid = 1;
+}
+
+int
+hevc_decode_slice_header(struct elementary_stream *st, bitstream_t *bs,
+                         int *pkttype)
+{
+  hevc_private_t *p;
+  hevc_vps_t *vps;
+  hevc_sps_t *sps;
+  hevc_pps_t *pps;
+  int nal_type;
+  int first_slice_in_pic, dependent_slice_segment;
+  uint32_t pps_id, sps_id, vps_id, u, v, width, height;
+  uint64_t d;
+
+  if (read_bits1(bs)) /* zero bit */
+    return -1;
+
+  if((p = st->es_priv) == NULL)
+      p = st->es_priv = calloc(1, sizeof(hevc_private_t));
+
+  nal_type = read_bits(bs, 6);
+  skip_bits(bs, 6);   /* Layer ID */
+  skip_bits(bs, 3);   /* Temporal ID */
+
+  first_slice_in_pic = read_bits1(bs);
+
+  if (IS_IRAP_NAL(nal_type))
+    skip_bits1(bs);  /* no_output_of_prior_pics_flag */
+
+  pps_id = read_golomb_ue(bs);
+  if (pps_id >= MAX_PPS_COUNT)
+    return -1;
+  pps = &p->pps[pps_id];
+  if (!pps->valid)
+    return -1;
+
+  sps_id = pps->sps_id;
+  if (sps_id >= MAX_SPS_COUNT)
+    return -1;
+  sps = &p->sps[sps_id];
+  if (!sps->valid)
+    return -1;
+
+  dependent_slice_segment = 0;
+  if (!first_slice_in_pic) {
+    if (pps->dependent_slice_segments)
+      dependent_slice_segment = read_bits1(bs);
+    v = sps->ctb_width * sps->ctb_height;
+    u = ilog2((v - 1) << 1);
+    if (u >= v)
+      return -1;
+  }
+
+  if (dependent_slice_segment)
+    return 1; /* append */
+
+  for (u = 0, v = pps->num_extra_slice_header_bits; u < v; u++)
+    skip_bits1(bs);
+
+  switch (read_golomb_ue(bs)) {
+  case B_SLICE: *pkttype = PKT_B_FRAME; break;
+  case P_SLICE: *pkttype = PKT_P_FRAME; break;
+  case I_SLICE: *pkttype = PKT_I_FRAME; break;
+  default: return -1;
+  }
+
+  vps_id = sps->vps_id;
+  width  = sps->width;
+  height = sps->height;
+
+  vps = &p->vps[vps_id];
+
+  d = 0;
+  if (sps->vui.time_scale) {
+    d = 180000 * (uint64_t)sps->vui.num_units_in_tick / (uint64_t)sps->vui.time_scale;
+  } else if (vps->time_scale) {
+    d = 180000 * (uint64_t)vps->num_units_in_tick / (uint64_t)vps->time_scale;
+  }
+
+  if (width && height && d)
+    parser_set_stream_vparam(st, width, height, d);
+
+  if (sps->vui.sar.num && sps->vui.sar.den) {
+    width  *= sps->vui.sar.num;
+    height *= sps->vui.sar.den;
+    if (width && height) {
+      v = gcdU32(width, height);
+      st->es_aspect_num = width / v;
+      st->es_aspect_den = height / v;
+    }
+  } else {
+    st->es_aspect_num = 0;
+    st->es_aspect_den = 1;
+  }
+
+  return 0;
 }

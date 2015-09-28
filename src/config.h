@@ -34,9 +34,11 @@ typedef struct config {
   char *server_name;
   char *language;
   char *info_area;
+  char *language_ui;
   char *muxconf_path;
   int prefer_picon;
   char *chicon_path;
+  int chicon_lowercase;
   char *picon_path;
   char *sdconv_path;
   int tvhtime_update_enabled;
@@ -57,6 +59,7 @@ void        config_save    ( void );
 
 const char *config_get_server_name ( void );
 const char *config_get_language    ( void );
+const char *config_get_language_ui ( void );
 
 const char *config_get_chanconv_path  ( void );
 int         config_set_chanconv_path  ( const char *str )

@@ -239,6 +239,14 @@
     background-image: url(../icons/group.png) !important;
 }
 
+.acl {
+    background-image: url(../icons/acl.png) !important;
+}
+
+.ip_block {
+    background-image: url(../icons/ip_block.png) !important;
+}
+
 .hardware {
     background-image: url(../icons/pci.png) !important;
 }
@@ -261,6 +269,10 @@
 
 .control_stop {
     background-image: url(../icons/control_stop.png) !important;
+}
+
+.control_mute {
+    background-image: url(../icons/sound_mute.png) !important;
 }
 
 .control_volume {
