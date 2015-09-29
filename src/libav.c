@@ -81,6 +81,9 @@ streaming_component_type2codec_id(streaming_component_type_t type)
   case SCT_VP9:
     codec_id = AV_CODEC_ID_VP9;
     break;
+  case SCT_HEVC:
+    codec_id = AV_CODEC_ID_HEVC;
+    break;
   case SCT_AC3:
     codec_id = AV_CODEC_ID_AC3;
     break;
@@ -127,9 +130,6 @@ codec_id2streaming_component_type(enum AVCodecID id)
   case AV_CODEC_ID_H264:
     type = SCT_H264;
     break;
-  case AV_CODEC_ID_H265:
-    type = SCT_HEVC;
-    break;
   case AV_CODEC_ID_MPEG2VIDEO:
     type = SCT_MPEG2VIDEO;
     break;
@@ -138,6 +138,9 @@ codec_id2streaming_component_type(enum AVCodecID id)
     break;
   case AV_CODEC_ID_VP9:
     type = SCT_VP9;
+    break;
+  case AV_CODEC_ID_HEVC:
+    type = SCT_HEVC;
     break;
   case AV_CODEC_ID_AC3:
     type = SCT_AC3;
