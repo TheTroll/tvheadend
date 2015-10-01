@@ -267,57 +267,61 @@ cleanup_filename(dvr_config_t *cfg, char *s, int dosubs)
 /**
  *
  */
-static char dvrbuf[MAX(PATH_MAX, 512)];
-
-static char *dvr_clean_directory_separator(char *s)
+static char *
+dvr_clean_directory_separator(char *s, char *tmp, size_t tmplen)
 {
   char *p, *end;
 
-  if (s != dvrbuf) {
-    end = dvrbuf + sizeof(dvrbuf) - 1;
+  if (s != tmp) {
+    end = tmp + tmplen - 1;
     /* replace directory separator */
-    for (p = dvrbuf; *s && p != end; s++, p++)
+    for (p = tmp; *s && p != end; s++, p++)
       *p = *s == '/' ? '-' : *s;
     *p = '\0';
-    return dvrbuf;
+    return tmp;
   } else  {
     for (; *s; s++)
       if (*s == '/')
         *s = '-';
-    return dvrbuf;
+    return tmp;
   }
 }
 
-static const char *dvr_do_prefix(const char *id, const char *s)
+static const char *
+dvr_do_prefix(const char *id, const char *s, char *tmp, size_t tmplen)
 {
   if (s == NULL) {
-    dvrbuf[0] = '\0';
+    tmp[0] = '\0';
   } else if (s[0] && !isalpha(id[0])) {
-    snprintf(dvrbuf, sizeof(dvrbuf), "%c%s", id[0], s);
+    snprintf(tmp, tmplen, "%c%s", id[0], s);
   } else {
-    strncpy(dvrbuf, s, sizeof(dvrbuf)-1);
-    dvrbuf[sizeof(dvrbuf)-1] = '\0';
+    strncpy(tmp, s, tmplen-1);
+    tmp[tmplen-1] = '\0';
   }
-  return dvr_clean_directory_separator(dvrbuf);
+  return dvr_clean_directory_separator(tmp, tmp, tmplen);
 }
 
 
-static const char *dvr_sub_title(const char *id, const void *aux)
+static const char *
+dvr_sub_title(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
-  return dvr_do_prefix(id, lang_str_get(((dvr_entry_t *)aux)->de_title, NULL));
+  return dvr_do_prefix(id, lang_str_get(((dvr_entry_t *)aux)->de_title, NULL), tmp, tmplen);
 }
 
-static const char *dvr_sub_subtitle(const char *id, const void *aux)
+static const char *
+dvr_sub_subtitle(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
-  return dvr_do_prefix(id, lang_str_get(((dvr_entry_t *)aux)->de_subtitle, NULL));
+  return dvr_do_prefix(id, lang_str_get(((dvr_entry_t *)aux)->de_subtitle, NULL), tmp, tmplen);
 }
 
-static const char *dvr_sub_description(const char *id, const void *aux)
+static const char *
+dvr_sub_description(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
-  return dvr_do_prefix(id, lang_str_get(((dvr_entry_t *)aux)->de_desc, NULL));
+  return dvr_do_prefix(id, lang_str_get(((dvr_entry_t *)aux)->de_desc, NULL), tmp, tmplen);
 }
 
-static const char *dvr_sub_episode(const char *id, const void *aux)
+static const char *
+dvr_sub_episode(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
   const dvr_entry_t *de = aux;
   char buf[64];
@@ -327,41 +331,47 @@ static const char *dvr_sub_episode(const char *id, const void *aux)
   epg_episode_number_format(de->de_bcast->episode,
                             buf, sizeof(buf),
                             ".", "S%02d", NULL, "E%02d", NULL);
-  return dvr_do_prefix(id, buf);
+  return dvr_do_prefix(id, buf, tmp, tmplen);
 }
 
-static const char *dvr_sub_channel(const char *id, const void *aux)
+static const char *
+dvr_sub_channel(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
-  return dvr_do_prefix(id, DVR_CH_NAME((dvr_entry_t *)aux));
+  return dvr_do_prefix(id, DVR_CH_NAME((dvr_entry_t *)aux), tmp, tmplen);
 }
 
-static const char *dvr_sub_owner(const char *id, const void *aux)
+static const char *
+dvr_sub_owner(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
-  return dvr_do_prefix(id, ((dvr_entry_t *)aux)->de_owner);
+  return dvr_do_prefix(id, ((dvr_entry_t *)aux)->de_owner, tmp, tmplen);
 }
 
-static const char *dvr_sub_creator(const char *id, const void *aux)
+static const char *
+dvr_sub_creator(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
-  return dvr_do_prefix(id, ((dvr_entry_t *)aux)->de_creator);
+  return dvr_do_prefix(id, ((dvr_entry_t *)aux)->de_creator, tmp, tmplen);
 }
 
-static const char *dvr_sub_last_error(const char *id, const void *aux)
+static const char *
+dvr_sub_last_error(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
-  return dvr_do_prefix(id, streaming_code2txt(((dvr_entry_t *)aux)->de_last_error));
+  return dvr_do_prefix(id, streaming_code2txt(((dvr_entry_t *)aux)->de_last_error), tmp, tmplen);
 }
 
-static const char *dvr_sub_start(const char *id, const void *aux)
+static const char *
+dvr_sub_start(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
   char buf[16];
   snprintf(buf, sizeof(buf), "%"PRItime_t, (time_t)dvr_entry_get_start_time((dvr_entry_t *)aux));
-  return dvr_do_prefix(id, buf);
+  return dvr_do_prefix(id, buf, tmp, tmplen);
 }
 
-static const char *dvr_sub_stop(const char *id, const void *aux)
+static const char *
+dvr_sub_stop(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
   char buf[16];
   snprintf(buf, sizeof(buf), "%"PRItime_t, (time_t)dvr_entry_get_stop_time((dvr_entry_t *)aux));
-  return dvr_do_prefix(id, buf);
+  return dvr_do_prefix(id, buf, tmp, tmplen);
 }
 
 static htsstr_substitute_t dvr_subs_entry[] = {
@@ -396,15 +406,16 @@ static htsstr_substitute_t dvr_subs_entry[] = {
   { .id = NULL, .getval = NULL }
 };
 
-static const char *dvr_sub_strftime(const char *id, const void *aux)
+static const char *
+dvr_sub_strftime(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
   char fid[8], *p;
   snprintf(fid, sizeof(fid), "%%%s", id);
-  strftime(dvrbuf, sizeof(dvrbuf), fid, (struct tm *)aux);
-  for (p = dvrbuf; *p; p++)
+  strftime(tmp, tmplen, fid, (struct tm *)aux);
+  for (p = tmp; *p; p++)
     if (*p == ':')
       *p = '-';
-  return dvr_clean_directory_separator(dvrbuf);
+  return dvr_clean_directory_separator(tmp, tmp, tmplen);
 }
 
 static htsstr_substitute_t dvr_subs_time[] = {
@@ -472,16 +483,18 @@ static htsstr_substitute_t dvr_subs_time[] = {
   { .id = NULL, .getval = NULL }
 };
 
-static const char *dvr_sub_str(const char *id, const void *aux)
+static const char *
+dvr_sub_str(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
   return (const char *)aux;
 }
 
-static const char *dvr_sub_str_separator(const char *id, const void *aux)
+static const char *
+dvr_sub_str_separator(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
-  strncpy(dvrbuf, (const char *)aux, sizeof(dvrbuf)-1);
-  dvrbuf[sizeof(dvrbuf)-1] = '\0';
-  return dvr_clean_directory_separator(dvrbuf);
+  strncpy(tmp, (const char *)aux, tmplen-1);
+  tmp[tmplen-1] = '\0';
+  return dvr_clean_directory_separator(tmp, tmp, tmplen);
 }
 
 static htsstr_substitute_t dvr_subs_extension[] = {
@@ -508,16 +521,44 @@ static htsstr_substitute_t dvr_subs_postproc_entry[] = {
   { .id = NULL, .getval = NULL }
 };
 
-static const char *dvr_sub_basename(const char *id, const void *aux)
+static const char *
+dvr_sub_basename(const char *id, const void *aux, char *tmp, size_t tmplen)
 {
-  strncpy(dvrbuf, (const char *)aux, sizeof(dvrbuf));
-  dvrbuf[sizeof(dvrbuf)-1] = '\0';
-  return basename(dvrbuf);
+  strncpy(tmp, (const char *)aux, tmplen);
+  tmp[tmplen-1] = '\0';
+  return basename(tmp);
 }
 
 static htsstr_substitute_t dvr_subs_postproc_filename[] = {
   { .id = "f",  .getval = dvr_sub_str },
   { .id = "b",  .getval = dvr_sub_basename },
+  { .id = NULL, .getval = NULL }
+};
+
+static const char *
+dvr_sub_basic_info(const char *id, const void *aux, char *tmp, size_t tmplen)
+{
+  htsmsg_t *info = (htsmsg_t *)aux, *e;
+  htsmsg_field_t *f;
+  const char *s;
+  size_t l = 0;
+
+  if (info)
+    info = htsmsg_get_list(info, "info");
+  if (!info)
+    return "";
+
+  tmp[0] = '\0';
+  HTSMSG_FOREACH(f, info) {
+    if (!(e = htsmsg_field_get_map(f))) continue;
+    if ((s = htsmsg_get_str(e, "type")) != NULL) continue;
+    tvh_strlcatf(tmp, tmplen, l, "%s%s", l > 0 ? "," : "", s);
+  }
+  return tmp;
+}
+
+static htsstr_substitute_t dvr_subs_postproc_info[] = {
+  { .id = "i",  .getval = dvr_sub_basic_info },
   { .id = NULL, .getval = NULL }
 };
 
@@ -563,6 +604,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
   char path[PATH_MAX];
   char ptmp[PATH_MAX];
   char number[16];
+  char tmp[MAX(PATH_MAX, 512)];
   char *lastpath = NULL;
   int tally = 0;
   struct stat st;
@@ -608,7 +650,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
     fmtstr++;
 
   /* Substitute DVR entry formatters */
-  htsstr_substitute(fmtstr, path + l, sizeof(path) - l, '$', dvr_subs_entry, de);
+  htsstr_substitute(fmtstr, path + l, sizeof(path) - l, '$', dvr_subs_entry, de, tmp, sizeof(tmp));
 
   /* Own directory? */
   if (de->de_directory) {
@@ -618,7 +660,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
     else
       strcpy(filename, path + l);
     if (dir_dosubs) {
-      htsstr_substitute(de->de_directory+2, ptmp, sizeof(ptmp), '$', dvr_subs_entry, de);
+      htsstr_substitute(de->de_directory+2, ptmp, sizeof(ptmp), '$', dvr_subs_entry, de, tmp, sizeof(tmp));
     } else {
       strncpy(ptmp, de->de_directory, sizeof(ptmp)-1);
       ptmp[sizeof(ptmp)-1] = '\0';
@@ -635,11 +677,11 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
   }
 
   /* Substitute time formatters */
-  htsstr_substitute(path + l, filename, sizeof(filename), '%', dvr_subs_time, &tm);
+  htsstr_substitute(path + l, filename, sizeof(filename), '%', dvr_subs_time, &tm, tmp, sizeof(tmp));
 
   /* Substitute extension */
   htsstr_substitute(filename, path + l, sizeof(path) - l, '$', dvr_subs_extension,
-                    muxer_suffix(de->de_chain->prch_muxer, ss) ?: "");
+                    muxer_suffix(de->de_chain->prch_muxer, ss) ?: "", tmp, sizeof(tmp));
 
   /* Cleanup all directory names */
   x = path + l;
@@ -701,7 +743,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
         filename[l] = '\0';
     }
 
-    htsstr_substitute(filename + j, ptmp, sizeof(ptmp), '$', dvr_subs_tally, number);
+    htsstr_substitute(filename + j, ptmp, sizeof(ptmp), '$', dvr_subs_tally, number, tmp, sizeof(tmp));
     s = cleanup_filename(cfg, ptmp, 1);
     if (s == NULL) {
       free(lastpath);
@@ -796,11 +838,15 @@ static int
 dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
 {
   const source_info_t *si = &ss->ss_si;
+  streaming_start_t *ss_copy;
   const streaming_start_component_t *ssc;
-  int i;
+  char res[11], asp[6], sr[6], ch[7];
   dvr_config_t *cfg = de->de_config;
   profile_chain_t *prch = de->de_chain;
+  htsmsg_t *info, *e;
+  htsmsg_field_t *f;
   muxer_t *muxer;
+  int i;
 
   if (!cfg) {
     dvr_rec_fatal_error(de, "Unable to determine config profile");
@@ -835,15 +881,17 @@ dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
     return -1;
   }
 
-  if(muxer_init(muxer, ss, lang_str_get(de->de_title, NULL))) {
+  ss_copy = streaming_start_copy(ss);
+
+  if(muxer_init(muxer, ss_copy, lang_str_get(de->de_title, NULL))) {
     dvr_rec_fatal_error(de, "Unable to init file");
-    return -1;
+    goto _err;
   }
 
   if(cfg->dvr_tag_files) {
     if(muxer_write_meta(muxer, de->de_bcast, de->de_comment)) {
       dvr_rec_fatal_error(de, "Unable to write meta data");
-      return -1;
+      goto _err;
     }
   }
 
@@ -869,15 +917,20 @@ dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
 	 "sample rate",
 	 "channels");
 
-  for(i = 0; i < ss->ss_num_components; i++) {
-    ssc = &ss->ss_components[i];
+  info = htsmsg_create_list();
+  for(i = 0; i < ss_copy->ss_num_components; i++) {
+    ssc = &ss_copy->ss_components[i];
 
-    char res[11];
-    char asp[6];
-    char sr[6];
-    char ch[7];
+    if(ssc->ssc_muxer_disabled)
+      continue;
+
+    e = htsmsg_create_map();
+    htsmsg_add_str(e, "type", streaming_component_type2txt(ssc->ssc_type));
+    if (ssc->ssc_lang && ssc->ssc_lang[0])
+       htsmsg_add_str(e, "language", ssc->ssc_lang);
 
     if(SCT_ISAUDIO(ssc->ssc_type)) {
+      htsmsg_add_u32(e, "audio_type", ssc->ssc_audio_type);
       if(ssc->ssc_sri)
 	snprintf(sr, sizeof(sr), "%d", sri_to_rate(ssc->ssc_sri));
       else
@@ -890,8 +943,7 @@ dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
       else
 	snprintf(ch, sizeof(ch), "%d", ssc->ssc_channels);
     } else {
-      sr[0] = 0;
-      ch[0] = 0;
+      sr[0] = ch[0] = 0;
     }
 
     if(SCT_ISVIDEO(ssc->ssc_type)) {
@@ -900,18 +952,25 @@ dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
 		 ssc->ssc_width, ssc->ssc_height);
       else
 	strcpy(res, "?");
-    } else {
-      res[0] = 0;
-    }
 
-    if(SCT_ISVIDEO(ssc->ssc_type)) {
       if(ssc->ssc_aspect_num &&  ssc->ssc_aspect_den)
 	snprintf(asp, sizeof(asp), "%d:%d",
 		 ssc->ssc_aspect_num, ssc->ssc_aspect_den);
       else
 	strcpy(asp, "?");
+
+      htsmsg_add_u32(e, "width",      ssc->ssc_width);
+      htsmsg_add_u32(e, "height",     ssc->ssc_height);
+      htsmsg_add_u32(e, "duration",   ssc->ssc_frameduration);
+      htsmsg_add_u32(e, "aspect_num", ssc->ssc_aspect_num);
+      htsmsg_add_u32(e, "aspect_den", ssc->ssc_aspect_den);
     } else {
-      asp[0] = 0;
+      res[0] = asp[0] = 0;
+    }
+
+    if (SCT_ISSUBTITLE(ssc->ssc_type)) {
+      htsmsg_add_u32(e, "composition_id", ssc->ssc_composition_id);
+      htsmsg_add_u32(e, "ancillary_id",   ssc->ssc_ancillary_id);
     }
 
     tvhlog(LOG_INFO, "dvr",
@@ -924,9 +983,23 @@ dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
 	   sr,
 	   ch,
 	   ssc->ssc_disabled ? "<disabled, no valid input>" : "");
+    htsmsg_add_msg(info, NULL, e);
   }
 
+  streaming_start_unref(ss_copy);
+
+  /* update the info field for a filename */
+  if ((f = htsmsg_field_last(de->de_files)) != NULL &&
+      (e = htsmsg_field_get_map(f)) != NULL) {
+    htsmsg_set_msg(e, "info", info);
+  } else {
+    htsmsg_destroy(info);
+  }
   return 0;
+
+_err:
+  streaming_start_unref(ss_copy);
+  return -1;
 }
 
 
@@ -1143,18 +1216,29 @@ static void
 dvr_spawn_postproc(dvr_entry_t *de, const char *dvr_postproc)
 {
   char buf1[2048], *buf2;
+  char tmp[MAX(PATH_MAX, 512)];
   const char *filename;
+  htsmsg_t *info, *e;
+  htsmsg_field_t *f;
   char **args;
 
-  filename = dvr_get_filename(de);
-  if (filename == NULL)
+  if ((f = htsmsg_field_last(de->de_files)) != NULL &&
+      (e = htsmsg_field_get_map(f)) != NULL) {
+    filename = htsmsg_get_str(e, "filename");
+    if (filename == NULL)
+      return;
+    info = htsmsg_get_list(e, "info");
+  } else {
     return;
+  }
 
   /* Substitute DVR entry formatters */
-  htsstr_substitute(dvr_postproc, buf1, sizeof(buf1), '%', dvr_subs_postproc_entry, de);
+  htsstr_substitute(dvr_postproc, buf1, sizeof(buf1), '%', dvr_subs_postproc_entry, de, tmp, sizeof(tmp));
   buf2 = tvh_strdupa(buf1);
   /* Substitute filename formatters */
-  htsstr_substitute(buf2, buf1, sizeof(buf1), '%', dvr_subs_postproc_filename, filename);
+  htsstr_substitute(buf2, buf1, sizeof(buf1), '%', dvr_subs_postproc_filename, filename, tmp, sizeof(tmp));
+  /* Substitute info formatters */
+  htsstr_substitute(buf2, buf1, sizeof(buf1), '%', dvr_subs_postproc_info, info, tmp, sizeof(tmp));
 
   args = htsstr_argsplit(buf1);
   /* no arguments at all */
