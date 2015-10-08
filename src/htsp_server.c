@@ -65,7 +65,7 @@
 
 static void *htsp_server, *htsp_server_2;
 
-#define HTSP_PROTO_VERSION 23
+#define HTSP_PROTO_VERSION 24
 
 #define HTSP_ASYNC_OFF  0x00
 #define HTSP_ASYNC_ON   0x01
@@ -650,12 +650,11 @@ htsp_build_channel(channel_t *ch, const char *method, htsp_connection_t *htsp)
   LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
     t = (service_t *)ilm->ilm_in1;
     htsmsg_t *svcmsg = htsmsg_create_map();
-    uint16_t caid;
     htsmsg_add_str(svcmsg, "name", service_nicename(t));
     htsmsg_add_str(svcmsg, "type", service_servicetype_txt(t));
-    if((caid = service_get_encryption(t)) != 0) {
-      htsmsg_add_u32(svcmsg, "caid", caid);
-      htsmsg_add_str(svcmsg, "caname", caid2name(caid));
+    if (service_is_encrypted(t)) {
+      htsmsg_add_u32(svcmsg, "caid", 65535);
+      htsmsg_add_str(svcmsg, "caname", tvh_gettext_lang(htsp->htsp_language, N_("Encrypted service")));
     }
     htsmsg_add_msg(services, NULL, svcmsg);
   }
@@ -3739,6 +3738,34 @@ htsp_subscription_signal_status(htsp_subscription_t *hs, signal_status_t *sig)
  *
  */
 static void
+htsp_subscription_descramble_info(htsp_subscription_t *hs, descramble_info_t *di)
+{
+  /* don't bother old clients */
+  if (hs->hs_htsp->htsp_version < 24)
+    return;
+
+  htsmsg_t *m = htsmsg_create_map();
+  htsmsg_add_str(m, "method", "descrambleInfo");
+  htsmsg_add_u32(m, "pid", di->pid);
+  htsmsg_add_u32(m, "caid", di->caid);
+  htsmsg_add_u32(m, "provid", di->provid);
+  htsmsg_add_u32(m, "ecmtime", di->ecmtime);
+  htsmsg_add_u32(m, "hops", di->hops);
+  if (di->cardsystem[0])
+    htsmsg_add_str(m, "cardsystem", di->cardsystem);
+  if (di->reader[0])
+    htsmsg_add_str(m, "reader", di->reader);
+  if (di->from[0])
+    htsmsg_add_str(m, "from", di->from);
+  if (di->protocol[0])
+    htsmsg_add_str(m, "protocol", di->protocol);
+  htsp_send_message(hs->hs_htsp, m, &hs->hs_htsp->htsp_hmq_qstatus);
+}
+
+/**
+ *
+ */
+static void
 htsp_subscription_speed(htsp_subscription_t *hs, int speed)
 {
   htsmsg_t *m = htsmsg_create_map();
@@ -3834,6 +3861,10 @@ htsp_streaming_input(void *opaque, streaming_message_t *sm)
 
   case SMT_SIGNAL_STATUS:
     htsp_subscription_signal_status(hs, sm->sm_data);
+    break;
+
+  case SMT_DESCRAMBLE_INFO:
+    htsp_subscription_descramble_info(hs, sm->sm_data);
     break;
 
   case SMT_NOSTART:
