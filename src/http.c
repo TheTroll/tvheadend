@@ -544,6 +544,9 @@ http_access_verify(http_connection_t *hc, int mask)
       v = http_arg_get(&hc->hc_args, "x-forwarded-for");
       if (v)
       {
+        // Hack, for AF_INET
+        real_peer.sa_family = AF_INET;
+
         tcp_get_sockaddr(&real_peer, v);
         peer = &real_peer;
       }
@@ -775,7 +778,10 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
     v = http_arg_get(&hc->hc_args, "x-forwarded-for");
     if (v)
     {
+      // Hack, for AF_INET
+      real_peer.sa_family = AF_INET;
       tcp_get_sockaddr(&real_peer, v);
+
       tcp_get_str_from_ip_port(&real_peer, authbuf, sizeof(authbuf), &port);
       strcat(authbuf, "+");
     }
