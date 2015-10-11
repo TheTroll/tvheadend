@@ -130,7 +130,7 @@ access_ticket_create(const char *resource, access_t *a)
   at->at_access = access_copy(a);
 
   TAILQ_INSERT_TAIL(&access_tickets, at, at_link);
-  gtimer_arm(&at->at_timer, access_ticket_timout, at, 60*5);
+  gtimer_arm(&at->at_timer, access_ticket_timout, at, 60*30);
 
   return at->at_id;
 }
