@@ -1061,6 +1061,10 @@ http_stream_service(http_connection_t *hc, service_t *service, int weight)
     if (strcmp(str ?: "", "0") == 0)
       eflags |= SUBSCRIPTION_NODESCR;
 
+  if ((str = http_arg_get(&hc->hc_req_args, "emm")))
+    if (strcmp(str ?: "", "1") == 0)
+      eflags |= SUBSCRIPTION_EMM;
+
   flags = SUBSCRIPTION_MPEGTS | eflags;
   if ((eflags & SUBSCRIPTION_NODESCR) == 0)
     flags |= SUBSCRIPTION_PACKET;
@@ -1471,7 +1475,7 @@ page_dvrfile(http_connection_t *hc, const char *remain, void *opaque)
   char *basename;
   char *str, *str0;
   char range_buf[255];
-  char disposition[512];
+  char *disposition = NULL;
   off_t content_len, chunk;
   intmax_t file_start, file_end;
   void *tcp_id;
@@ -1504,7 +1508,7 @@ page_dvrfile(http_connection_t *hc, const char *remain, void *opaque)
   }
   if(dvr_entry_verify(de, hc->hc_access, 1)) {
     pthread_mutex_unlock(&global_lock);
-    return HTTP_STATUS_NOT_FOUND;
+    return HTTP_STATUS_UNAUTHORIZED;
   }
 
   fname = tvh_strdupa(filename);
@@ -1520,14 +1524,14 @@ page_dvrfile(http_connection_t *hc, const char *remain, void *opaque)
     htsbuf_queue_init(&q, 0);
     htsbuf_append_and_escape_url(&q, basename);
     str = htsbuf_to_string(&q);
-    snprintf(disposition, sizeof(disposition),
+    r = 50 + strlen(str0) + strlen(str);
+    disposition = alloca(r);
+    snprintf(disposition, r,
              "attachment; filename=\"%s\"; filename*=UTF-8''%s",
              str0, str);
     htsbuf_queue_flush(&q);
     free(str);
     free(str0);
-  } else {
-    disposition[0] = 0;
   }
 
   fd = tvh_open(fname, O_RDONLY, 0);
@@ -1600,8 +1604,7 @@ page_dvrfile(http_connection_t *hc, const char *remain, void *opaque)
 
   http_send_header(hc, range ? HTTP_STATUS_PARTIAL_CONTENT : HTTP_STATUS_OK,
        content, content_len, NULL, NULL, 10, 
-       range ? range_buf : NULL,
-       disposition[0] ? disposition : NULL, NULL);
+       range ? range_buf : NULL, disposition, NULL);
 
   ret = 0;
   if(!hc->hc_no_output) {
