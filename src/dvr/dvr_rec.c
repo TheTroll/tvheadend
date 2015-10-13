@@ -118,6 +118,10 @@ dvr_rec_subscribe(dvr_entry_t *de)
   access_destroy(aa);
 
   pro = de->de_config->dvr_profile;
+
+  if (pro->pro_prefersd)
+      convert_channel_to_sd(de->de_channel, &de->de_channel);
+
   prch = malloc(sizeof(*prch));
   profile_chain_init(prch, pro, de->de_channel);
   if (profile_chain_open(prch, &de->de_config->dvr_muxcnf, 0, 0)) {
