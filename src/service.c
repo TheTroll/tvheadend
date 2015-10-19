@@ -55,6 +55,9 @@ static void service_class_save(struct idnode *self);
 
 struct service_queue service_all;
 struct service_queue service_raw_all;
+struct service_queue service_raw_remove;
+
+static gtimer_t service_raw_remove_timer;
 
 static void
 service_class_notify_enabled ( void *obj, const char *lang )
@@ -302,7 +305,7 @@ void
 service_stop(service_t *t)
 {
   elementary_stream_t *st;
- 
+
   gtimer_disarm(&t->s_receive_timer);
 
   t->s_stop_feed(t);
@@ -349,9 +352,6 @@ service_remove_subscriber(service_t *t, th_subscription_t *s,
   } else {
     subscription_unlink_service(s, reason);
   }
-
-  if(LIST_FIRST(&t->s_subscriptions) == NULL)
-    service_stop(t);
 }
 
 
@@ -811,8 +811,7 @@ service_destroy(service_t *t, int delconf)
 
   idnode_unlink(&t->s_id);
 
-  if(t->s_status != SERVICE_IDLE)
-    service_stop(t);
+  assert(t->s_status == SERVICE_IDLE);
 
   t->s_status = SERVICE_ZOMBIE;
 
@@ -824,12 +823,37 @@ service_destroy(service_t *t, int delconf)
 
   avgstat_flush(&t->s_rate);
 
-  if (t->s_type == STYPE_RAW)
+  switch (t->s_type) {
+  case STYPE_RAW:
     TAILQ_REMOVE(&service_raw_all, t, s_all_link);
-  else
+    break;
+  case STYPE_RAW_REMOVED:
+    TAILQ_REMOVE(&service_raw_remove, t, s_all_link);
+    break;
+  default:
     TAILQ_REMOVE(&service_all, t, s_all_link);
+  }
 
   service_unref(t);
+}
+
+static void
+service_remove_raw_timer_cb(void *aux)
+{
+  service_t *t;
+  while ((t = TAILQ_FIRST(&service_raw_remove)) != NULL)
+    service_destroy(t, 0);
+}
+
+void
+service_remove_raw(service_t *t)
+{
+  if (t == NULL) return;
+  assert(t->s_type == STYPE_RAW);
+  t->s_type = STYPE_RAW_REMOVED;
+  TAILQ_REMOVE(&service_raw_all, t, s_all_link);
+  TAILQ_INSERT_TAIL(&service_raw_remove, t, s_all_link);
+  gtimer_arm(&service_raw_remove_timer, service_remove_raw_timer_cb, NULL, 0);
 }
 
 void
@@ -1071,6 +1095,16 @@ service_data_timeout(void *aux)
 /**
  *
  */
+int
+service_has_audio_or_video(service_t *t)
+{
+  elementary_stream_t *st;
+  TAILQ_FOREACH(st, &t->s_components, es_link)
+    if (SCT_ISVIDEO(st->es_type) || SCT_ISAUDIO(st->es_type))
+      return 1;
+  return 0;
+}
+
 int
 service_is_sdtv(service_t *t)
 {
@@ -1383,16 +1417,24 @@ service_init(void)
   TAILQ_INIT(&pending_save_queue);
   TAILQ_INIT(&service_all);
   TAILQ_INIT(&service_raw_all);
+  TAILQ_INIT(&service_raw_remove);
   pthread_mutex_init(&pending_save_mutex, NULL);
   pthread_cond_init(&pending_save_cond, NULL);
-  tvhthread_create(&service_saver_tid, NULL, service_saver, NULL);
+  tvhthread_create(&service_saver_tid, NULL, service_saver, NULL, "service");
 }
 
 void
 service_done(void)
 {
+  service_t *t;
+
   pthread_cond_signal(&pending_save_cond);
   pthread_join(service_saver_tid, NULL);
+
+  pthread_mutex_lock(&global_lock);
+  while ((t = TAILQ_FIRST(&service_raw_remove)) != NULL)
+    service_destroy(t, 0);
+  pthread_mutex_unlock(&global_lock);
 }
 
 /**
@@ -1649,6 +1691,16 @@ service_get_channel_icon ( service_t *s )
   const char *r = NULL;
   if (s->s_channel_icon) r = s->s_channel_icon(s);
   return r;
+}
+
+/*
+ * Get EPG ID for channel from service
+ */
+const char *
+service_get_channel_epgid ( service_t *s )
+{
+  if (s->s_channel_epgid) return s->s_channel_epgid(s);
+  return NULL;
 }
 
 /*

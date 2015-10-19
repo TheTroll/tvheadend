@@ -191,6 +191,7 @@ SRCS-1 = \
 	src/input.c \
 	src/httpc.c \
 	src/rtsp.c \
+	src/download.c \
 	src/fsmonitor.c \
 	src/cron.c \
 	src/esfilter.c \
@@ -364,7 +365,8 @@ SRCS-IPTV = \
         src/input/mpegts/iptv/iptv_udp.c \
         src/input/mpegts/iptv/iptv_rtsp.c \
         src/input/mpegts/iptv/iptv_rtcp.c \
-        src/input/mpegts/iptv/iptv_pipe.c
+        src/input/mpegts/iptv/iptv_pipe.c \
+	src/input/mpegts/iptv/iptv_auto.c
 SRCS-${CONFIG_IPTV} += $(SRCS-IPTV)
 I18N-C += $(SRCS-IPTV)
 

@@ -51,7 +51,7 @@ service_mapper_init ( void )
 {
   TAILQ_INIT(&service_mapper_queue);
   pthread_cond_init(&service_mapper_cond, NULL);
-  tvhthread_create(&service_mapper_tid, NULL, service_mapper_thread, NULL);
+  tvhthread_create(&service_mapper_tid, NULL, service_mapper_thread, NULL, "svcmap");
 }
 
 void
@@ -188,10 +188,9 @@ service_mapper_link ( service_t *s, channel_t *c, void *origin )
 
   ilm = idnode_list_link(&s->s_id, &s->s_channels,
                          &c->ch_id, &c->ch_services,
-                         origin);
+                         origin, 2);
   if (ilm) {
     service_mapped(s);
-    ilm->ilm_in2_save = 1; /* channel */
     return 1;
   }
   return 0;

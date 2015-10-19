@@ -1,7 +1,7 @@
 /*
- *  IPTV Input
+ *  Download a file from storage or network
  *
- *  Copyright (C) 2013 Andreas Öman
+ *  Copyright (C) 2015 Jaroslav Kysela
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -17,18 +17,25 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __IPTV_H__
-#define __IPTV_H__
+#ifndef __DOWNLOAD__
+#define __DOWNLOAD__
 
-void iptv_bouquet_trigger_by_uuid(const char *uuid);
+#include "http.h"
 
-void iptv_init ( void );
-void iptv_done ( void );
+typedef struct download {
+  char *log;
+  char *url;
+  void *aux;
+  int ssl_peer_verify;
+  int (*process)(void *aux, const char *last_url, char *data, size_t len);
+  void (*stop)(void *aux);
+  /* internal members */
+  http_client_t *http_client;
+  gtimer_t fetch_timer;
+} download_t;
 
-#endif /* __IPTV_H__ */
+void download_init ( download_t *dn, const char *log );
+void download_start( download_t *dn, const char *url, void *aux );
+void download_done ( download_t *dn );
 
-/******************************************************************************
- * Editor Configuration
- *
- * vim:sts=2:ts=2:sw=2:et
- *****************************************************************************/
+#endif /* __DOWNLOAD__ */

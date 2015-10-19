@@ -29,6 +29,7 @@ extern const idclass_t service_raw_class;
 
 extern struct service_queue service_all;
 extern struct service_queue service_raw_all;
+extern struct service_queue service_raw_remove;
 
 struct channel;
 struct tvh_input;
@@ -240,7 +241,8 @@ typedef struct service {
    */
   enum {
     STYPE_STD,
-    STYPE_RAW
+    STYPE_RAW,
+    STYPE_RAW_REMOVED
   } s_type;
 
   /**
@@ -317,6 +319,7 @@ typedef struct service {
    */
   int64_t     (*s_channel_number) (struct service *);
   const char *(*s_channel_name)   (struct service *);
+  const char *(*s_channel_epgid)  (struct service *);
   const char *(*s_provider_name)  (struct service *);
   const char *(*s_channel_icon)   (struct service *);
   void        (*s_mapped)         (struct service *);
@@ -529,6 +532,7 @@ void service_settings_write(service_t *t);
 
 const char *service_servicetype_txt(service_t *t);
 
+int service_has_audio_or_video(service_t *t);
 int service_is_sdtv(service_t *t);
 int service_is_hdtv(service_t *t);
 int service_is_radio(service_t *t);
@@ -540,6 +544,8 @@ int service_is_encrypted ( service_t *t );
 void service_set_enabled ( service_t *t, int enabled, int _auto );
 
 void service_destroy(service_t *t, int delconf);
+
+void service_remove_raw(service_t *);
 
 void service_remove_subscriber(service_t *t, struct th_subscription *s,
 			       int reason);
@@ -606,6 +612,7 @@ const char *service_get_channel_name (service_t *s);
 const char *service_get_full_channel_name (service_t *s);
 int64_t     service_get_channel_number (service_t *s);
 const char *service_get_channel_icon (service_t *s);
+const char *service_get_channel_epgid (service_t *s);
 
 void service_mapped (service_t *s);
 

@@ -39,7 +39,7 @@ int epggrab_channel_match ( epggrab_channel_t *ec, channel_t *ch )
   if (!ec || !ch || !ch->ch_epgauto || !ch->ch_enabled) return 0;
   if (LIST_FIRST(&ec->channels)) return 0; // ignore already paired
 
-  if (ec->name && !strcmp(ec->name, channel_get_name(ch))) return 1;
+  if (ec->name && !strcmp(ec->name, channel_get_epgid(ch))) return 1;
   int64_t number = channel_get_number(ch);
   if ((ec->major || ec->minor) && ec->major == channel_get_major(number) && ec->minor == channel_get_minor(number)) return 1;
   return 0;
@@ -270,7 +270,7 @@ htsmsg_t *epggrab_channel_list ( int ota )
         snprintf(name, sizeof(name), "%s|%s", mod->id, ec->id);
         htsmsg_add_str(e, "key", name);
         snprintf(name, sizeof(name), "%s: %s (%s)",
-                 mod->name, ec->name, ec->id);
+                 mod->name, ec->name ?: ec->id, ec->id);
         htsmsg_add_str(e, "val", name);
         htsmsg_add_msg(m, NULL, e);
       }

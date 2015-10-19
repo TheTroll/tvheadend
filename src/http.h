@@ -112,6 +112,8 @@ typedef enum http_cmd {
   RTSP_CMD_PAUSE,
 } http_cmd_t;
 
+#define HTTP_CMD_OPTIONS RTSP_CMD_OPTIONS
+
 typedef enum http_ver {
   HTTP_VERSION_1_0,
   HTTP_VERSION_1_1,
@@ -174,12 +176,15 @@ static inline void http_arg_init(struct http_arg_list *list)
   TAILQ_INIT(list);
 }
 
+void http_arg_remove(struct http_arg_list *list, struct http_arg *arg);
 void http_arg_flush(struct http_arg_list *list);
 
 char *http_arg_get(struct http_arg_list *list, const char *name);
 char *http_arg_get_remove(struct http_arg_list *list, const char *name);
 
 void http_arg_set(struct http_arg_list *list, const char *key, const char *val);
+
+static inline int http_args_empty(const struct http_arg_list *list) { return TAILQ_EMPTY(list); }
 
 int http_tokenize(char *buf, char **vec, int vecsize, int delimiter);
 
@@ -237,7 +242,7 @@ int http_access_verify_channel(http_connection_t *hc, int mask,
 
 void http_deescape(char *s);
 
-void http_parse_get_args(http_connection_t *hc, char *args);
+void http_parse_args(http_arg_list_t *list, char *args);
 
 /*
  * HTTP/RTSP Client
@@ -357,6 +362,7 @@ int http_client_send( http_client_t *hc, http_cmd_t cmd,
                       http_arg_list_t *header, void *body, size_t body_size );
 void http_client_basic_auth( http_client_t *hc, http_arg_list_t *h,
                              const char *user, const char *pass );
+int http_client_simple_reconnect ( http_client_t *hc, const url_t *u );
 int http_client_simple( http_client_t *hc, const url_t *url);
 int http_client_clear_state( http_client_t *hc );
 int http_client_run( http_client_t *hc );

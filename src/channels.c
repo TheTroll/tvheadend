@@ -604,11 +604,27 @@ channel_get_icon ( channel_t *ch )
   const char *chicon = config.chicon_path,
              *picon  = config.picon_path,
              *icon   = ch->ch_icon,
-             *chname;
+             *chname, *icn;
   uint32_t id, i, pick, prefer = config.prefer_picon ? 1 : 0;
 
   if (icon && *icon == '\0')
     icon = NULL;
+
+  /*
+   * Initial lookup - for services with predefined icons (like M3U sources)
+   */
+  if (icon == NULL) {
+    LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
+      if (!(icn = service_get_channel_icon((service_t *)ilm->ilm_in1))) continue;
+      if (strncmp(icn, "picon://", 8) == 0) continue;
+      if (check_file(icn)) {
+        icon = ch->ch_icon = strdup(icn);
+        channel_save(ch);
+        idnode_notify_changed(&ch->ch_id);
+        goto found;
+      }
+    }
+  }
 
   /*
    * 4 iterations:
@@ -679,7 +695,6 @@ channel_get_icon ( channel_t *ch )
     /* No user icon - try access from services */
     if (pick && picon) {
       LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
-        const char *icn;
         if (!(icn = service_get_channel_icon((service_t *)ilm->ilm_in1))) continue;
         if (strncmp(icn, "picon://", 8))
           continue;
@@ -694,6 +709,8 @@ channel_get_icon ( channel_t *ch )
     }
 
   }
+
+found:
 
   /* Nothing */
   if (!icon || !*icon)
@@ -727,6 +744,17 @@ int channel_set_icon ( channel_t *ch, const char *icon )
     save = 1;
   }
   return save;
+}
+
+const char *
+channel_get_epgid ( channel_t *ch )
+{
+  const char *s;
+  idnode_list_mapping_t *ilm;
+  LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link)
+    if ((s = service_get_channel_epgid((service_t *)ilm->ilm_in1)))
+      return s;
+  return channel_get_name(ch);
 }
 
 /* **************************************************************************
@@ -845,6 +873,9 @@ channel_save ( channel_t *ch )
   idnode_save(&ch->ch_id, c);
   hts_settings_save(c, "channel/config/%s", idnode_uuid_as_sstr(&ch->ch_id));
   htsmsg_destroy(c);
+  /* update the EPG channel <-> channel mapping here */
+  if (ch->ch_enabled && ch->ch_epgauto)
+    epggrab_channel_add(ch);
 }
 
 /**
@@ -898,11 +929,13 @@ channel_tag_map(channel_tag_t *ct, channel_t *ch, void *origin)
 {
   idnode_list_mapping_t *ilm;
 
+  if (ct == NULL || ch == NULL)
+    return 0;
+
   ilm = idnode_list_link(&ct->ct_id, &ct->ct_ctms,
                          &ch->ch_id, &ch->ch_ctms,
-                         origin);
+                         origin, 2);
   if (ilm) {
-    ilm->ilm_in2_save = 1; /* channel */
     if(ct->ct_enabled && !ct->ct_internal) {
       htsp_tag_update(ct);
       htsp_channel_update(ch);
@@ -1201,7 +1234,7 @@ channel_tag_find_by_name(const char *name, int create)
 {
   channel_tag_t *ct;
 
-  if (name == NULL)
+  if (name == NULL || *name == '\0')
     return NULL;
 
   TAILQ_FOREACH(ct, &channel_tags, ct_link)
