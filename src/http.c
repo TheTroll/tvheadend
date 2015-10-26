@@ -40,7 +40,9 @@
 #include "channels.h"
 #include "config.h"
 
-#define PROXY_IP "10.4.0.1"
+#define PROXY_IP1 "10.4.0.1"
+#define PROXY_IP2 "10.4.1.1"
+
 
 #if ENABLE_ANDROID
 #include <sys/socket.h>
@@ -541,7 +543,7 @@ http_access_verify(http_connection_t *hc, int mask)
     tcp_get_str_from_ip_port((struct sockaddr*)hc->hc_peer, authbuf, sizeof(authbuf), &port);
     peer = (struct sockaddr *)hc->hc_peer;
 
-    if (!strcmp(authbuf, PROXY_IP))
+    if (!strcmp(authbuf, PROXY_IP1) || !strcmp(authbuf, PROXY_IP2))
     {
       v = http_arg_get(&hc->hc_args, "x-forwarded-for");
       if (v)
@@ -788,7 +790,7 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
 
   tcp_get_str_from_ip_port((struct sockaddr*)hc->hc_peer, authbuf, sizeof(authbuf), &port);
 
-  if (!strcmp(authbuf, PROXY_IP))
+  if (!strcmp(authbuf, PROXY_IP1) || !strcmp(authbuf, PROXY_IP2))
   {
     v = http_arg_get(&hc->hc_args, "x-forwarded-for");
     if (v)
