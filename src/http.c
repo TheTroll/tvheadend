@@ -792,6 +792,13 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
 
   if (!strcmp(authbuf, PROXY_IP1) || !strcmp(authbuf, PROXY_IP2))
   {
+    const char* suffix;
+
+    if (!strcmp(authbuf, PROXY_IP1))
+      suffix = "+1";
+    else if (!strcmp(authbuf, PROXY_IP2))
+      suffix = "+2";
+
     v = http_arg_get(&hc->hc_args, "x-forwarded-for");
     if (v)
     {
@@ -800,10 +807,7 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
       tcp_get_sockaddr(&real_peer, v);
 
       tcp_get_str_from_ip_port(&real_peer, authbuf, sizeof(authbuf), &port);
-      if (!strcmp(authbuf, PROXY_IP1))
-        strcat(authbuf, "+1");
-      else if (!strcmp(authbuf, PROXY_IP2))
-        strcat(authbuf, "+2");
+      strcat(authbuf, suffix);
     }
   }
 
