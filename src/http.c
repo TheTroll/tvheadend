@@ -800,7 +800,10 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
       tcp_get_sockaddr(&real_peer, v);
 
       tcp_get_str_from_ip_port(&real_peer, authbuf, sizeof(authbuf), &port);
-      strcat(authbuf, "+");
+      if (!strcmp(authbuf, PROXY_IP1))
+        strcat(authbuf, "+1");
+      else if (!strcmp(authbuf, PROXY_IP2))
+        strcat(authbuf, "+2");
     }
   }
 
