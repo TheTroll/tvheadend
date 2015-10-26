@@ -63,13 +63,47 @@ dvr_autorec_purge_spawns(dvr_autorec_entry_t *dae, int del, int disabled)
           bcast[i++] = de->de_bcast;
         }
       }
-      dvr_entry_cancel(de);
+      dvr_entry_cancel(de, 0);
     } else
       dvr_entry_save(de);
   }
   if (bcast)
     bcast[i] = NULL;
   return bcast;
+}
+
+/**
+ * Handle maxcount
+ */
+void
+dvr_autorec_completed(dvr_entry_t *de, int error_code)
+{
+  uint32_t count, total = 0;
+  dvr_entry_t *de_prev;
+  dvr_autorec_entry_t *dae = de->de_autorec;
+
+  if (dae == NULL) return;
+  if (dae->dae_max_count <= 0) return;
+  while (1) {
+    count = 0;
+    de_prev = NULL;
+    LIST_FOREACH(de, &dae->dae_spawns, de_autorec_link) {
+      if (de->de_sched_state != DVR_COMPLETED) continue;
+      if (dvr_get_filesize(de) < 0) continue;
+      if (de_prev && de_prev->de_start > de->de_start)
+        de_prev = de;
+      count++;
+    }
+    if (total == 0)
+      total = count;
+    if (count < dae->dae_max_count)
+      break;
+    if (de_prev) {
+      tvhinfo("dvr", "autorec %s removing recordings %s (allowed count %u total %u)",
+              dae->dae_name, idnode_uuid_as_sstr(&de_prev->de_id), dae->dae_max_count, total);
+      dvr_entry_cancel_delete(de_prev, 0);
+    }
+  }
 }
 
 /**
@@ -1072,6 +1106,20 @@ const idclass_t dvr_autorec_entry_class = {
       .opts     = PO_HIDDEN,
     },
     {
+      .type     = PT_U32,
+      .id       = "maxcount",
+      .name     = N_("Maximum count (0=unlimited)"),
+      .off      = offsetof(dvr_autorec_entry_t, dae_max_count),
+      .opts     = PO_HIDDEN,
+    },
+    {
+      .type     = PT_U32,
+      .id       = "maxsched",
+      .name     = N_("Maximum schedules limit (0=unlimited)"),
+      .off      = offsetof(dvr_autorec_entry_t, dae_max_sched_count),
+      .opts     = PO_HIDDEN,
+    },
+    {
       .type     = PT_STR,
       .id       = "config_name",
       .name     = N_("DVR Configuration"),
@@ -1223,7 +1271,7 @@ dvr_autorec_changed(dvr_autorec_entry_t *dae, int purge)
         enabled = 1;
         if (disabled) {
           for (p = disabled; *p && *p != e; p++);
-          enabled = *p != NULL;
+          enabled = *p == NULL;
         }
         dvr_entry_create_by_autorec(enabled, e, dae);
       }

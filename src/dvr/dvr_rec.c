@@ -334,7 +334,7 @@ dvr_sub_episode(const char *id, const void *aux, char *tmp, size_t tmplen)
     return "";
   epg_episode_number_format(de->de_bcast->episode,
                             buf, sizeof(buf),
-                            ".", "S%02d", NULL, "E%02d", NULL);
+                            NULL, "S%02d", NULL, "E%02d", NULL);
   return dvr_do_prefix(id, buf, tmp, tmplen);
 }
 
@@ -1338,7 +1338,7 @@ dvr_get_disk_space_tcb(void *opaque, int dearmed)
     htsmsg_add_s64(m, "totaldiskspace", dvr_btotal);
     pthread_mutex_unlock(&dvr_disk_space_mutex);
 
-    notify_by_msg("diskspaceUpdate", m);
+    notify_by_msg("diskspaceUpdate", m, 0);
   }
 
   free(opaque);

@@ -1686,7 +1686,7 @@ htsp_method_cancelDvrEntry(htsp_connection_t *htsp, htsmsg_t *in)
   if (!htsp_user_access_channel(htsp, de->de_channel))
     return htsp_error("User does not have access");
 
-  dvr_entry_cancel(de);
+  dvr_entry_cancel(de, 0);
 
   //create response
   out = htsmsg_create_map();
@@ -1718,7 +1718,7 @@ htsp_method_deleteDvrEntry(htsp_connection_t *htsp, htsmsg_t *in)
   if (!htsp_user_access_channel(htsp, de->de_channel))
     return htsp_error("User does not have access");
 
-  dvr_entry_cancel_delete(de);
+  dvr_entry_cancel_delete(de, 0);
 
   //create response
   out = htsmsg_create_map();
@@ -3706,6 +3706,8 @@ _htsp_get_subscription_status(int smcode)
     return "userAccess";
   case SM_CODE_USER_LIMIT:
     return "userLimit";
+  case SM_CODE_WEAK_STREAM:
+    return "weakStream";
   default:
     return streaming_code2txt(smcode);
   }

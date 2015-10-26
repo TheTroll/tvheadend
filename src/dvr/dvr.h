@@ -40,6 +40,7 @@ typedef struct dvr_config {
   profile_t *dvr_profile;
   char *dvr_storage;
   int dvr_clone;
+  uint32_t dvr_rerecord_errors;
   uint32_t dvr_retention_days;
   uint32_t dvr_removal_days;
   char *dvr_charset;
@@ -164,6 +165,7 @@ typedef struct dvr_entry {
 
   int de_pri;
   int de_dont_reschedule;
+  int de_dont_rerecord;
   int de_mc;
   uint32_t de_retention;
   uint32_t de_removal;
@@ -210,6 +212,12 @@ typedef struct dvr_entry {
    * Timerec linkage
    */
   struct dvr_timerec_entry *de_timerec;
+
+  /**
+   * Parent/child
+   */
+  struct dvr_entry *de_parent;
+  struct dvr_entry *de_child;
 
   /**
    * Fields for recording
@@ -298,6 +306,8 @@ typedef struct dvr_autorec_entry {
   int dae_maxduration;
   uint32_t dae_retention;
   uint32_t dae_removal;
+  uint32_t dae_max_count;
+  uint32_t dae_max_sched_count;
 
   time_t dae_start_extra;
   time_t dae_stop_extra;
@@ -409,6 +419,8 @@ uint32_t dvr_entry_get_retention_days( dvr_entry_t *de );
 
 uint32_t dvr_entry_get_removal_days( dvr_entry_t *de );
 
+uint32_t dvr_entry_get_rerecord_errors( dvr_entry_t *de );
+
 int dvr_entry_get_start_time( dvr_entry_t *de );
 
 int dvr_entry_get_stop_time( dvr_entry_t *de );
@@ -504,13 +516,13 @@ int64_t dvr_get_filesize(dvr_entry_t *de);
 
 dvr_entry_t *dvr_entry_stop(dvr_entry_t *de);
 
-dvr_entry_t *dvr_entry_cancel(dvr_entry_t *de);
+dvr_entry_t *dvr_entry_cancel(dvr_entry_t *de, int rerecord);
 
 void dvr_entry_dec_ref(dvr_entry_t *de);
 
 void dvr_entry_delete(dvr_entry_t *de, int no_missed_time_resched);
 
-void dvr_entry_cancel_delete(dvr_entry_t *de);
+void dvr_entry_cancel_delete(dvr_entry_t *de, int rerecord);
 
 htsmsg_t *dvr_entry_class_mc_list (void *o, const char *lang);
 htsmsg_t *dvr_entry_class_pri_list(void *o, const char *lang);
@@ -608,6 +620,8 @@ int dvr_autorec_get_extra_time_post( dvr_autorec_entry_t *dae );
 
 int dvr_autorec_get_extra_time_pre( dvr_autorec_entry_t *dae );
 
+void dvr_autorec_completed( dvr_entry_t *de, int error_code );
+
 /**
  *
  */
@@ -673,6 +687,7 @@ void dvr_inotify_init ( void );
 void dvr_inotify_done ( void );
 void dvr_inotify_add  ( dvr_entry_t *de );
 void dvr_inotify_del  ( dvr_entry_t *de );
+int  dvr_inotify_count( void );
 
 /**
  * Cutpoints support

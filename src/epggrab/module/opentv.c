@@ -34,8 +34,6 @@
 #include "settings.h"
 #include "input.h"
 
-static epggrab_channel_tree_t _opentv_channels;
-
 #define OPENTV_TITLE_BASE   0xA0
 #define OPENTV_SUMMARY_BASE 0xA8
 #define OPENTV_TABLE_MASK   0xFC
@@ -170,8 +168,7 @@ static epggrab_channel_t *_opentv_find_epggrab_channel
 {
   char chid[256];
   snprintf(chid, sizeof(chid), "%s-%d", mod->id, cid);
-  return epggrab_channel_find(&_opentv_channels, chid, create, save,
-                              (epggrab_module_t*)mod);
+  return epggrab_channel_find((epggrab_module_t*)mod, chid, create, save);
 }
 
 /* ************************************************************************
@@ -443,7 +440,7 @@ opentv_parse_event_section
 {
   opentv_module_t *mod = sta->os_mod;
   epggrab_channel_t *ec;
-  epggrab_channel_link_t *ecl;
+  idnode_list_mapping_t *ilm;
   const char *lang = NULL;
   int save = 0;
 
@@ -456,8 +453,10 @@ opentv_parse_event_section
   if (!(ec = _opentv_find_epggrab_channel(mod, cid, 0, NULL))) return 0;
 
   /* Iterate all channels */
-  LIST_FOREACH(ecl, &ec->channels, ecl_epg_link)
-    save |= opentv_parse_event_section_one(sta, cid, mjd, ecl->ecl_channel, lang, buf, len);
+  LIST_FOREACH(ilm, &ec->channels, ilm_in2_link)
+    save |= opentv_parse_event_section_one(sta, cid, mjd,
+                                           (channel_t *)ilm->ilm_in2,
+                                           lang, buf, len);
 
   /* Update EPG */
   if (save) epg_updated();
@@ -476,7 +475,7 @@ opentv_desc_channels
   opentv_status_t *sta = mt->mt_opaque;
   opentv_module_t *mod = sta->os_mod;
   epggrab_channel_t *ec;
-  epggrab_channel_link_t *ecl;
+  idnode_list_mapping_t *ilm;
   mpegts_service_t *svc;
   channel_t *ch;
   int sid, cid, cnum, unk;
@@ -516,17 +515,17 @@ opentv_desc_channels
 skip_chnum:
     if (svc && LIST_FIRST(&svc->s_channels)) {
       ec  =_opentv_find_epggrab_channel(mod, cid, 1, &save);
-      ecl = LIST_FIRST(&ec->channels);
+      ilm = LIST_FIRST(&ec->channels);
       ch  = (channel_t *)LIST_FIRST(&svc->s_channels)->ilm_in2;
-      tvhtrace(mt->mt_name, "       ec = %p, ecl = %p", ec, ecl);
+      tvhtrace(mt->mt_name, "       ec = %p, ilm = %p", ec, ilm);
 
-      if (ecl && ecl->ecl_channel != ch) {
-        epggrab_channel_link_delete(ecl, 1);
-        ecl = NULL;
+      if (ilm && ilm->ilm_in2 != &ch->ch_id) {
+        epggrab_channel_link_delete(ec, ch, 1);
+        ilm = NULL;
       }
       
-      if (!ecl)
-        epggrab_channel_link(ec, ch);
+      if (!ilm)
+        epggrab_channel_link(ec, ch, NULL);
       save |= epggrab_channel_set_number(ec, cnum, 0);
     }
     i += 9;
@@ -943,9 +942,9 @@ static int _opentv_prov_load_one ( const char *id, htsmsg_t *m )
 
   /* Create */
   sprintf(nbuf, "OpenTV: %s", name);
-  mod = (opentv_module_t*)
+  mod = (opentv_module_t *)
     epggrab_module_ota_create(calloc(1, sizeof(opentv_module_t)),
-                              ibuf, nbuf, 2, &ops, NULL);
+                              ibuf, NULL, nbuf, 2, &ops);
 
   /* Add provider details */
   mod->dict     = dict;
@@ -958,8 +957,6 @@ static int _opentv_prov_load_one ( const char *id, htsmsg_t *m )
   mod->channel  = _pid_list_to_array(cl);
   mod->title    = _pid_list_to_array(tl);
   mod->summary  = _pid_list_to_array(sl);
-  mod->channels = &_opentv_channels;
-  mod->ch_rem   = epggrab_module_ch_rem;
   _opentv_compile_pattern_list(&mod->p_snum, htsmsg_get_list(m, "season_num"));
   _opentv_compile_pattern_list(&mod->p_enum, htsmsg_get_list(m, "episode_num"));
   _opentv_compile_pattern_list(&mod->p_pnum, htsmsg_get_list(m, "part_num"));
@@ -995,8 +992,6 @@ void opentv_init ( void )
 {
   htsmsg_t *m;
 
-  RB_INIT(&_opentv_channels);
-
   /* Load dictionaries */
   if ((m = hts_settings_load("epggrab/opentv/dict")))
     _opentv_dict_load(m);
@@ -1018,7 +1013,6 @@ void opentv_done ( void )
   opentv_dict_t *dict;
   opentv_genre_t *genre;
 
-  epggrab_channel_flush(&_opentv_channels, 0);
   while ((dict = RB_FIRST(&_opentv_dicts)) != NULL) {
     RB_REMOVE(&_opentv_dicts, dict, h_link);
     huffman_tree_destroy(dict->codes);

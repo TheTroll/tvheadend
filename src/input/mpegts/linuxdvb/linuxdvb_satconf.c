@@ -303,7 +303,7 @@ const idclass_t linuxdvb_satconf_class =
     {
       .type     = PT_INT,
       .id       = "site_altitude",
-      .name     = N_("Altitude (metres)"),
+      .name     = N_("Altitude (meters)"),
       .off      = offsetof(linuxdvb_satconf_t, ls_site_altitude),
       .opts     = PO_ADVANCED,
       .def.i    = 0
@@ -712,8 +712,11 @@ linuxdvb_satconf_start ( linuxdvb_satconf_t *ls, int delay, int vol )
     }
     ls->ls_last_tone_off = 1;
   }
-  if (delay)
-    usleep(delay);
+  /* the linuxdvb_diseqc_set_volt() fcn already sleeps for 15ms */
+  if (delay > 15) {
+    tvhtrace("diseqc", "initial sleep %dms", delay);
+    usleep((delay-15)*1000);
+  }
   return 0;
 }
 

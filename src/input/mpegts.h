@@ -153,7 +153,10 @@ typedef struct mpegts_pid_sub
 #define MPS_WEIGHT_NIT      999
 #define MPS_WEIGHT_BAT      999
 #define MPS_WEIGHT_VCT      999
+#define MPS_WEIGHT_STT      999
 #define MPS_WEIGHT_EIT      999
+#define MPS_WEIGHT_ETT      999
+#define MPS_WEIGHT_MGT      999
 #define MPS_WEIGHT_PMT      998
 #define MPS_WEIGHT_PCR      997
 #define MPS_WEIGHT_CA       996
@@ -364,6 +367,7 @@ enum mpegts_mux_epg_flag
   MM_EPG_ONLY_OPENTV_SKY_ITALIA,
   MM_EPG_ONLY_OPENTV_SKY_AUSAT,
   MM_EPG_ONLY_BULSATCOM_39E,
+  MM_EPG_ONLY_PSIP,
 };
 #define MM_EPG_LAST MM_EPG_ONLY_OPENTV_SKY_AUSAT
 
@@ -548,6 +552,7 @@ struct mpegts_service
   int      s_dvb_eit_enable;
   uint64_t s_dvb_opentv_chnum;
   uint16_t s_dvb_opentv_id;
+  uint16_t s_atsc_source_id;
 
   /*
    * Link to carrying multiplex and active adapter
@@ -986,6 +991,8 @@ int dvb_tdt_callback
 int dvb_tot_callback
   (struct mpegts_table *mt, const uint8_t *ptr, int len, int tableid);
 int atsc_vct_callback
+  (struct mpegts_table *mt, const uint8_t *ptr, int len, int tableid);
+int atsc_stt_callback
   (struct mpegts_table *mt, const uint8_t *ptr, int len, int tableid);
 
 void psi_tables_install

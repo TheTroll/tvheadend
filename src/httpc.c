@@ -1029,7 +1029,8 @@ header:
     hc->hc_rpos = len;
     goto next_header;
   }
-  if (hc->hc_version == RTSP_VERSION_1_0 && !hc->hc_csize) {
+  if (hc->hc_version == RTSP_VERSION_1_0 &&
+     (hc->hc_csize == -1 || !hc->hc_csize)) {
     hc->hc_csize = -1;
     hc->hc_in_data = 0;
     memmove(hc->hc_rbuf, hc->hc_rbuf + hc->hc_hsize, len);
@@ -1141,7 +1142,7 @@ http_client_basic_args ( http_client_t *hc, http_arg_list_t *h, const url_t *url
 }
 
 int
-http_client_simple_reconnect ( http_client_t *hc, const url_t *u )
+http_client_simple_reconnect ( http_client_t *hc, const url_t *u, http_ver_t ver )
 {
   http_arg_list_t h;
   tvhpoll_t *efd;
@@ -1175,6 +1176,7 @@ http_client_simple_reconnect ( http_client_t *hc, const url_t *u )
   hc->hc_reconnected = 1;
   hc->hc_shutdown    = 0;
   hc->hc_pevents     = 0;
+  hc->hc_version     = ver;
 
   r = http_client_send(hc, hc->hc_cmd, u->path, u->query, &h, NULL, 0);
   if (r < 0)
@@ -1214,7 +1216,7 @@ http_client_redirected ( http_client_t *hc )
   }
   free(location);
 
-  r = http_client_simple_reconnect(hc, &u);
+  r = http_client_simple_reconnect(hc, &u, hc->hc_redirv);
 
   urlreset(&u);
   return r;
@@ -1338,6 +1340,7 @@ http_client_reconnect
   port           = http_port(hc, scheme, port);
   hc->hc_pevents = 0;
   hc->hc_version = ver;
+  hc->hc_redirv  = ver;
   hc->hc_scheme  = strdup(scheme);
   hc->hc_host    = strdup(host);
   hc->hc_port    = port;
