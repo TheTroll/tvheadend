@@ -993,9 +993,15 @@ htsp_build_event
       htsmsg_add_str(out, "image", ee->image);
   }
 
-  if((de = dvr_entry_find_by_event(e)) != NULL &&
-     !dvr_entry_verify(de, htsp->htsp_granted_access, 1)) {
-    htsmsg_add_u32(out, "dvrId", idnode_get_short_uuid(&de->de_id));
+  if (e->channel) {
+    LIST_FOREACH(de, &e->channel->ch_dvrs, de_channel_link) {
+      if (de->de_bcast != e)
+        continue;
+      if (dvr_entry_verify(de, htsp->htsp_granted_access, 1))
+        continue;
+      htsmsg_add_u32(out, "dvrId", idnode_get_short_uuid(&de->de_id));
+      break;
+    }
   }
 
   if ((n = epg_broadcast_get_next(e)))
@@ -1032,7 +1038,7 @@ htsp_method_hello(htsp_connection_t *htsp, htsmsg_t *in)
 	 htsp->htsp_logname, name, v);
 
   htsmsg_add_u32(r, "htspversion", HTSP_PROTO_VERSION);
-  htsmsg_add_str(r, "servername", "HTS Tvheadend");
+  htsmsg_add_str(r, "servername", config_get_server_name());
   htsmsg_add_str(r, "serverversion", tvheadend_version);
   htsmsg_add_bin(r, "challenge", htsp->htsp_challenge, 32);
   if (tvheadend_webroot)
@@ -1756,7 +1762,7 @@ htsp_method_addAutorecEntry(htsp_connection_t *htsp, htsmsg_t *in)
     min_duration = 0;    // 0 = any
   if(htsmsg_get_u32(in, "retention", &retention))
     retention = 0;       // 0 = dvr config
-  if(htsmsg_get_u32(in, "removal", &retention))
+  if(htsmsg_get_u32(in, "removal", &removal))
     removal = 0;         // 0 = dvr config
   if(htsmsg_get_u32(in, "daysOfWeek", &days_of_week))
     days_of_week = 0x7f; // all days
@@ -2156,7 +2162,7 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
    */
   LIST_INSERT_HEAD(&htsp->htsp_subscriptions, hs, hs_link);
 
-  tvhdebug("htsp", "%s - subscribe to %s using profile %s\n",
+  tvhdebug("htsp", "%s - subscribe to %s using profile %s",
            htsp->htsp_logname, channel_get_name(ch), pro->pro_name ?: "");
   hs->hs_s = subscription_create_from_channel(&hs->hs_prch, NULL, weight,
 					      htsp->htsp_logname,

@@ -1,6 +1,7 @@
 /*
  *  tvheadend, WEBUI / HTML user interface
  *  Copyright (C) 2008 Andreas Öman
+ *  Copyright (C) 2014,2015 Jaroslav Kysela
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -463,21 +464,6 @@ http_stream_run(http_connection_t *hc, profile_chain_t *prch,
 /*
  *
  */
-static char *
-http_get_hostpath(http_connection_t *hc)
-{  
-  char buf[255];
-  const char *host = http_arg_get(&hc->hc_args, "Host") ?: http_arg_get(&hc->hc_args, "X-Forwarded-Host");
-  const char *proto = http_arg_get(&hc->hc_args, "X-Forwarded-Proto");
-
-  snprintf(buf, sizeof(buf), "%s://%s%s", proto ?: "http", host, tvheadend_webroot ?: "");
-
-  return strdup(buf);
-}
-
-/*
- *
- */
 static void
 http_m3u_playlist_add(htsbuf_queue_t *hq, const char *hostpath,
                       const char *url_remain, const char *profile,
@@ -837,7 +823,7 @@ http_dvr_list_playlist(http_connection_t *hc, int pltype)
   char buf[255];
   dvr_entry_t *de;
   const char *uuid;
-  char *hostpath = http_get_hostpath(hc);
+  char *hostpath;
   off_t fsize;
   time_t durration;
   struct tm tm;
@@ -847,6 +833,7 @@ http_dvr_list_playlist(http_connection_t *hc, int pltype)
     return HTTP_STATUS_BAD_REQUEST;
 
   hq = &hc->hc_reply;
+  hostpath = http_get_hostpath(hc);
 
   htsbuf_qprintf(hq, "#EXTM3U\n");
   LIST_FOREACH(de, &dvrentries, de_global_link) {
@@ -994,8 +981,14 @@ page_http_playlist(http_connection_t *hc, const char *remain, void *opaque)
     de = dvr_entry_find_by_id(atoi(components[1]));
   else if(nc == 2 && !strcmp(components[0], "tagid"))
     tag = channel_tag_find_by_identifier(atoi(components[1]));
-  else if(nc == 2 && !strcmp(components[0], "tag"))
+  else if(nc == 2 && !strcmp(components[0], "tagname"))
     tag = channel_tag_find_by_name(components[1], 0);
+  else if(nc == 2 && !strcmp(components[0], "tag")) {
+    if (uuid_hexvalid(components[1]))
+      tag = channel_tag_find_by_uuid(components[1]);
+    else
+      tag = channel_tag_find_by_name(components[1], 0);
+  }
 
   if(ch)
     r = http_channel_playlist(hc, pltype, ch);
@@ -1056,11 +1049,11 @@ http_stream_service(http_connection_t *hc, service_t *service, int weight)
     return HTTP_STATUS_UNAUTHORIZED;
 
   if ((str = http_arg_get(&hc->hc_req_args, "descramble")))
-    if (strcmp(str ?: "", "0") == 0)
+    if (strcmp(str, "0") == 0)
       eflags |= SUBSCRIPTION_NODESCR;
 
   if ((str = http_arg_get(&hc->hc_req_args, "emm")))
-    if (strcmp(str ?: "", "1") == 0)
+    if (strcmp(str, "1") == 0)
       eflags |= SUBSCRIPTION_EMM;
 
   flags = SUBSCRIPTION_MPEGTS | eflags;
@@ -1520,6 +1513,8 @@ page_dvrfile(http_connection_t *hc, const char *remain, void *opaque)
     basename++; /* Skip '/' */
     str0 = intlconv_utf8safestr(intlconv_charset_id("ASCII", 1, 1),
                                 basename, strlen(basename) * 3);
+    if (str0 == NULL)
+      return HTTP_STATUS_INTERNAL;
     htsbuf_queue_init(&q, 0);
     htsbuf_append_and_escape_url(&q, basename);
     str = htsbuf_to_string(&q);
@@ -1820,6 +1815,7 @@ webui_init(int xspf)
   http_path_add("/dvrfile", NULL, page_dvrfile, ACCESS_ANONYMOUS);
   http_path_add("/favicon.ico", NULL, favicon, ACCESS_WEB_INTERFACE);
   http_path_add("/playlist", NULL, page_http_playlist, ACCESS_ANONYMOUS);
+  http_path_add("/xmltv", NULL, page_xmltv, ACCESS_ANONYMOUS);
 
   http_path_add("/state", NULL, page_statedump, ACCESS_ADMIN);
 

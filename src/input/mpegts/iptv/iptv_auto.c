@@ -106,11 +106,13 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
   http_arg_list_t args;
   http_arg_t *ra1, *ra2, *ra2_next;
   htsbuf_queue_t q;
-  size_t l = 0;
-  char url2[512], name2[128], *n, *x = NULL;
+  int delim;
+  size_t l;
+  char url2[512], custom[512], name2[128], buf[32], *n, *x = NULL, *y;
 
   if (url == NULL ||
       (strncmp(url, "file://", 7) &&
+       strncmp(url, "pipe://", 7) &&
        strncmp(url, "http://", 7) &&
        strncmp(url, "https://", 8) &&
        strncmp(url, "rtsp://", 7) &&
@@ -127,6 +129,28 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
   }
 
   urlinit(&u);
+  custom[0] = '\0';
+
+  if (strncmp(url, "pipe://", 7) == 0)
+    goto skip_url;
+
+  if (strncmp(url, "http://", 7) == 0 ||
+      strncmp(url, "https://", 8) == 0) {
+    url = n = strdupa(url);
+    delim = 0;
+    while (*n && *n != ' ' && *n != '|') n++;
+    if (*n) { delim = *n; *n = '\0'; n++; }
+    l = 0;
+    while (*n) {
+      while (*n && *n <= ' ') n++;
+      y = n;
+      while (*n && *n != delim && *n != '&') n++;
+      if (*n) { *n = '\0'; n++; }
+      if (*y)
+        tvh_strlcatf(custom, sizeof(custom), l, "%s\n", y);
+    }
+  }
+
   if (urlparse(url, &u))
     return;
   if (u.host == NULL || u.host[0] == '\0')
@@ -158,6 +182,7 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
       htsbuf_queue_flush(&q);
     }
     http_arg_flush(&args);
+    l = 0;
     tvh_strlcatf(url2, sizeof(url2), l, "%s://", u.scheme);
     if (u.user && u.user[0] && u.pass && u.pass[0])
       tvh_strlcatf(url2, sizeof(url2), l, "%s:%s@", u.user, u.pass);
@@ -170,6 +195,8 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
     url = url2;
   }
 
+skip_url:
+  x = NULL;
   if (last_url) {
     if (charset_id) {
       x = intlconv_to_utf8safestr(charset_id, name, strlen(name)*2);
@@ -205,6 +232,11 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
         change = 1;
       }
       change |= replace_string(&im->mm_iptv_epgid, epgid, charset_id);
+      if (strcmp(im->mm_iptv_hdr ?: "", custom)) {
+        free(im->mm_iptv_hdr);
+        im->mm_iptv_hdr = strdup(custom);
+        change = 1;
+      }
       if (change)
         idnode_notify_changed(&im->mm_id);
       (*total)++;
@@ -219,8 +251,19 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
     htsmsg_add_str(conf, "iptv_muxname", n);
   if (name)
     htsmsg_add_str(conf, "iptv_sname", name);
+  if (chnum) {
+    snprintf(buf, sizeof(buf), "%ld.%ld",
+             (long)(chnum / CHANNEL_SPLIT), (long)(chnum % CHANNEL_SPLIT));
+    htsmsg_add_str(conf, "channel_number", buf);
+  }
+  if (logo)
+    htsmsg_add_str(conf, "iptv_icon", logo);
+  if (epgid)
+    htsmsg_add_str(conf, "iptv_epgid", epgid);
   if (!in->in_scan_create)
     htsmsg_add_s32(conf, "scan_result", MM_SCAN_OK);
+  if (custom[0])
+    htsmsg_add_str(conf, "iptv_hdr", custom);
   im = iptv_mux_create0(in, NULL, conf);
   htsmsg_destroy(conf);
 

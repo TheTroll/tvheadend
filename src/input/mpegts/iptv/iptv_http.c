@@ -76,6 +76,7 @@ iptv_http_header ( http_client_t *hc )
     if (n > 0 &&
         (strcasecmp(s, "audio/mpegurl") == 0 ||
          strcasecmp(s, "audio/x-mpegurl") == 0 ||
+         strcasecmp(s, "application/x-mpegurl") == 0 ||
          strcasecmp(s, "application/apple.vnd.mpegurl") == 0 ||
          strcasecmp(s, "application/vnd.apple.mpegurl") == 0)) {
       if (im->im_m3u_header > 10) {
@@ -132,7 +133,7 @@ iptv_http_complete
   ( http_client_t *hc )
 {
   iptv_mux_t *im = hc->hc_aux;
-  char *url;
+  char *url, *url2, *s, *p;
   url_t u;
   int r;
 
@@ -140,18 +141,43 @@ iptv_http_complete
     im->im_m3u_header = 0;
     sbuf_append(&im->mm_iptv_buffer, "", 1);
     url = iptv_http_m3u((char *)im->mm_iptv_buffer.sb_data);
+    tvhtrace("iptv", "m3u url: '%s'", url);
     sbuf_reset(&im->mm_iptv_buffer, IPTV_BUF_SIZE);
     if (url == NULL) {
       tvherror("iptv", "m3u contents parsing failed");
       return 0;
     }
     urlinit(&u);
+    if (url[0] == '/') {
+      url2 = malloc(512);
+      url2[0] = '\0';
+      if ((p = http_arg_get(&hc->hc_args, "Host")) != NULL) {
+        snprintf(url2, 512, "%s://%s%s",
+                 hc->hc_ssl ? "https" : "http", p, url);
+      } else if (im->mm_iptv_url_raw) {
+        s = strdupa(im->mm_iptv_url_raw);
+        if ((p = strchr(s, '/')) != NULL) {
+          p++;
+          if (*p == '/')
+            p++;
+          if ((p = strchr(p, '/')) != NULL)
+            *p = '\0';
+        }
+        if (urlparse(s, &u))
+          goto invalid;
+        snprintf(url2, 512, "%s%s", s, url);
+      }
+      free(url);
+      url = url2;
+      urlinit(&u);
+    }
     if (!urlparse(url, &u)) {
       hc->hc_keepalive = 0;
       r = http_client_simple_reconnect(hc, &u, HTTP_VERSION_1_1);
       if (r < 0)
         tvherror("iptv", "cannot reopen http client: %d'", r);
     } else {
+invalid:
       tvherror("iptv", "m3u url invalid '%s'", url);
     }
     urlreset(&u);
@@ -159,6 +185,19 @@ iptv_http_complete
     return 0;
   }
   return 0;
+}
+
+/*
+ * Custom headers
+ */
+static void
+iptv_http_create_header
+  ( http_client_t *hc, http_arg_list_t *h, const url_t *url, int keepalive )
+{
+  iptv_mux_t *im = hc->hc_aux;
+
+  http_client_basic_args(hc, h, url, keepalive);
+  http_client_add_args(hc, h, im->mm_iptv_hdr);
 }
 
 /*
@@ -174,6 +213,7 @@ iptv_http_start
   if (!(hc = http_client_connect(im, HTTP_VERSION_1_1, u->scheme,
                                  u->host, u->port, NULL)))
     return SM_CODE_TUNING_FAILED;
+  hc->hc_hdr_create      = iptv_http_create_header;
   hc->hc_hdr_received    = iptv_http_header;
   hc->hc_data_received   = iptv_http_data;
   hc->hc_data_complete   = iptv_http_complete;

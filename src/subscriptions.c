@@ -606,8 +606,8 @@ subscription_unsubscribe(th_subscription_t *s, int quiet)
   }
 
 #if ENABLE_MPEGTS
-  if (raw)
-    service_remove_raw(s->ths_raw_service);
+  if (raw && t == raw)
+    service_remove_raw(raw);
 #endif
 
   streaming_msg_free(s->ths_start_message);
