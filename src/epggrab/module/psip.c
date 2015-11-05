@@ -93,7 +93,7 @@ _psip_eit_callback_channel
     titlelen = ptr[9];
     dlen = ((ptr[10+titlelen] & 0x0f) << 8) | ptr[11+titlelen];
     size = titlelen + dlen + 12;
-    // tvhtrace("psip", "  %03d: titlelen %d, dlen %d", i, titlelen, dlen);
+    tvhtrace("psip", "  %03d: titlelen %d, dlen %d", i, titlelen, dlen);
 
     if (size > len) break;
 
@@ -170,7 +170,7 @@ _psip_eit_callback
 
   /* # events */
   count = ptr[6];
-  tvhtrace("psip", "event count %d", count);
+  tvhtrace("psip", "event count %d data len %d", count, len);
   ptr  += 7;
   len  -= 7;
 

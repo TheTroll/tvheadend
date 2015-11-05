@@ -1456,10 +1456,17 @@ dosave:
   if (save) {
     idnode_changed(&de->de_id);
     htsp_dvr_entry_update(de);
-    tvhlog(LOG_INFO, "dvr", "\"%s\" on \"%s\": Updated%s (%s)",
+    if (tvhlog_limit(&de->de_update_limit, 60)) {
+      tvhlog(LOG_INFO, "dvr", "\"%s\" on \"%s\": Updated%s (%s)",
              lang_str_get(de->de_title, NULL), DVR_CH_NAME(de),
              updated ? " Timer" : "",
              dvr_updated_str(buf, sizeof(buf), save));
+    } else {
+      tvhtrace("dvr", "\"%s\" on \"%s\": Updated%s (%s)",
+               lang_str_get(de->de_title, NULL), DVR_CH_NAME(de),
+               updated ? " Timer" : "",
+               dvr_updated_str(buf, sizeof(buf), save));
+    }
   }
 
   return de;
@@ -1617,12 +1624,13 @@ void dvr_event_running(epg_broadcast_t *e, epg_source_t esrc, int running)
       continue;
     }
     if (running && de->de_dvb_eid == e->dvb_eid) {
-      if (!de->de_running_start)
+      if (!de->de_running_start) {
         tvhdebug("dvr", "dvr entry %s event %s on %s - EPG marking start",
                  idnode_uuid_as_sstr(&de->de_id),
                  epg_broadcast_get_title(e, NULL),
                  channel_get_name(e->channel));
-      de->de_running_start = dispatch_clock;
+        de->de_running_start = dispatch_clock;
+      }
       if (dvr_entry_get_start_time(de) > dispatch_clock) {
         de->de_start = dispatch_clock;
         dvr_entry_set_timer(de);
@@ -1632,6 +1640,14 @@ void dvr_event_running(epg_broadcast_t *e, epg_source_t esrc, int running)
                  channel_get_name(e->channel));
       }
     } else if ((!running && de->de_dvb_eid == e->dvb_eid) || running) {
+      /*
+       * make checking more robust
+       * sometimes, the running bits are parsed randomly for a few moments
+       * so don't expect that the broacasting has only 5 seconds
+       */
+      if (de->de_running_start + 5 > dispatch_clock)
+        continue;
+
       srcname = de->de_dvb_eid == e->dvb_eid ? "event" : "other running event";
       if (!de->de_running_stop ||
           de->de_running_start > de->de_running_stop) {
@@ -1642,14 +1658,12 @@ void dvr_event_running(epg_broadcast_t *e, epg_source_t esrc, int running)
       }
       de->de_running_stop = dispatch_clock;
       if (de->de_sched_state == DVR_RECORDING && de->de_running_start) {
-        if (dvr_entry_get_stop_time(de) > dispatch_clock) {
-          de->de_dont_reschedule = 1;
-          dvr_stop_recording(de, SM_CODE_OK, 0, 0);
-          tvhdebug("dvr", "dvr entry %s %s %s on %s - EPG stop",
+        de->de_dont_reschedule = 1;
+        dvr_stop_recording(de, SM_CODE_OK, 0, 0);
+        tvhdebug("dvr", "dvr entry %s %s %s on %s - EPG stop",
                  idnode_uuid_as_sstr(&de->de_id), srcname,
                  epg_broadcast_get_title(e, NULL),
                  channel_get_name(de->de_channel));
-        }
       }
     }
   }
