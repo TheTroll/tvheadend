@@ -40,8 +40,8 @@
 #include "channels.h"
 #include "config.h"
 
-#define PROXY_IP1 "10.4.0.1"
-#define PROXY_IP2 "10.5.0.1"
+#define PROXY_IP1 "10.4.0.2"
+#define PROXY_IP2 "10.4.0.3"
 
 
 #if ENABLE_ANDROID
