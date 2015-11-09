@@ -423,8 +423,15 @@ capmt_pid_flush_adapter(capmt_t *capmt, int adapter)
   int pid, i;
 
   tuner = capmt->capmt_adapters[adapter].ca_tuner;
-  if (tuner == NULL)
+  if (tuner == NULL) {
+    /* clean all pids (to be sure) */
+    for (i = 0; i < MAX_PIDS; i++) {
+      o = &ca->ca_pids[i];
+      o->pid = 0;
+      o->pid_refs = 0;
+    }
     return;
+  }
   ca = &capmt->capmt_adapters[adapter];
   mmi = LIST_FIRST(&tuner->mi_mux_active);
   mux = mmi ? mmi->mmi_mux : NULL;
@@ -1688,16 +1695,17 @@ capmt_thread(void *aux)
       pthread_mutex_unlock(&capmt->capmt_mutex);
       continue;
     }
-    pthread_mutex_unlock(&capmt->capmt_mutex);
 
     /* close opened sockets */
     for (i = 0; i < MAX_SOCKETS; i++)
-        capmt_socket_close_lock(capmt, i);
-    for (i = 0; i < MAX_CA; i++)
+      capmt_socket_close(capmt, i);
+
+    /* close all tuners */
+    for (i = 0; i < MAX_CA; i++) {
       if (capmt->capmt_adapters[i].ca_sock >= 0)
         close(capmt->capmt_adapters[i].ca_sock);
-
-    pthread_mutex_lock(&capmt->capmt_mutex);
+      capmt->capmt_adapters[i].ca_tuner = NULL;
+    }
 
     if (!capmt->capmt_running) {
       pthread_mutex_unlock(&capmt->capmt_mutex);
@@ -1711,8 +1719,8 @@ capmt_thread(void *aux)
       d = 60;
     }
 
-    ts.tv_sec = time(NULL) + d;
-    ts.tv_nsec = 0;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += d;
 
     tvhlog(LOG_INFO, "capmt", "%s: Automatic reconnection attempt in in %d seconds", idnode_get_title(&capmt->cac_id, NULL), d);
 
