@@ -524,7 +524,7 @@ dvr_timerec_entry_class_owner_opts(void *o)
 
 const idclass_t dvr_timerec_entry_class = {
   .ic_class      = "dvrtimerec",
-  .ic_caption    = N_("DVR Time-Record Entry"),
+  .ic_caption    = N_("DVR time record entry"),
   .ic_event      = "dvrtimerec",
   .ic_save       = dvr_timerec_entry_class_save,
   .ic_get_title  = dvr_timerec_entry_class_get_title,
@@ -608,19 +608,19 @@ const idclass_t dvr_timerec_entry_class = {
     {
       .type     = PT_U32,
       .id       = "retention",
-      .name     = N_("DVR Log Retention (days)"),
+      .name     = N_("DVR log retention (days)"),
       .off      = offsetof(dvr_timerec_entry_t, dte_retention),
     },
     {
       .type     = PT_U32,
       .id       = "removal",
-      .name     = N_("File removal (days)"),
+      .name     = N_("DVR file retention period (days)"),
       .off      = offsetof(dvr_timerec_entry_t, dte_removal),
     },
     {
       .type     = PT_STR,
       .id       = "config_name",
-      .name     = N_("DVR Configuration"),
+      .name     = N_("DVR configuration"),
       .set      = dvr_timerec_entry_class_config_name_set,
       .get      = dvr_timerec_entry_class_config_name_get,
       .rend     = dvr_timerec_entry_class_config_name_rend,

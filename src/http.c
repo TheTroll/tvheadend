@@ -34,7 +34,6 @@
 #include "tvheadend.h"
 #include "tcp.h"
 #include "http.h"
-#include "filebundle.h"
 #include "access.h"
 #include "notify.h"
 #include "channels.h"
@@ -380,7 +379,7 @@ http_send_reply(http_connection_t *hc, int rc, const char *content,
 #if ENABLE_ZLIB
   if (http_encoding_valid(hc, "gzip") && encoding == NULL && size > 256) {
     uint8_t *data2 = (uint8_t *)htsbuf_to_string(&hc->hc_reply);
-    data = gzip_deflate(data2, size, &size);
+    data = tvh_gzip_deflate(data2, size, &size);
     free(data2);
     encoding = "gzip";
   }
@@ -553,9 +552,13 @@ http_access_verify_ticket(http_connection_t *hc)
 int
 http_access_verify(http_connection_t *hc, int mask)
 {
-  http_access_verify_ticket(hc);
+  int res = -1;
 
-  if (hc->hc_access == NULL) {
+  http_access_verify_ticket(hc);
+  if (hc->hc_access)
+    res = access_verify2(hc->hc_access, mask);
+
+  if (res) {
     struct sockaddr real_peer = {0, }, *peer;
     char authbuf[128]; int port; char *v;
 
@@ -575,12 +578,13 @@ http_access_verify(http_connection_t *hc, int mask)
       }
     }
 
+    access_destroy(hc->hc_access);
     hc->hc_access = access_get(hc->hc_username, hc->hc_password, peer);
-    if (hc->hc_access == NULL)
-      return -1;
+    if (hc->hc_access)
+      res = access_verify2(hc->hc_access, mask);
   }
 
-  return access_verify2(hc->hc_access, mask);
+  return res;
 }
 
 /**
@@ -588,27 +592,33 @@ http_access_verify(http_connection_t *hc, int mask)
  */
 int
 http_access_verify_channel(http_connection_t *hc, int mask,
-                           struct channel *ch, int ticket)
+                           struct channel *ch)
 {
   int res = -1;
 
   assert(ch);
 
-  if (ticket)
-    http_access_verify_ticket(hc);
+  http_access_verify_ticket(hc);
+  if (hc->hc_access) {
+    res = access_verify2(hc->hc_access, mask);
 
-  if (hc->hc_access == NULL) {
-    hc->hc_access = access_get(hc->hc_username, hc->hc_password,
-                               (struct sockaddr *)hc->hc_peer);
-    if (hc->hc_access == NULL)
-      return -1;
+    if (!res && !channel_access(ch, hc->hc_access, 0))
+      res = -1;
   }
 
-  if (access_verify2(hc->hc_access, mask))
-    return -1;
+  if (res) {
+    access_destroy(hc->hc_access);
+    hc->hc_access = access_get(hc->hc_username, hc->hc_password,
+                               (struct sockaddr *)hc->hc_peer);
+    if (hc->hc_access) {
+      res = access_verify2(hc->hc_access, mask);
 
-  if (channel_access(ch, hc->hc_access, 0))
-    res = 0;
+      if (!res && !channel_access(ch, hc->hc_access, 0))
+        res = -1;
+    }
+  }
+
+
   return res;
 }
 

@@ -96,6 +96,9 @@ mpegts_input_class_network_enum ( void *obj, const char *lang )
 {
   htsmsg_t *p, *m;
 
+  if (!obj)
+    return NULL;
+
   p = htsmsg_create_map();
   htsmsg_add_str (p, "uuid",    idnode_uuid_as_sstr((idnode_t*)obj));
   htsmsg_add_bool(p, "enum",    1);
@@ -215,7 +218,7 @@ const idclass_t mpegts_input_class =
 {
   .ic_super      = &tvh_input_class,
   .ic_class      = "mpegts_input",
-  .ic_caption    = N_("MPEG-TS Input"),
+  .ic_caption    = N_("MPEG-TS input"),
   .ic_event      = "mpegts_input",
   .ic_perm_def   = ACCESS_ADMIN,
   .ic_get_title  = mpegts_input_class_get_title,
@@ -239,7 +242,7 @@ const idclass_t mpegts_input_class =
     {
       .type     = PT_INT,
       .id       = "spriority",
-      .name     = N_("Streaming Priority"),
+      .name     = N_("Streaming priority"),
       .off      = offsetof(mpegts_input_t, mi_streaming_priority),
       .def.i    = 1,
       .opts     = PO_ADVANCED
@@ -261,7 +264,7 @@ const idclass_t mpegts_input_class =
     {
       .type     = PT_BOOL,
       .id       = "initscan",
-      .name     = N_("Initial Scan"),
+      .name     = N_("Initial scan"),
       .off      = offsetof(mpegts_input_t, mi_initscan),
       .def.i    = 1,
       .opts     = PO_ADVANCED,
@@ -269,7 +272,7 @@ const idclass_t mpegts_input_class =
     {
       .type     = PT_BOOL,
       .id       = "idlescan",
-      .name     = N_("Idle Scan"),
+      .name     = N_("Idle scan"),
       .off      = offsetof(mpegts_input_t, mi_idlescan),
       .def.i    = 1,
       .opts     = PO_ADVANCED,
@@ -287,7 +290,7 @@ const idclass_t mpegts_input_class =
     {
       .type     = PT_STR,
       .id       = "linked",
-      .name     = N_("Linked Input"),
+      .name     = N_("Linked input"),
       .set      = mpegts_input_class_linked_set,
       .get      = mpegts_input_class_linked_get,
       .list     = mpegts_input_class_linked_enum,
@@ -927,6 +930,28 @@ mpegts_input_tuning_error ( mpegts_input_t *mi, mpegts_mux_t *mm )
  * *************************************************************************/
 
 static int inline
+get_pcr ( const uint8_t *tsb, int64_t *rpcr )
+{
+  int_fast64_t pcr;
+
+  if (tsb[1] & 0x80) /* error bit */
+    return 0;
+
+  if ((tsb[3] & 0x20) == 0 ||
+      tsb[4] <= 5 ||
+      (tsb[5] & 0x10) == 0)
+    return 0;
+
+  pcr  = (uint64_t)tsb[6] << 25;
+  pcr |= (uint64_t)tsb[7] << 17;
+  pcr |= (uint64_t)tsb[8] << 9;
+  pcr |= (uint64_t)tsb[9] << 1;
+  pcr |= ((uint64_t)tsb[10] >> 7) & 0x01;
+  *rpcr = pcr;
+  return 1;
+}
+
+static int inline
 ts_sync_count ( const uint8_t *tsb, int len )
 {
   const uint8_t *start = tsb;
@@ -952,7 +977,7 @@ ts_sync_count ( const uint8_t *tsb, int len )
 void
 mpegts_input_recv_packets
   ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi, sbuf_t *sb,
-    int64_t *pcr, uint16_t *pcr_pid )
+    int64_t *pcr_first, int64_t *pcr_last, uint16_t *pcr_pid )
 {
   int len2 = 0, off = 0;
   mpegts_packet_t *mp;
@@ -982,14 +1007,28 @@ mpegts_input_recv_packets
   //       without the potential need to buffer data (since that would
   //       require per mmi buffers, where this is generally not required)
 
-  /* Extract PCR (used for tsfile playback) */
-  if (pcr && pcr_pid) {
+  /* Extract PCR on demand */
+  if (pcr_first && pcr_last && pcr_pid) {
     uint8_t *tmp, *end;
+    uint16_t pid;
     for (tmp = tsb, end = tsb + len2; tmp < end; tmp += 188) {
-      uint16_t pid = ((tmp[1] & 0x1f) << 8) | tmp[2];
+      pid = ((tmp[1] & 0x1f) << 8) | tmp[2];
       if (*pcr_pid == MPEGTS_PID_NONE || *pcr_pid == pid) {
-        ts_recv_packet1(NULL, tmp, 188, pcr, 0);
-       if (*pcr != PTS_UNSET) *pcr_pid = pid;
+        if (get_pcr(tmp, pcr_first)) {
+          *pcr_pid = pid;
+          break;
+        }
+      }
+    }
+    if (*pcr_pid != MPEGTS_PID_NONE) {
+      for (tmp = tsb + len2 - 188; tmp >= tsb; tmp -= 188) {
+        pid = ((tmp[1] & 0x1f) << 8) | tmp[2];
+        if (*pcr_pid == pid) {
+          if (get_pcr(tmp, pcr_last)) {
+            *pcr_pid = pid;
+            break;
+          }
+        }
       }
     }
   }
@@ -1232,7 +1271,7 @@ mpegts_input_process
           s = mps->mps_owner;
           f = (type & (MPS_TABLE|MPS_FTABLE)) ||
               (pid == s->s_pmt_pid) || (pid == s->s_pcr_pid);
-          ts_recv_packet1((mpegts_service_t*)s, tsb, llen, NULL, f);
+          ts_recv_packet1((mpegts_service_t*)s, tsb, llen, f);
         }
       } else
       /* Stream table data */
@@ -1241,7 +1280,7 @@ mpegts_input_process
           if (s->s_type != STYPE_STD) continue;
           f = (type & (MPS_TABLE|MPS_FTABLE)) ||
               (pid == s->s_pmt_pid) || (pid == s->s_pcr_pid);
-          ts_recv_packet1((mpegts_service_t*)s, tsb, llen, NULL, f);
+          ts_recv_packet1((mpegts_service_t*)s, tsb, llen, f);
         }
       }
 

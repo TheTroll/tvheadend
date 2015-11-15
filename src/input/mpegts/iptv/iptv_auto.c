@@ -44,6 +44,7 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
                                    int *total, int *count)
 {
   htsmsg_t *conf;
+  htsmsg_field_t *f;
   mpegts_mux_t *mm;
   iptv_mux_t *im;
   url_t u;
@@ -51,10 +52,10 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
   http_arg_list_t args;
   http_arg_t *ra1, *ra2, *ra2_next;
   htsbuf_queue_t q;
-  int delim;
   size_t l;
-  const char *url, *name, *logo, *epgid;
-  char url2[512], custom[512], name2[128], buf[32], *n, *y;
+  int64_t chnum2;
+  const char *url, *name, *logo, *epgid, *tags;
+  char url2[512], custom[512], name2[128], buf[32], *n;
 
   url = htsmsg_get_str(item, "m3u-url");
 
@@ -69,7 +70,11 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
        strncmp(url, "rtp://", 6)))
     return;
 
-  if (chnum) {
+  epgid = htsmsg_get_str(item, "tvh-chnum");
+  chnum2 = epgid ? prop_intsplit_from_str(epgid, CHANNEL_SPLIT) : 0;
+  if (chnum2 > 0) {
+    chnum += chnum2;
+  } else if (chnum) {
     if (chnum % CHANNEL_SPLIT)
       chnum += *total;
     else
@@ -85,6 +90,15 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
     logo = htsmsg_get_str(item, "logo");
 
   epgid = htsmsg_get_str(item, "tvg-id");
+  tags  = htsmsg_get_str(item, "tvh-tags");
+  if (tags) {
+    tags = n = strdupa(tags);
+    while (*n) {
+      if (*n == '|')
+        *n = '\n';
+      n++;
+    }
+  }
 
   urlinit(&u);
   custom[0] = '\0';
@@ -94,18 +108,12 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
 
   if (strncmp(url, "http://", 7) == 0 ||
       strncmp(url, "https://", 8) == 0) {
-    url = n = strdupa(url);
-    delim = 0;
-    while (*n && *n != ' ' && *n != '|') n++;
-    if (*n) { delim = *n; *n = '\0'; n++; }
-    l = 0;
-    while (*n) {
-      while (*n && *n <= ' ') n++;
-      y = n;
-      while (*n && *n != delim && *n != '&') n++;
-      if (*n) { *n = '\0'; n++; }
-      if (*y)
-        tvh_strlcatf(custom, sizeof(custom), l, "%s\n", y);
+    conf = htsmsg_get_list(item, "m3u-http-headers");
+    if (conf) {
+      l = 0;
+      HTSMSG_FOREACH(f, conf)
+        if ((n = (char *)htsmsg_field_get_str(f)) != NULL)
+          tvh_strlcatf(custom, sizeof(custom), l, "%s\n", n);
     }
   }
 
@@ -147,7 +155,8 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
     tvh_strlcatf(url2, sizeof(url2), l, "%s", u.host);
     if (u.port > 0)
       tvh_strlcatf(url2, sizeof(url2), l, ":%d", u.port);
-    tvh_strlcatf(url2, sizeof(url2), l, "%s", u.path);
+    if (u.path)
+      tvh_strlcatf(url2, sizeof(url2), l, "%s", u.path);
     if (u.query)
       tvh_strlcatf(url2, sizeof(url2), l, "?%s", u.query);
     url = url2;
@@ -194,6 +203,11 @@ skip_url:
         im->mm_iptv_hdr = strdup(custom);
         change = 1;
       }
+      if (strcmp(im->mm_iptv_tags ?: "", tags ?: "")) {
+        free(im->mm_iptv_tags);
+        im->mm_iptv_tags = strdup(tags);
+        change = 1;
+      }
       if (change)
         idnode_notify_changed(&im->mm_id);
       (*total)++;
@@ -217,6 +231,8 @@ skip_url:
     htsmsg_add_str(conf, "iptv_icon", logo);
   if (epgid)
     htsmsg_add_str(conf, "iptv_epgid", epgid);
+  if (tags)
+    htsmsg_add_str(conf, "iptv_tags", tags);
   if (!in->in_scan_create)
     htsmsg_add_s32(conf, "scan_result", MM_SCAN_OK);
   if (custom[0])
@@ -277,7 +293,7 @@ iptv_auto_network_process(void *aux, const char *last_url,
 {
   auto_private_t *ap = aux;
   iptv_network_t *in = ap->in_network;
-  mpegts_mux_t *mm;
+  mpegts_mux_t *mm, *mm2;
   int r = -1, count, n, i;
   http_arg_list_t remove_args;
   char *argv[10];
@@ -307,11 +323,13 @@ iptv_auto_network_process(void *aux, const char *last_url,
 
   if (r == 0) {
     count = 0;
-    LIST_FOREACH(mm, &in->mn_muxes, mm_network_link)
+    for (mm = LIST_FIRST(&in->mn_muxes); mm; mm = mm2) {
+      mm2 = LIST_NEXT(mm, mm_network_link);
       if (((iptv_mux_t *)mm)->im_delete_flag) {
         mm->mm_delete(mm, 1);
         count++;
       }
+    }
     if (count > 0)
       tvhinfo("iptv", "removed %d mux(es) from network '%s'", count, in->mn_network_name);
   } else {
