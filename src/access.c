@@ -337,7 +337,7 @@ access_ip_blocked(struct sockaddr *src)
   ipblock_entry_t *ib;
 
   TAILQ_FOREACH(ib, &ipblock_entries, ib_link)
-    if (netmask_verify(&ib->ib_ipmasks, src))
+    if (ib->ib_enabled && netmask_verify(&ib->ib_ipmasks, src))
       return 1;
   return 0;
 }
@@ -407,7 +407,7 @@ access_dump_a(access_t *a)
   int first;
 
   tvh_strlcatf(buf, sizeof(buf), l,
-    "%s:%s [%c%c%c%c%c%c%c%c%c%c], conn=%u:s%u:r%u%s",
+    "%s:%s [%c%c%c%c%c%c%c%c%c%c], conn=%u:s%u:r%u:l%u%s",
     a->aa_representative ?: "<no-id>",
     a->aa_username ?: "<no-user>",
     a->aa_rights & ACCESS_STREAMING          ? 'S' : ' ',
@@ -423,6 +423,7 @@ access_dump_a(access_t *a)
     a->aa_conn_limit,
     a->aa_conn_limit_streaming,
     a->aa_conn_limit_dvr,
+    a->aa_uilevel,
     a->aa_match ? ", matched" : "");
 
   if (a->aa_profiles) {
@@ -486,7 +487,21 @@ access_dump_a(access_t *a)
  */
 static access_t *access_alloc(void)
 {
-  return calloc(1, sizeof(access_t));
+  access_t *a = calloc(1, sizeof(access_t));
+  a->aa_uilevel = -1;
+  a->aa_uilevel_nochange = -1;
+  return a;
+}
+
+/*
+ *
+ */
+static access_t *access_full(access_t *a)
+{
+  a->aa_rights = ACCESS_FULL;
+  a->aa_uilevel = UILEVEL_EXPERT;
+  a->aa_uilevel_nochange = config.uilevel_nochange;
+  return a;
 }
 
 /*
@@ -497,6 +512,7 @@ access_update(access_t *a, access_entry_t *ae)
 {
   idnode_list_mapping_t *ilm;
   const char *s;
+  char ubuf[UUID_HEX_SIZE];
 
   switch (ae->ae_conn_limit_type) {
   case ACCESS_CONN_LIMIT_TYPE_ALL:
@@ -513,6 +529,14 @@ access_update(access_t *a, access_entry_t *ae)
     break;
   }
 
+  if(ae->ae_uilevel > a->aa_uilevel)
+    a->aa_uilevel = ae->ae_uilevel;
+
+  if(a->aa_uilevel_nochange < 0)
+    a->aa_uilevel_nochange = ae->ae_uilevel_nochange;
+  else if(a->aa_uilevel_nochange && !ae->ae_uilevel_nochange)
+    a->aa_uilevel_nochange = 0;
+
   if(ae->ae_chmin || ae->ae_chmax) {
     uint64_t *p = realloc(a->aa_chrange, (a->aa_chrange_count + 2) * sizeof(uint64_t));
     if (p) {
@@ -527,7 +551,7 @@ access_update(access_t *a, access_entry_t *ae)
     if(pro && pro->pro_name[0] != '\0') {
       if (a->aa_profiles == NULL)
         a->aa_profiles = htsmsg_create_list();
-      htsmsg_add_str_exclusive(a->aa_profiles, idnode_uuid_as_sstr(&pro->pro_id));
+      htsmsg_add_str_exclusive(a->aa_profiles, idnode_uuid_as_str(&pro->pro_id, ubuf));
     }
   }
 
@@ -536,7 +560,7 @@ access_update(access_t *a, access_entry_t *ae)
     if(dvr && dvr->dvr_config_name[0] != '\0') {
       if (a->aa_dvrcfgs == NULL)
         a->aa_dvrcfgs = htsmsg_create_list();
-      htsmsg_add_str_exclusive(a->aa_dvrcfgs, idnode_uuid_as_sstr(&dvr->dvr_id));
+      htsmsg_add_str_exclusive(a->aa_dvrcfgs, idnode_uuid_as_str(&dvr->dvr_id, ubuf));
      }
   }
 
@@ -551,7 +575,7 @@ access_update(access_t *a, access_entry_t *ae)
         if (ilm == NULL) {
           if (a->aa_chtags == NULL)
             a->aa_chtags = htsmsg_create_list();
-          htsmsg_add_str_exclusive(a->aa_chtags, idnode_uuid_as_sstr(&ct->ct_id));
+          htsmsg_add_str_exclusive(a->aa_chtags, idnode_uuid_as_str(&ct->ct_id, ubuf));
         }
       }
     }
@@ -561,7 +585,7 @@ access_update(access_t *a, access_entry_t *ae)
       if(ct && ct->ct_name[0] != '\0') {
         if (a->aa_chtags == NULL)
           a->aa_chtags = htsmsg_create_list();
-        htsmsg_add_str_exclusive(a->aa_chtags, idnode_uuid_as_sstr(&ct->ct_id));
+        htsmsg_add_str_exclusive(a->aa_chtags, idnode_uuid_as_str(&ct->ct_id, ubuf));
       }
     }
   }
@@ -592,6 +616,10 @@ access_set_lang_ui(access_t *a)
     if (a->aa_lang)
       a->aa_lang_ui = strdup(a->aa_lang);
   }
+  if (a->aa_uilevel < 0)
+    a->aa_uilevel = config.uilevel;
+  if (a->aa_uilevel_nochange < 0)
+    a->aa_uilevel_nochange = config.uilevel_nochange;
 }
 
 /**
@@ -611,25 +639,19 @@ access_get(const char *username, const char *password, struct sockaddr *src)
     a->aa_username = strdup(username);
     a->aa_representative = strdup(username);
     if(!passwd_verify2(username, password,
-                       superuser_username, superuser_password)) {
-      a->aa_rights = ACCESS_FULL;
-      return a;
-    }
+                       superuser_username, superuser_password))
+      return access_full(a);
   } else {
     a->aa_representative = malloc(50);
     tcp_get_str_from_ip((struct sockaddr*)src, a->aa_representative, 50);
     if(!passwd_verify2(username, password,
-                       superuser_username, superuser_password)) {
-      a->aa_rights = ACCESS_FULL;
-      return a;
-    }
+                       superuser_username, superuser_password))
+      return access_full(a);
     username = NULL;
   }
 
-  if (access_noacl) {
-    a->aa_rights = ACCESS_FULL;
-    return a;
-  }
+  if (access_noacl)
+    return access_full(a);
 
   TAILQ_FOREACH(ae, &access_entries, ae_link) {
 
@@ -684,25 +706,19 @@ access_get_hashed(const char *username, const uint8_t digest[20],
     a->aa_username = strdup(username);
     a->aa_representative = strdup(username);
     if(!passwd_verify_digest2(username, digest, challenge,
-                              superuser_username, superuser_password)) {
-      a->aa_rights = ACCESS_FULL;
-      return a;
-    }
+                              superuser_username, superuser_password))
+      return access_full(a);
   } else {
     a->aa_representative = malloc(50);
     tcp_get_str_from_ip((struct sockaddr*)src, a->aa_representative, 50);
     if(!passwd_verify_digest2(username, digest, challenge,
-                              superuser_username, superuser_password)) {
-      a->aa_rights = ACCESS_FULL;
-      return a;
-    }
+                              superuser_username, superuser_password))
+      return access_full(a);
     username = NULL;
   }
 
-  if(access_noacl) {
-    a->aa_rights = ACCESS_FULL;
-    return a;
-  }
+  if(access_noacl)
+    return access_full(a);
 
   TAILQ_FOREACH(ae, &access_entries, ae_link) {
 
@@ -750,10 +766,8 @@ access_get_by_username(const char *username)
   a->aa_username = strdup(username);
   a->aa_representative = strdup(username);
 
-  if(access_noacl) {
-    a->aa_rights = ACCESS_FULL;
-    return a;
-  }
+  if(access_noacl)
+    return access_full(a);
 
   if (username[0] == '\0')
     return a;
@@ -786,10 +800,8 @@ access_get_by_addr(struct sockaddr *src)
   a->aa_representative = malloc(50);
   tcp_get_str_from_ip(src, a->aa_representative, 50);
 
-  if(access_noacl) {
-    a->aa_rights = ACCESS_FULL;
-    return a;
-  }
+  if(access_noacl)
+    return access_full(a);
 
   if (access_ip_blocked(src))
     return a;
@@ -1039,6 +1051,9 @@ access_entry_create(const char *uuid, htsmsg_t *conf)
 
   TAILQ_INIT(&ae->ae_ipmasks);
 
+  ae->ae_uilevel = UILEVEL_DEFAULT;
+  ae->ae_uilevel_nochange = -1;
+
   if (conf) {
     /* defaults */
     ae->ae_htsp_streaming = 1;
@@ -1131,8 +1146,9 @@ void
 access_entry_save(access_entry_t *ae)
 {
   htsmsg_t *c = htsmsg_create_map();
+  char ubuf[UUID_HEX_SIZE];
   idnode_save(&ae->ae_id, c);
-  hts_settings_save(c, "accesscontrol/%s", idnode_uuid_as_sstr(&ae->ae_id));
+  hts_settings_save(c, "accesscontrol/%s", idnode_uuid_as_str(&ae->ae_id, ubuf));
   htsmsg_destroy(c);
 }
 
@@ -1169,8 +1185,9 @@ static void
 access_entry_class_delete(idnode_t *self)
 {
   access_entry_t *ae = (access_entry_t *)self;
+  char ubuf[UUID_HEX_SIZE];
 
-  hts_settings_remove("accesscontrol/%s", idnode_uuid_as_sstr(&ae->ae_id));
+  hts_settings_remove("accesscontrol/%s", idnode_uuid_as_str(&ae->ae_id, ubuf));
   access_entry_destroy(ae);
 }
 
@@ -1356,6 +1373,29 @@ user_get_userlist ( void *obj, const char *lang )
   return m;
 }
 
+static htsmsg_t *
+uilevel_get_list ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("Default"),  UILEVEL_DEFAULT },
+    { N_("Basic"),    UILEVEL_BASIC },
+    { N_("Advanced"), UILEVEL_ADVANCED },
+    { N_("Expert"),   UILEVEL_EXPERT },
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
+static htsmsg_t *
+uilevel_nochange_get_list ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("Default"),  -1 },
+    { N_("No"),        0 },
+    { N_("Yes"),       1 },
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
 const idclass_t access_entry_class = {
   .ic_class      = "access",
   .ic_caption    = N_("Access"),
@@ -1392,6 +1432,23 @@ const idclass_t access_entry_class = {
       .name     = N_("Network prefix"),
       .set      = access_entry_class_prefix_set,
       .get      = access_entry_class_prefix_get,
+      .opts     = PO_ADVANCED
+    },
+    {
+      .type     = PT_INT,
+      .id       = "uilevel",
+      .name     = N_("User interface level"),
+      .off      = offsetof(access_entry_t, ae_uilevel),
+      .list     = uilevel_get_list,
+      .opts     = PO_EXPERT
+    },
+    {
+      .type     = PT_INT,
+      .id       = "uilevel_nochange",
+      .name     = N_("Persistent user interface level"),
+      .off      = offsetof(access_entry_t, ae_uilevel_nochange),
+      .list     = uilevel_nochange_get_list,
+      .opts     = PO_EXPERT
     },
     {
       .type     = PT_STR,
@@ -1407,6 +1464,7 @@ const idclass_t access_entry_class = {
       .name     = N_("Web interface language"),
       .list     = language_get_list,
       .off      = offsetof(access_entry_t, ae_lang_ui),
+      .opts     = PO_ADVANCED,
     },
     {
       .type     = PT_BOOL,
@@ -1435,6 +1493,7 @@ const idclass_t access_entry_class = {
       .get      = access_entry_profile_get,
       .list     = profile_class_get_list,
       .rend     = access_entry_profile_rend,
+      .opts     = PO_ADVANCED,
     },
     {
       .type     = PT_BOOL,
@@ -1476,6 +1535,7 @@ const idclass_t access_entry_class = {
       .get      = access_entry_dvr_config_get,
       .list     = dvr_entry_class_config_name_list,
       .rend     = access_entry_dvr_config_rend,
+      .opts     = PO_ADVANCED,
     },
     {
       .type     = PT_BOOL,
@@ -1495,12 +1555,14 @@ const idclass_t access_entry_class = {
       .name     = N_("Connection limit type"),
       .off      = offsetof(access_entry_t, ae_conn_limit_type),
       .list     = access_entry_conn_limit_type_enum,
+      .opts     = PO_EXPERT
     },
     {
       .type     = PT_U32,
       .id       = "conn_limit",
       .name     = N_("Limit connections"),
       .off      = offsetof(access_entry_t, ae_conn_limit),
+      .opts     = PO_EXPERT
     },
     {
       .type     = PT_S64,
@@ -1521,6 +1583,7 @@ const idclass_t access_entry_class = {
       .id       = "channel_tag_exclude",
       .name     = N_("Exclude channel tags"),
       .off      = offsetof(access_entry_t, ae_chtags_exclude),
+      .opts     = PO_ADVANCED,
     },
     {
       .type     = PT_STR,
@@ -1531,6 +1594,7 @@ const idclass_t access_entry_class = {
       .get      = access_entry_chtag_get,
       .list     = channel_tag_class_get_list,
       .rend     = access_entry_chtag_rend,
+      .opts     = PO_ADVANCED,
     },
     {
       .type     = PT_STR,
@@ -1658,8 +1722,9 @@ void
 passwd_entry_save(passwd_entry_t *pw)
 {
   htsmsg_t *c = htsmsg_create_map();
+  char ubuf[UUID_HEX_SIZE];
   idnode_save(&pw->pw_id, c);
-  hts_settings_save(c, "passwd/%s", idnode_uuid_as_sstr(&pw->pw_id));
+  hts_settings_save(c, "passwd/%s", idnode_uuid_as_str(&pw->pw_id, ubuf));
   htsmsg_destroy(c);
 }
 
@@ -1673,8 +1738,9 @@ static void
 passwd_entry_class_delete(idnode_t *self)
 {
   passwd_entry_t *pw = (passwd_entry_t *)self;
+  char ubuf[UUID_HEX_SIZE];
 
-  hts_settings_remove("passwd/%s", idnode_uuid_as_sstr(&pw->pw_id));
+  hts_settings_remove("passwd/%s", idnode_uuid_as_str(&pw->pw_id, ubuf));
   passwd_entry_destroy(pw);
 }
 
@@ -1763,7 +1829,7 @@ const idclass_t passwd_entry_class = {
       .id       = "password2",
       .name     = N_("Password2"),
       .off      = offsetof(passwd_entry_t, pw_password2),
-      .opts     = PO_PASSWORD | PO_HIDDEN | PO_ADVANCED | PO_WRONCE,
+      .opts     = PO_PASSWORD | PO_HIDDEN | PO_EXPERT | PO_WRONCE,
       .set      = passwd_entry_class_password2_set,
     },
     {
@@ -1823,8 +1889,9 @@ void
 ipblock_entry_save(ipblock_entry_t *ib)
 {
   htsmsg_t *c = htsmsg_create_map();
+  char ubuf[UUID_HEX_SIZE];
   idnode_save(&ib->ib_id, c);
-  hts_settings_save(c, "ipblock/%s", idnode_uuid_as_sstr(&ib->ib_id));
+  hts_settings_save(c, "ipblock/%s", idnode_uuid_as_str(&ib->ib_id, ubuf));
   htsmsg_destroy(c);
 }
 
@@ -1848,8 +1915,9 @@ static void
 ipblock_entry_class_delete(idnode_t *self)
 {
   ipblock_entry_t *ib = (ipblock_entry_t *)self;
+  char ubuf[UUID_HEX_SIZE];
 
-  hts_settings_remove("passwd/%s", idnode_uuid_as_sstr(&ib->ib_id));
+  hts_settings_remove("ipblock/%s", idnode_uuid_as_str(&ib->ib_id, ubuf));
   ipblock_entry_destroy(ib);
 }
 

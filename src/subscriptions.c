@@ -400,6 +400,16 @@ subscription_reschedule(void)
 /**
  *
  */
+void
+subscription_set_weight(th_subscription_t *s, unsigned int weight)
+{
+  lock_assert(&global_lock);
+  s->ths_weight = weight;
+}
+
+/**
+ *
+ */
 static int64_t
 subscription_set_postpone(void *aux, const char *path, int64_t postpone)
 {
@@ -879,6 +889,7 @@ subscription_create_msg(th_subscription_t *s, const char *lang)
 {
   htsmsg_t *m = htsmsg_create_map();
   descramble_info_t *di;
+  profile_t *pro;
   char buf[256];
 
   htsmsg_add_u32(m, "id", s->ths_id);
@@ -925,10 +936,20 @@ subscription_create_msg(th_subscription_t *s, const char *lang)
     htsmsg_add_str(m, "service", s->ths_service->s_nicename ?: "");
 
     if ((di = s->ths_service->s_descramble_info) != NULL) {
-      snprintf(buf, sizeof(buf), "%04X:%06X(%ums)-%s%s%s",
-               di->caid, di->provid, di->ecmtime, di->from,
-               di->reader[0] ? "/" : "", di->reader);
+      if (di->caid == 0 && di->ecmtime == 0) {
+        snprintf(buf, sizeof(buf), N_("Failed"));
+      } else {
+        snprintf(buf, sizeof(buf), "%04X:%06X(%ums)-%s%s%s",
+                 di->caid, di->provid, di->ecmtime, di->from,
+                 di->reader[0] ? "/" : "", di->reader);
+      }
       htsmsg_add_str(m, "descramble", buf);
+    }
+
+    if (s->ths_prch != NULL) {
+      pro = s->ths_prch->prch_pro;
+      if (pro)
+        htsmsg_add_str(m, "profile", idnode_get_title(&pro->pro_id, lang));
     }
 
   } else if(s->ths_dvrfile != NULL)

@@ -48,6 +48,8 @@ typedef struct transcoder_stream {
   LIST_ENTRY(transcoder_stream) ts_link;
   int                           ts_first;
 
+  pktbuf_t                     *ts_input_gh;
+
   void (*ts_handle_pkt) (struct transcoder *, struct transcoder_stream *, th_pkt_t *);
   void (*ts_destroy)    (struct transcoder *, struct transcoder_stream *);
 } transcoder_stream_t;
@@ -504,14 +506,14 @@ transcoder_stream_audio(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 
   if (!avcodec_is_open(ictx)) {
     if (icodec->id == AV_CODEC_ID_AAC || icodec->id == AV_CODEC_ID_VORBIS) {
-      if (pkt->pkt_meta) {
-        ictx->extradata_size = pktbuf_len(pkt->pkt_meta);
+      if (ts->ts_input_gh) {
+        ictx->extradata_size = pktbuf_len(ts->ts_input_gh);
         ictx->extradata = av_malloc(ictx->extradata_size);
         memcpy(ictx->extradata,
-               pktbuf_ptr(pkt->pkt_meta), pktbuf_len(pkt->pkt_meta));
+               pktbuf_ptr(ts->ts_input_gh), pktbuf_len(ts->ts_input_gh));
       } else {
-        /* wait for metadata */
-        return;
+        tvherror("transcode", "%04X: missing meta data for %s",
+                 shortid(t), icodec->id == AV_CODEC_ID_AAC ? "AAC" : "VORBIS");
       }
     }
 
@@ -1098,7 +1100,6 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   vdpau = ictx->opaque;
 
   if (!avcodec_is_open(ictx)) {
-
     // Try to open VPDAU
     if (ENABLE_VDPAU && icodec->id == AV_CODEC_ID_H264)
     {
@@ -1116,6 +1117,17 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
       }
       else
         tvherror("transcode", "VPAU init error %d, using software decoding", ret);
+    }
+
+    if (icodec->id == AV_CODEC_ID_H264) {
+      if (ts->ts_input_gh) {
+        ictx->extradata_size = pktbuf_len(ts->ts_input_gh);
+        ictx->extradata = av_malloc(ictx->extradata_size);
+        memcpy(ictx->extradata,
+               pktbuf_ptr(ts->ts_input_gh), pktbuf_len(ts->ts_input_gh));
+      } else {
+        tvherror("transcode", "%04X: missing meta data for H264", shortid(t));
+      }
     }
 
     if (avcodec_open2(ictx, icodec, NULL) < 0) {
@@ -1200,6 +1212,15 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
     // Encoder uses "time_base" for bitrate calculation, but "time_base" from decoder
     // will be deprecated in the future, therefore calculate "time_base" from "framerate" if available.
     octx->ticks_per_frame = ictx->ticks_per_frame;
+    if (ictx->framerate.num == 0) {
+      ictx->framerate.num = 30;
+      ictx->framerate.den = 1;
+    }
+    if (ictx->time_base.num == 0) {
+      ictx->time_base.num = ictx->framerate.den;
+      ictx->time_base.den = ictx->framerate.num;
+    }
+    octx->framerate = ictx->framerate;
 #if LIBAVCODEC_VERSION_MICRO >= 100 && LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(56, 13, 100) // ffmpeg 2.5
     octx->time_base       = av_inv_q(av_mul_q(ictx->framerate, av_make_q(ictx->ticks_per_frame, 1)));
 #else
@@ -1315,10 +1336,10 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
         av_dict_set_int__(&opts, "crf", t->t_props.tp_vbitrate == 0 ? 18 : MIN(51, t->t_props.tp_vbitrate), 0);
 
         // the following is equivalent to tune=zerolatency for presets: ultra/superfast
-        av_dict_set(&opts, "x265_opts", "bframes=0",        0);
-        av_dict_set(&opts, "x265_opts", ":rc-lookahead=0",  AV_DICT_APPEND);
-        av_dict_set(&opts, "x265_opts", ":scenecut=0",      AV_DICT_APPEND);
-        av_dict_set(&opts, "x265_opts", ":frame-threads=1", AV_DICT_APPEND);
+        av_dict_set(&opts, "x265-params", "bframes=0",        0);
+        av_dict_set(&opts, "x265-params", ":rc-lookahead=0",  AV_DICT_APPEND);
+        av_dict_set(&opts, "x265-params", ":scenecut=0",      AV_DICT_APPEND);
+        av_dict_set(&opts, "x265-params", ":frame-threads=1", AV_DICT_APPEND);
       } else {
         int bitrate, maxrate, bufsize;
         bitrate = (t->t_props.tp_vbitrate > max_bitrate) ? max_bitrate : t->t_props.tp_vbitrate;
@@ -1332,12 +1353,14 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
         // this is the same as setting --bitrate=bitrate
         octx->bit_rate = bitrate * 1000;
 
-        av_dict_set(&opts,       "x265_opts", "vbv-bufsize=",  0);
-        av_dict_set_int__(&opts, "x265_opts", bufsize,         AV_DICT_APPEND);
-        av_dict_set(&opts,       "x265_opts", ":vbv-maxrate=",AV_DICT_APPEND);
-        av_dict_set_int__(&opts, "x265_opts", maxrate,         AV_DICT_APPEND);
-        av_dict_set(&opts,       "x265_opts", ":strict-cbr=1", AV_DICT_APPEND);
+        av_dict_set(&opts,       "x265-params", "vbv-bufsize=",  0);
+        av_dict_set_int__(&opts, "x265-params", bufsize,         AV_DICT_APPEND);
+        av_dict_set(&opts,       "x265-params", ":vbv-maxrate=", AV_DICT_APPEND);
+        av_dict_set_int__(&opts, "x265-params", maxrate,         AV_DICT_APPEND);
+        av_dict_set(&opts,       "x265-params", ":strict-cbr=1", AV_DICT_APPEND);
       }
+      // reduce key frame interface for live streaming
+      av_dict_set(&opts, "x265-params", ":keyint=49:min-keyint=15", AV_DICT_APPEND);
 
       break;
 
@@ -1550,6 +1573,8 @@ transcoder_packet(transcoder_t *t, th_pkt_t *pkt)
 static void
 transcoder_destroy_stream(transcoder_t *t, transcoder_stream_t *ts)
 {
+  if (ts->ts_input_gh)
+    pktbuf_ref_dec(ts->ts_input_gh);
   free(ts);
 }
 
@@ -1570,8 +1595,11 @@ transcoder_init_stream(transcoder_t *t, streaming_start_component_t *ssc)
 
   LIST_INSERT_HEAD(&t->t_stream_list, ts, ts_link);
 
-  if(ssc->ssc_gh)
+  if(ssc->ssc_gh) {
     pktbuf_ref_inc(ssc->ssc_gh);
+    ts->ts_input_gh = ssc->ssc_gh;
+    pktbuf_ref_inc(ssc->ssc_gh);
+  }
 
   tvhinfo("transcode", "%04X: %d:%s ==> Passthrough",
 	  shortid(t), ssc->ssc_index,
@@ -1601,7 +1629,7 @@ transcoder_destroy_subtitle(transcoder_t *t, transcoder_stream_t *ts)
     av_free(ss->sub_octx);
   }
 
-  free(ts);
+  transcoder_destroy_stream(t, ts);
 }
 
 
@@ -1640,6 +1668,10 @@ transcoder_init_subtitle(transcoder_t *t, streaming_start_component_t *ssc)
   ss->ts_target     = t->t_output;
   ss->ts_handle_pkt = transcoder_stream_subtitle;
   ss->ts_destroy    = transcoder_destroy_subtitle;
+  if (ssc->ssc_gh) {
+    ss->ts_input_gh = ssc->ssc_gh;
+    pktbuf_ref_inc(ssc->ssc_gh);
+  }
 
   ss->sub_icodec = icodec;
   ss->sub_ocodec = ocodec;
@@ -1688,7 +1720,7 @@ transcoder_destroy_audio(transcoder_t *t, transcoder_stream_t *ts)
 
   av_audio_fifo_free(as->fifo);
 
-  free(ts);
+  transcoder_destroy_stream(t, ts);
 }
 
 
@@ -1734,6 +1766,10 @@ transcoder_init_audio(transcoder_t *t, streaming_start_component_t *ssc)
   as->ts_target     = t->t_output;
   as->ts_handle_pkt = transcoder_stream_audio;
   as->ts_destroy    = transcoder_destroy_audio;
+  if (ssc->ssc_gh) {
+    as->ts_input_gh = ssc->ssc_gh;
+    pktbuf_ref_inc(ssc->ssc_gh);
+  }
 
   as->aud_icodec = icodec;
   as->aud_ocodec = ocodec;
@@ -1849,6 +1885,10 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
   vs->ts_target     = t->t_output;
   vs->ts_handle_pkt = transcoder_stream_video;
   vs->ts_destroy    = transcoder_destroy_video;
+  if (ssc->ssc_gh) {
+    vs->ts_input_gh = ssc->ssc_gh;
+    pktbuf_ref_inc(ssc->ssc_gh);
+  }
 
   vs->vid_icodec = icodec;
   vs->vid_ocodec = ocodec;

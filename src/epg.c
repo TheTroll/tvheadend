@@ -1418,7 +1418,7 @@ static void _epg_channel_timer_callback ( void *p )
 
   /* Clear now/next */
   if ((cur = ch->ch_epg_now)) {
-    if (cur->running) {
+    if (cur->running != EPG_RUNNING_STOP) {
       /* running? don't do anything */
       gtimer_arm(&ch->ch_epg_timer, _epg_channel_timer_callback, ch, 2);
       return;
@@ -1685,22 +1685,22 @@ epg_broadcast_t *epg_broadcast_find_by_eid ( channel_t *ch, uint16_t eid )
 }
 
 void epg_broadcast_notify_running
-  ( epg_broadcast_t *broadcast, epg_source_t esrc, int running )
+  ( epg_broadcast_t *broadcast, epg_source_t esrc, epg_running_t running )
 {
   channel_t *ch;
   epg_broadcast_t *now;
   int orunning = broadcast->running;
 
-  broadcast->running = !!running;
+  broadcast->running = running;
   ch = broadcast->channel;
   now = ch ? ch->ch_epg_now : NULL;
-  if (!running) {
+  if (running == EPG_RUNNING_STOP) {
     if (now == broadcast && orunning == broadcast->running)
       broadcast->stop = dispatch_clock - 1;
   } else {
     if (broadcast != now && now) {
-      now->running = 0;
-      dvr_event_running(now, esrc, 0);
+      now->running = EPG_RUNNING_STOP;
+      dvr_event_running(now, esrc, EPG_RUNNING_STOP);
     }
   }
   dvr_event_running(broadcast, esrc, running);
@@ -1841,13 +1841,13 @@ epg_broadcast_t *epg_broadcast_get_next ( epg_broadcast_t *broadcast )
 epg_episode_t *epg_broadcast_get_episode
   ( epg_broadcast_t *ebc, int create, int *save )
 {
-  char uri[256];
+  char uri[256], ubuf[UUID_HEX_SIZE];
   epg_episode_t *ee;
   if (!ebc) return NULL;
   if (ebc->episode) return ebc->episode;
   if (!create) return NULL;
   snprintf(uri, sizeof(uri)-1, "tvh://channel-%s/bcast-%u/episode",
-           idnode_uuid_as_sstr(&ebc->channel->ch_id), ebc->id);
+           idnode_uuid_as_str(&ebc->channel->ch_id, ubuf), ebc->id);
   if ((ee = epg_episode_find_by_uri(uri, 1, save)))
     *save |= epg_broadcast_set_episode(ebc, ee, ebc->grabber);
   return ee;
@@ -1880,6 +1880,7 @@ const char *epg_broadcast_get_description ( epg_broadcast_t *b, const char *lang
 htsmsg_t *epg_broadcast_serialize ( epg_broadcast_t *broadcast )
 {
   htsmsg_t *m;
+  char ubuf[UUID_HEX_SIZE];
   if (!broadcast) return NULL;
   if (!broadcast->episode || !broadcast->episode->uri) return NULL;
   if (!(m = _epg_object_serialize((epg_object_t*)broadcast))) return NULL;
@@ -1887,7 +1888,7 @@ htsmsg_t *epg_broadcast_serialize ( epg_broadcast_t *broadcast )
   htsmsg_add_s64(m, "stop", broadcast->stop);
   htsmsg_add_str(m, "episode", broadcast->episode->uri);
   if (broadcast->channel)
-    htsmsg_add_str(m, "channel", channel_get_suuid(broadcast->channel));
+    htsmsg_add_str(m, "channel", channel_get_uuid(broadcast->channel, ubuf));
   if (broadcast->dvb_eid)
     htsmsg_add_u32(m, "dvb_eid", broadcast->dvb_eid);
   if (broadcast->is_widescreen)

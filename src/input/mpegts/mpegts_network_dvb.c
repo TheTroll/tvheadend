@@ -43,10 +43,11 @@ static void
 dvb_network_class_delete ( idnode_t *in )
 {
   mpegts_network_t *mn = (mpegts_network_t*)in;
+  char ubuf[UUID_HEX_SIZE];
 
   /* remove config */
   hts_settings_remove("input/dvb/networks/%s", 
-                      idnode_uuid_as_sstr(in));
+                      idnode_uuid_as_str(in, ubuf));
 
   /* Parent delete */
   mpegts_network_delete(mn, 1);
@@ -204,6 +205,9 @@ const idclass_t dvb_network_dvbt_class =
       .type     = PT_STR,
       .id       = "scanfile",
       .name     = N_("Pre-defined muxes"),
+      .desc     = N_("Use a pre-defined list of DVB-T muxes. "
+                     "Note: these lists can sometimes be outdated and "
+                     "may cause scanning to take longer than usual."),
       .set      = dvb_network_class_scanfile_set,
       .get      = dvb_network_class_scanfile_get,
       .list     = dvb_network_dvbt_class_scanfile_list,
@@ -223,6 +227,9 @@ const idclass_t dvb_network_dvbc_class =
       .type     = PT_STR,
       .id       = "scanfile",
       .name     = N_("Pre-defined muxes"),
+      .desc     = N_("Use a pre-defined list of DVB-C muxes. "
+                     "Note: these lists can sometimes be outdated and "
+                     "may cause scanning to take longer than usual."),
       .set      = dvb_network_class_scanfile_set,
       .get      = dvb_network_class_scanfile_get,
       .list     = dvb_network_dvbc_class_scanfile_list,
@@ -242,6 +249,9 @@ const idclass_t dvb_network_dvbs_class =
       .type     = PT_STR,
       .id       = "scanfile",
       .name     = N_("Pre-defined muxes"),
+      .desc     = N_("Use a pre-defined list of DVB-S/S2 muxes. "
+                     "Note: these lists can sometimes be outdated and "
+                     "may cause scanning to take longer than usual."),
       .set      = dvb_network_class_scanfile_set,
       .get      = dvb_network_class_scanfile_get,
       .list     = dvb_network_dvbs_class_scanfile_list,
@@ -251,6 +261,8 @@ const idclass_t dvb_network_dvbs_class =
       .type     = PT_STR,
       .id       = "orbital_pos",
       .name     = N_("Orbital position"),
+      .desc     = N_("Select the orbital position of the satellite "
+                     "your dish is pointing at."),
       .set      = dvb_network_class_orbital_pos_set,
       .get      = dvb_network_class_orbital_pos_get,
       .list     = dvb_network_class_orbital_pos_list,
@@ -269,6 +281,9 @@ const idclass_t dvb_network_atsc_class =
       .type     = PT_STR,
       .id       = "scanfile",
       .name     = N_("Pre-defined muxes"),
+      .desc     = N_("Use a pre-defined list of ATSC muxes. "
+                     "Note: these lists can sometimes be outdated and "
+                     "may cause scanning to take longer than usual."),
       .set      = dvb_network_class_scanfile_set,
       .get      = dvb_network_class_scanfile_get,
       .list     = dvb_network_atsc_class_scanfile_list,
@@ -391,10 +406,11 @@ static void
 dvb_network_config_save ( mpegts_network_t *mn )
 {
   htsmsg_t *c = htsmsg_create_map();
+  char ubuf[UUID_HEX_SIZE];
   idnode_save(&mn->mn_id, c);
   htsmsg_add_str(c, "class", mn->mn_id.in_class->ic_class);
   hts_settings_save(c, "input/dvb/networks/%s/config",
-                    idnode_uuid_as_sstr(&mn->mn_id));
+                    idnode_uuid_as_str(&mn->mn_id, ubuf));
   htsmsg_destroy(c);
 }
 

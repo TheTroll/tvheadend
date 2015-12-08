@@ -118,13 +118,14 @@ epggrab_ota_queue_mux( mpegts_mux_t *mm )
   const char *id;
   epggrab_ota_mux_t *om;
   int epg_flag;
+  char ubuf[UUID_HEX_SIZE];
 
   if (!mm)
     return;
 
   lock_assert(&global_lock);
 
-  id = idnode_uuid_as_sstr(&mm->mm_id);
+  id = idnode_uuid_as_str(&mm->mm_id, ubuf);
   epg_flag = mm->mm_is_epg(mm);
   if (epg_flag < 0 || epg_flag == MM_EPG_DISABLE)
     return;
@@ -275,7 +276,8 @@ epggrab_mux_start ( mpegts_mux_t *mm, void *p )
 {
   epggrab_module_t  *m;
   epggrab_ota_mux_t *ota;
-  const char *uuid = idnode_uuid_as_sstr(&mm->mm_id);
+  char ubuf[UUID_HEX_SIZE];
+  const char *uuid = idnode_uuid_as_str(&mm->mm_id, ubuf);
 
   /* Already started */
   TAILQ_FOREACH(ota, &epggrab_ota_active, om_q_link)
@@ -297,7 +299,8 @@ static void
 epggrab_mux_stop ( mpegts_mux_t *mm, void *p, int reason )
 {
   epggrab_ota_mux_t *ota;
-  const char *uuid = idnode_uuid_as_sstr(&mm->mm_id);
+  char ubuf[UUID_HEX_SIZE];
+  const char *uuid = idnode_uuid_as_str(&mm->mm_id, ubuf);
   int done = EPGGRAB_OTA_DONE_STOLEN;
 
   if (reason == SM_CODE_NO_INPUT)
@@ -372,7 +375,9 @@ epggrab_ota_complete
   int done = 1;
   epggrab_ota_map_t *map;
   lock_assert(&global_lock);
-  tvhdebug(mod->id, "grab complete");
+
+  if (!ota->om_complete)
+    tvhdebug(mod->id, "grab complete");
 
   /* Test for completion */
   LIST_FOREACH(map, &ota->om_modules, om_link) {
@@ -456,7 +461,8 @@ epggrab_ota_kick_cb ( void *p )
   mpegts_mux_t *mm;
   struct {
     mpegts_network_t *net;
-    int failed;
+    uint8_t failed;
+    uint8_t fatal;
   } networks[64], *net;	/* more than 64 networks? - you're a king */
   int i, r, networks_count = 0, epg_flag, kick = 1;
   const char *modname;
@@ -498,6 +504,8 @@ next_one:
   for (i = 0, net = NULL; i < networks_count; i++) {
     net = &networks[i];
     if (net->net == mm->mm_network) {
+      if (net->fatal)
+        goto done;
       if (net->failed) {
         TAILQ_INSERT_TAIL(&epggrab_ota_pending, om, om_q_link);
         om->om_q_type = EPGGRAB_OTA_MUX_PENDING;
@@ -556,12 +564,16 @@ next_one:
                                 SUBSCRIPTION_EPG |
                                 SUBSCRIPTION_ONESHOT |
                                 SUBSCRIPTION_TABLES))) {
-    TAILQ_INSERT_TAIL(&epggrab_ota_pending, om, om_q_link);
-    om->om_q_type = EPGGRAB_OTA_MUX_PENDING;
-    if (r == SM_CODE_NO_FREE_ADAPTER)
-      net->failed = 1;
-    if (first == NULL)
-      first = om;
+    if (r != SM_CODE_NO_ADAPTERS) {
+      TAILQ_INSERT_TAIL(&epggrab_ota_pending, om, om_q_link);
+      om->om_q_type = EPGGRAB_OTA_MUX_PENDING;
+      if (r == SM_CODE_NO_FREE_ADAPTER)
+        net->failed = 1;
+      if (first == NULL)
+        first = om;
+    } else {
+      net->fatal = 1;
+    }
   } else {
     tvhtrace("epggrab", "mux %p started", mm);
     kick = 0;

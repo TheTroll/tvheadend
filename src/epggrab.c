@@ -92,6 +92,20 @@ static void* _epggrab_internal_thread ( void* p )
 
   /* Setup timeout */
   ts.tv_nsec = 0; 
+  ts.tv_sec  = time(NULL) + 120;
+
+  /* Time for other jobs */
+  while (epggrab_running) {
+    pthread_mutex_lock(&epggrab_mutex);
+    err = ETIMEDOUT;
+    while (epggrab_running) {
+      err = pthread_cond_timedwait(&epggrab_cond, &epggrab_mutex, &ts);
+      if (err == ETIMEDOUT) break;
+    }
+    pthread_mutex_unlock(&epggrab_mutex);
+    if (err == ETIMEDOUT) break;
+  }
+
   time(&ts.tv_sec);
 
   while (epggrab_running) {
@@ -252,6 +266,10 @@ const idclass_t epggrab_class = {
       .type   = PT_BOOL,
       .id     = "channel_rename",
       .name   = N_("Update channel name"),
+      .desc   = N_("Automatically update channel names using "
+                   "information provided by the enabled EPG providers. "
+                   "Note: this may cause unwanted changes to "
+                   "already defined channel names."),
       .off    = offsetof(epggrab_conf_t, channel_rename),
       .group  = 1,
     },
@@ -259,6 +277,10 @@ const idclass_t epggrab_class = {
       .type   = PT_BOOL,
       .id     = "channel_renumber",
       .name   = N_("Update channel number"),
+      .desc   = N_("Automatically update channel numbers using "
+                   "information provided by the enabled EPG providers. "
+                   "Note: this may cause unwanted changes to "
+                   "already defined channel numbers."),
       .off    = offsetof(epggrab_conf_t, channel_renumber),
       .group  = 1,
     },
@@ -266,6 +288,10 @@ const idclass_t epggrab_class = {
       .type   = PT_BOOL,
       .id     = "channel_reicon",
       .name   = N_("Update channel icon"),
+      .desc   = N_("Automatically update channel icons using "
+                   "information provided by the enabled EPG providers. "
+                   "Note: this may cause unwanted changes to "
+                   "already defined channel icons."),
       .off    = offsetof(epggrab_conf_t, channel_reicon),
       .group  = 1,
     },
@@ -273,6 +299,11 @@ const idclass_t epggrab_class = {
       .type   = PT_INT,
       .id     = "epgdb_periodicsave",
       .name   = N_("Periodically save EPG to disk (hours)"),
+      .desc   = N_("Writes the current in-memory EPG database to disk "
+                   "every x hours, so should a crash/unexpected "
+                   "shutdown occur EPG data is saved "
+                   "periodically to the database (re-read on next "
+                   "startup). Set to 0 to disable."),
       .off    = offsetof(epggrab_conf_t, epgdb_periodicsave),
       .group  = 1,
     },
@@ -280,32 +311,46 @@ const idclass_t epggrab_class = {
       .type   = PT_STR,
       .id     = "cron",
       .name   = N_("Cron multi-line"),
+      .desc   = N_("Multiple lines of the cron time specification. "
+                   "The default cron triggers the internal grabbers "
+                   "daily at 12:04 and 00:04. See Help on how to define "
+                   "your own."),
       .off    = offsetof(epggrab_conf_t, cron),
       .notify = epggrab_class_cron_notify,
-      .opts   = PO_MULTILINE,
+      .opts   = PO_MULTILINE | PO_ADVANCED,
       .group  = 2,
     },
     {
       .type   = PT_BOOL,
       .id     = "ota_initial",
       .name   = N_("Force initial EPG scan at start-up"),
+      .desc   = N_("Force an initial EPG scan at start-up."),
       .off    = offsetof(epggrab_conf_t, ota_initial),
+      .opts   = PO_ADVANCED,
       .group  = 3,
     },
     {
       .type   = PT_STR,
       .id     = "ota_cron",
       .name   = N_("Over-the-air Cron multi-line"),
+      .desc   = N_("Multiple lines of the cron time specification. "
+                   "The default cron triggers the Over-the-air "
+                   "grabber daily at 02:04 and 14:04. See Help on how "
+                   "to define your own."),
       .off    = offsetof(epggrab_conf_t, ota_cron),
       .notify = epggrab_class_ota_cron_notify,
-      .opts   = PO_MULTILINE,
+      .opts   = PO_MULTILINE | PO_ADVANCED,
       .group  = 3,
     },
     {
       .type   = PT_U32,
       .id     = "ota_timeout",
       .name   = N_("EPG scan timeout in seconds (30-7200)"),
+      .desc   = N_("The multiplex (mux) is tuned for this amount of "
+                   "time at most. If the EPG data is complete before "
+                   "this limit, the mux is released sooner."),
       .off    = offsetof(epggrab_conf_t, ota_timeout),
+      .opts   = PO_ADVANCED,
       .group  = 3,
     },
     {}

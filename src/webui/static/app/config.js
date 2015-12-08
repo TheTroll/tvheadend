@@ -4,6 +4,25 @@
 
 tvheadend.baseconf = function(panel, index) {
 
+    var wizardButton = {
+        name: 'wizard',
+        builder: function() {
+            return new Ext.Toolbar.Button({
+                tooltip: _('Start initial configuration wizard'),
+                iconCls: 'wizard',
+                text: _('Start wizard')
+            });
+        },
+        callback: function(conf) {
+            tvheadend.Ajax({
+                url: 'api/wizard/start',
+                success: function() {
+                    window.location.reload();
+                }
+            });
+        }
+    };
+
     tvheadend.idnode_simple(panel, {
         url: 'api/config',
         title: _('Base'),
@@ -11,6 +30,21 @@ tvheadend.baseconf = function(panel, index) {
         tabIndex: index,
         comet: 'config',
         labelWidth: 250,
+        tbar: [wizardButton],
+        postsave: function(data, abuttons) {
+            var l = data['uilevel'];
+            if (l >= 0) {
+                var tr = {0:'basic',1:'advanced',2:'expert'};
+                l = (l in tr) ? tr[l] : 'basic';
+                if (l !== tvheadend.uilevel) {
+                    window.location.reload();
+                    return;
+                }
+            }
+            var n = data['uilevel_nochange'] ? true : false;
+            if (n !== tvheadend.uilevel_nochange)
+                window.location.reload();
+        },
         help: function() {
             new tvheadend.help(_('General Configuration'), 'config_general.html');
         }

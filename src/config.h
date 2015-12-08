@@ -30,6 +30,10 @@
 typedef struct config {
   idnode_t idnode;
   uint32_t version;
+  int uilevel;
+  int uilevel_nochange;
+  int ui_quicktips;
+  char *wizard;
   char *full_version;
   char *server_name;
   char *language;

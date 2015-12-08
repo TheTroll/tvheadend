@@ -36,6 +36,28 @@
 
 struct dvr_autorec_entry_queue autorec_entries;
 
+/*
+ *
+ */
+static uint32_t dvr_autorec_get_max_count(dvr_autorec_entry_t *dae)
+{
+  uint32_t max_count = dae->dae_max_count;
+  if (max_count == 0)
+    max_count = dae->dae_config ? dae->dae_config->dvr_autorec_max_count : 0;
+  return max_count;
+}
+
+/*
+ *
+ */
+uint32_t dvr_autorec_get_max_sched_count(dvr_autorec_entry_t *dae)
+{
+  uint32_t max_count = dae->dae_max_sched_count;
+  if (max_count == 0)
+    max_count = dae->dae_config ? dae->dae_config->dvr_autorec_max_sched_count : 0;
+  return max_count;
+}
+
 /**
  * Unlink - and remove any unstarted
  */
@@ -81,9 +103,11 @@ dvr_autorec_completed(dvr_entry_t *de, int error_code)
   uint32_t count, total = 0;
   dvr_entry_t *de_prev;
   dvr_autorec_entry_t *dae = de->de_autorec;
+  uint32_t max_count = dvr_autorec_get_max_count(dae);
+  char ubuf[UUID_HEX_SIZE];
 
   if (dae == NULL) return;
-  if (dae->dae_max_count <= 0) return;
+  if (max_count <= 0) return;
   while (1) {
     count = 0;
     de_prev = NULL;
@@ -96,11 +120,11 @@ dvr_autorec_completed(dvr_entry_t *de, int error_code)
     }
     if (total == 0)
       total = count;
-    if (count < dae->dae_max_count)
+    if (count < max_count)
       break;
     if (de_prev) {
       tvhinfo("dvr", "autorec %s removing recordings %s (allowed count %u total %u)",
-              dae->dae_name, idnode_uuid_as_sstr(&de_prev->de_id), dae->dae_max_count, total);
+              dae->dae_name, idnode_uuid_as_str(&de_prev->de_id, ubuf), max_count, total);
       dvr_entry_cancel_delete(de_prev, 0);
     }
   }
@@ -335,10 +359,12 @@ dvr_autorec_add_series_link(const char *dvr_config_name,
 static void
 autorec_entry_destroy(dvr_autorec_entry_t *dae, int delconf)
 {
+  char ubuf[UUID_HEX_SIZE];
+
   dvr_autorec_purge_spawns(dae, delconf, 0);
 
   if (delconf)
-    hts_settings_remove("dvr/autorec/%s", idnode_uuid_as_sstr(&dae->dae_id));
+    hts_settings_remove("dvr/autorec/%s", idnode_uuid_as_str(&dae->dae_id, ubuf));
 
   htsp_autorec_entry_delete(dae);
 
@@ -382,11 +408,12 @@ void
 dvr_autorec_save(dvr_autorec_entry_t *dae)
 {
   htsmsg_t *m = htsmsg_create_map();
+  char ubuf[UUID_HEX_SIZE]; 
 
   lock_assert(&global_lock);
 
   idnode_save(&dae->dae_id, m);
-  hts_settings_save(m, "dvr/autorec/%s", idnode_uuid_as_sstr(&dae->dae_id));
+  hts_settings_save(m, "dvr/autorec/%s", idnode_uuid_as_str(&dae->dae_id, ubuf));
   htsmsg_destroy(m);
 }
 
@@ -460,13 +487,12 @@ dvr_autorec_entry_class_channel_set(void *o, const void *v)
 static const void *
 dvr_autorec_entry_class_channel_get(void *o)
 {
-  static const char *ret;
   dvr_autorec_entry_t *dae = (dvr_autorec_entry_t *)o;
   if (dae->dae_channel)
-    ret = idnode_uuid_as_sstr(&dae->dae_channel->ch_id);
+    idnode_uuid_as_str(&dae->dae_channel->ch_id, prop_sbuf);
   else
-    ret = "";
-  return &ret;
+    prop_sbuf[0] = '\0';
+  return &prop_sbuf_ptr;
 }
 
 static char *
@@ -521,13 +547,12 @@ dvr_autorec_entry_class_tag_set(void *o, const void *v)
 static const void *
 dvr_autorec_entry_class_tag_get(void *o)
 {
-  static const char *ret;
   dvr_autorec_entry_t *dae = (dvr_autorec_entry_t *)o;
   if (dae->dae_channel_tag)
-    ret = idnode_uuid_as_sstr(&dae->dae_channel_tag->ct_id);
+    idnode_uuid_as_str(&dae->dae_channel_tag->ct_id, prop_sbuf);
   else
-    ret = "";
-  return &ret;
+    prop_sbuf[0] = '\0';
+  return &prop_sbuf_ptr;
 }
 
 static char *
@@ -668,13 +693,12 @@ dvr_autorec_entry_class_config_name_set(void *o, const void *v)
 static const void *
 dvr_autorec_entry_class_config_name_get(void *o)
 {
-  static const char *ret;
   dvr_autorec_entry_t *dae = (dvr_autorec_entry_t *)o;
   if (dae->dae_config)
-    ret = idnode_uuid_as_sstr(&dae->dae_config->dvr_id);
+    idnode_uuid_as_str(&dae->dae_config->dvr_id, prop_sbuf);
   else
-    ret = "";
-  return &ret;
+    prop_sbuf[0] = '\0';
+  return &prop_sbuf_ptr;
 }
 
 static char *
@@ -916,8 +940,8 @@ dvr_autorec_entry_class_owner_opts(void *o)
   dvr_autorec_entry_t *dae = (dvr_autorec_entry_t *)o;
   if (dae && dae->dae_id.in_access &&
       !access_verify2(dae->dae_id.in_access, ACCESS_ADMIN))
-    return 0;
-  return PO_RDONLY;
+    return PO_ADVANCED;
+  return PO_RDONLY | PO_ADVANCED;
 }
 
 const idclass_t dvr_autorec_entry_class = {
@@ -950,7 +974,7 @@ const idclass_t dvr_autorec_entry_class = {
     {
       .type     = PT_STR,
       .id       = "title",
-      .name     = N_("Title (Regexp)"),
+      .name     = N_("Title (regexp)"),
       .set      = dvr_autorec_entry_class_title_set,
       .off      = offsetof(dvr_autorec_entry_t, dae_title),
     },
@@ -977,6 +1001,7 @@ const idclass_t dvr_autorec_entry_class = {
       .get      = dvr_autorec_entry_class_tag_get,
       .rend     = dvr_autorec_entry_class_tag_rend,
       .list     = channel_tag_class_get_list,
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_STR,
@@ -1002,7 +1027,7 @@ const idclass_t dvr_autorec_entry_class = {
       .name     = N_("Extra start time"),
       .off      = offsetof(dvr_autorec_entry_t, dae_start_extra),
       .list     = dvr_autorec_entry_class_extra_list,
-      .opts     = PO_DURATION | PO_SORTKEY
+      .opts     = PO_DURATION | PO_SORTKEY | PO_ADVANCED
     },
     {
       .type     = PT_TIME,
@@ -1010,13 +1035,13 @@ const idclass_t dvr_autorec_entry_class = {
       .name     = N_("Extra stop time"),
       .off      = offsetof(dvr_autorec_entry_t, dae_stop_extra),
       .list     = dvr_autorec_entry_class_extra_list,
-      .opts     = PO_DURATION | PO_SORTKEY
+      .opts     = PO_DURATION | PO_SORTKEY | PO_ADVANCED
     },
     {
       .type     = PT_U32,
       .islist   = 1,
       .id       = "weekdays",
-      .name     = N_("Days of Week"),
+      .name     = N_("Days of week"),
       .set      = dvr_autorec_entry_class_weekdays_set,
       .get      = dvr_autorec_entry_class_weekdays_get_,
       .list     = dvr_autorec_entry_class_weekdays_list,
@@ -1029,6 +1054,7 @@ const idclass_t dvr_autorec_entry_class = {
       .name     = N_("Minimum duration"),
       .list     = dvr_autorec_entry_class_minduration_list,
       .off      = offsetof(dvr_autorec_entry_t, dae_minduration),
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_INT,
@@ -1036,6 +1062,7 @@ const idclass_t dvr_autorec_entry_class = {
       .name     = N_("Maximum duration"),
       .list     = dvr_autorec_entry_class_maxduration_list,
       .off      = offsetof(dvr_autorec_entry_t, dae_maxduration),
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_U32,
@@ -1043,6 +1070,7 @@ const idclass_t dvr_autorec_entry_class = {
       .name     = N_("Content type"),
       .list     = dvr_autorec_entry_class_content_type_list,
       .off      = offsetof(dvr_autorec_entry_t, dae_content_type),
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_U32,
@@ -1051,6 +1079,7 @@ const idclass_t dvr_autorec_entry_class = {
       .list     = dvr_entry_class_pri_list,
       .def.i    = DVR_PRIO_NORMAL,
       .off      = offsetof(dvr_autorec_entry_t, dae_pri),
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_U32,
@@ -1059,34 +1088,39 @@ const idclass_t dvr_autorec_entry_class = {
       .def.i    = DVR_AUTOREC_RECORD_ALL,
       .off      = offsetof(dvr_autorec_entry_t, dae_record),
       .list     = dvr_autorec_entry_class_dedup_list,
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_U32,
       .id       = "retention",
-      .name     = N_("DVR log retention (days)"),
+      .name     = N_("DVR log retention"),
+      .def.i    = DVR_RET_DVRCONFIG,
       .off      = offsetof(dvr_autorec_entry_t, dae_retention),
-      .opts     = PO_HIDDEN,
+      .list     = dvr_entry_class_retention_list,
+      .opts     = PO_HIDDEN | PO_EXPERT,
     },
     {
       .type     = PT_U32,
       .id       = "removal",
-      .name     = N_("DVR file retention period (days)"),
+      .name     = N_("DVR file retention period"),
+      .def.i    = DVR_RET_DVRCONFIG,
       .off      = offsetof(dvr_autorec_entry_t, dae_removal),
-      .opts     = PO_HIDDEN,
+      .list     = dvr_entry_class_removal_list,
+      .opts     = PO_HIDDEN | PO_ADVANCED,
     },
     {
       .type     = PT_U32,
       .id       = "maxcount",
-      .name     = N_("Maximum count (0=unlimited)"),
+      .name     = N_("Maximum count (0=default)"),
       .off      = offsetof(dvr_autorec_entry_t, dae_max_count),
-      .opts     = PO_HIDDEN,
+      .opts     = PO_HIDDEN | PO_EXPERT,
     },
     {
       .type     = PT_U32,
       .id       = "maxsched",
-      .name     = N_("Maximum schedules limit (0=unlimited)"),
+      .name     = N_("Maximum schedules limit (0=default)"),
       .off      = offsetof(dvr_autorec_entry_t, dae_max_sched_count),
-      .opts     = PO_HIDDEN,
+      .opts     = PO_HIDDEN | PO_EXPERT,
     },
     {
       .type     = PT_STR,
@@ -1096,6 +1130,7 @@ const idclass_t dvr_autorec_entry_class = {
       .get      = dvr_autorec_entry_class_config_name_get,
       .rend     = dvr_autorec_entry_class_config_name_rend,
       .list     = dvr_entry_class_config_name_list,
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_STR,
@@ -1103,7 +1138,7 @@ const idclass_t dvr_autorec_entry_class = {
       .name     = N_("Brand"),
       .set      = dvr_autorec_entry_class_brand_set,
       .get      = dvr_autorec_entry_class_brand_get,
-      .opts     = PO_RDONLY,
+      .opts     = PO_RDONLY | PO_ADVANCED,
     },
     {
       .type     = PT_STR,
@@ -1111,7 +1146,7 @@ const idclass_t dvr_autorec_entry_class = {
       .name     = N_("Season"),
       .set      = dvr_autorec_entry_class_season_set,
       .get      = dvr_autorec_entry_class_season_get,
-      .opts     = PO_RDONLY,
+      .opts     = PO_RDONLY | PO_ADVANCED,
     },
     {
       .type     = PT_STR,
@@ -1119,7 +1154,7 @@ const idclass_t dvr_autorec_entry_class = {
       .name     = N_("Series link"),
       .set      = dvr_autorec_entry_class_series_link_set,
       .get      = dvr_autorec_entry_class_series_link_get,
-      .opts     = PO_RDONLY,
+      .opts     = PO_RDONLY | PO_ADVANCED,
     },
     {
       .type     = PT_STR,
@@ -1359,8 +1394,17 @@ dvr_autorec_get_extra_time_post( dvr_autorec_entry_t *dae )
 uint32_t
 dvr_autorec_get_retention_days( dvr_autorec_entry_t *dae )
 {
-  if (dae->dae_retention > 0)
+  if (dae->dae_retention > 0) {
+    if (dae->dae_retention > DVR_RET_FOREVER)
+      return DVR_RET_FOREVER;
+
+    uint32_t removal = dvr_autorec_get_removal_days(dae);
+    /* As we need the db entry when deleting the file on disk */
+    if (removal != DVR_RET_FOREVER && removal > dae->dae_retention)
+      return DVR_RET_ONREMOVE;
+
     return dae->dae_retention;
+  }
   return dvr_retention_cleanup(dae->dae_config->dvr_retention_days);
 }
 
@@ -1370,7 +1414,11 @@ dvr_autorec_get_retention_days( dvr_autorec_entry_t *dae )
 uint32_t
 dvr_autorec_get_removal_days( dvr_autorec_entry_t *dae )
 {
-  if (dae->dae_removal > 0)
+  if (dae->dae_removal > 0) {
+    if (dae->dae_removal > DVR_RET_FOREVER)
+      return DVR_RET_FOREVER;
+
     return dae->dae_removal;
+  }
   return dvr_retention_cleanup(dae->dae_config->dvr_removal_days);
 }

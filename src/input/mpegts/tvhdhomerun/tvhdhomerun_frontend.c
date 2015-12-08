@@ -196,7 +196,7 @@ tvhdhomerun_frontend_input_thread ( void *aux )
 
     //tvhdebug("tvhdhomerun", "got r=%d (thats %d)", r, (r == 7*188));
 
-    mpegts_input_recv_packets((mpegts_input_t*) hfe, mmi, &sb, NULL, NULL, NULL);
+    mpegts_input_recv_packets((mpegts_input_t*) hfe, mmi, &sb, 0, NULL);
   }
 
   tvhdebug("tvhdhomerun", "setting target to none");
@@ -423,7 +423,7 @@ static int tvhdhomerun_frontend_tune(tvhdhomerun_frontend_t *hfe, mpegts_mux_ins
 
 static int
 tvhdhomerun_frontend_start_mux
-  ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi )
+  ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi, int weight )
 {
   tvhdhomerun_frontend_t *hfe = (tvhdhomerun_frontend_t*)mi;
   int res, r;
@@ -521,13 +521,13 @@ tvhdhomerun_frontend_class_save ( idnode_t *in )
 void
 tvhdhomerun_frontend_save ( tvhdhomerun_frontend_t *hfe, htsmsg_t *fe )
 {
-  char id[16];
+  char id[16], ubuf[UUID_HEX_SIZE];
   htsmsg_t *m = htsmsg_create_map();
 
   /* Save frontend */
   mpegts_input_save((mpegts_input_t*)hfe, m);
   htsmsg_add_str(m, "type", dvb_type2str(hfe->hf_type));
-  htsmsg_add_str(m, "uuid", idnode_uuid_as_sstr(&hfe->ti_id));
+  htsmsg_add_str(m, "uuid", idnode_uuid_as_str(&hfe->ti_id, ubuf));
 
   /* Add to list */
   snprintf(id, sizeof(id), "%s #%d", dvb_type2str(hfe->hf_type), hfe->hf_tunerNumber);

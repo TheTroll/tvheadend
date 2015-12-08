@@ -192,8 +192,9 @@ esfilter_create
 static void
 esfilter_delete(esfilter_t *esf, int delconf)
 {
+  char ubuf[UUID_HEX_SIZE];
   if (delconf)
-    hts_settings_remove("esfilter/%s", idnode_uuid_as_sstr(&esf->esf_id));
+    hts_settings_remove("esfilter/%s", idnode_uuid_as_str(&esf->esf_id, ubuf));
   TAILQ_REMOVE(&esfilters[esf->esf_class], esf, esf_link);
   idnode_unlink(&esf->esf_id);
   free(esf->esf_comment);
@@ -208,8 +209,9 @@ static void
 esfilter_class_save(idnode_t *self)
 {
   htsmsg_t *c = htsmsg_create_map();
+  char ubuf[UUID_HEX_SIZE];
   idnode_save(self, c);
-  hts_settings_save(c, "esfilter/%s", idnode_uuid_as_sstr(self));
+  hts_settings_save(c, "esfilter/%s", idnode_uuid_as_str(self, ubuf));
   htsmsg_destroy(c);
 }
 
@@ -217,7 +219,8 @@ static const char *
 esfilter_class_get_title(idnode_t *self, const char *lang)
 {
   esfilter_t *esf = (esfilter_t *)self;
-  return idnode_uuid_as_sstr(&esf->esf_id);
+  char ubuf[UUID_HEX_SIZE];
+  return idnode_uuid_as_str(&esf->esf_id, ubuf);
 }
 
 static void
@@ -635,6 +638,8 @@ const idclass_t esfilter_class_video = {
       .islist   = 1,
       .id       = "type",
       .name     = N_("Stream type"),
+      .desc     = N_("The video stream types the filter should apply "
+                     "to."),
       .get      = esfilter_class_type_get,
       .set      = esfilter_class_type_set_video,
       .list     = esfilter_class_type_enum_video,
@@ -644,6 +649,7 @@ const idclass_t esfilter_class_video = {
       .type     = PT_STR,
       .id       = "language",
       .name     = N_("Language"),
+      .desc     = N_("The language the filter should apply to."),
       .get      = esfilter_class_language_get,
       .set      = esfilter_class_language_set,
       .list     = esfilter_class_language_enum,
@@ -652,6 +658,9 @@ const idclass_t esfilter_class_video = {
       .type     = PT_STR,
       .id       = "service",
       .name     = N_("Service"),
+      .desc     = N_("The service the filter should apply to. "
+                     "Leave blank to apply the filter to all "
+                     "services."),
       .get      = esfilter_class_service_get,
       .set      = esfilter_class_service_set,
       .list     = esfilter_class_service_enum,
@@ -660,18 +669,32 @@ const idclass_t esfilter_class_video = {
       .type     = PT_INT,
       .id       = "sindex",
       .name     = N_("Stream index"),
+      .desc     = N_("The logical stream index to compare. Note that "
+                     "this index is computed using all filters."
+                     "Example: If filter is set to AC3 audio type and "
+                     "the language to ‘eng’ and there are two AC3 "
+                     "‘eng’ streams in the service, the first stream "
+                     "could be identified using number 1 and the "
+                     "second using number 2."),
       .off      = offsetof(esfilter_t, esf_sindex),
     },
     {
       .type     = PT_INT,
       .id       = "pid",
       .name     = N_("PID"),
+      .desc     = N_("Program identification (PID) number to compare. "
+                     "Zero means any. This comparison is processed "
+                     "only when service comparison is active and for "
+                     "the Conditional Access filter."),
       .off      = offsetof(esfilter_t, esf_pid),
     },
     {
       .type     = PT_INT,
       .id       = "action",
       .name     = N_("Action"),
+      .desc     = N_("The rule action defines the operation when all "
+                     "comparisons succeed. See Help for more "
+                     "information on what the various rules do."),
       .get      = esfilter_class_action_get,
       .set      = esfilter_class_action_set,
       .list     = esfilter_class_action_enum,
@@ -680,12 +703,17 @@ const idclass_t esfilter_class_video = {
       .type     = PT_BOOL,
       .id       = "log",
       .name     = N_("Log"),
+      .desc     = N_("Write a short message to log identifying the "
+                     "matched parameters. It is useful for debugging "
+                     "your setup or structure of incoming streams."),
       .off      = offsetof(esfilter_t, esf_log),
     },
     {
       .type     = PT_STR,
       .id       = "comment",
       .name     = N_("Comment"),
+      .desc     = N_("Free-format text field. Enter whatever you "
+                     "like here."),
       .off      = offsetof(esfilter_t, esf_comment),
     },
     {}
@@ -702,6 +730,8 @@ const idclass_t esfilter_class_audio = {
       .islist   = 1,
       .id       = "type",
       .name     = N_("Stream type"),
+      .desc     = N_("The audio stream types the filter should apply "
+                     "to."),
       .get      = esfilter_class_type_get,
       .set      = esfilter_class_type_set_audio,
       .list     = esfilter_class_type_enum_audio,
@@ -711,6 +741,7 @@ const idclass_t esfilter_class_audio = {
       .type     = PT_STR,
       .id       = "language",
       .name     = N_("Language"),
+      .desc     = N_("The language the filter should apply to."),
       .get      = esfilter_class_language_get,
       .set      = esfilter_class_language_set,
       .list     = esfilter_class_language_enum,
@@ -719,6 +750,9 @@ const idclass_t esfilter_class_audio = {
       .type     = PT_STR,
       .id       = "service",
       .name     = N_("Service"),
+      .desc     = N_("The service the filter should apply to. "
+                     "Leave blank to apply the filter to all "
+                     "services."),
       .get      = esfilter_class_service_get,
       .set      = esfilter_class_service_set,
       .list     = esfilter_class_service_enum,
@@ -727,18 +761,32 @@ const idclass_t esfilter_class_audio = {
       .type     = PT_INT,
       .id       = "sindex",
       .name     = N_("Stream index"),
+      .desc     = N_("The logical stream index to compare. Note that "
+                     "this index is computed using all filters."
+                     "Example: If filter is set to AC3 audio type and "
+                     "the language to ‘eng’ and there are two AC3 "
+                     "‘eng’ streams in the service, the first stream "
+                     "could be identified using number 1 and the "
+                     "second using number 2."),
       .off      = offsetof(esfilter_t, esf_sindex),
     },
     {
       .type     = PT_INT,
       .id       = "pid",
       .name     = N_("PID"),
+      .desc     = N_("Program identification (PID) number to compare. "
+                     "Zero means any. This comparison is processed "
+                     "only when service comparison is active and for "
+                     "the Conditional Access filter."),
       .off      = offsetof(esfilter_t, esf_pid),
     },
     {
       .type     = PT_INT,
       .id       = "action",
       .name     = N_("Action"),
+      .desc     = N_("The rule action defines the operation when all "
+                     "comparisons succeed. See Help for more "
+                     "information on what the various rules do."),
       .get      = esfilter_class_action_get,
       .set      = esfilter_class_action_set,
       .list     = esfilter_class_action_enum,
@@ -747,12 +795,17 @@ const idclass_t esfilter_class_audio = {
       .type     = PT_BOOL,
       .id       = "log",
       .name     = N_("Log"),
+      .desc     = N_("Write a short message to log identifying the "
+                     "matched parameters. It is useful for debugging "
+                     "your setup or structure of incoming streams."),
       .off      = offsetof(esfilter_t, esf_log),
     },
     {
       .type     = PT_STR,
       .id       = "comment",
       .name     = N_("Comment"),
+      .desc     = N_("Free-format text field. Enter whatever you "
+                     "like here."),
       .off      = offsetof(esfilter_t, esf_comment),
     },
     {}
@@ -769,6 +822,8 @@ const idclass_t esfilter_class_teletext = {
       .islist   = 1,
       .id       = "type",
       .name     = N_("Stream type"),
+      .desc     = N_("Teletext stream type is only available for "
+                     "this filter."),
       .get      = esfilter_class_type_get,
       .set      = esfilter_class_type_set_teletext,
       .list     = esfilter_class_type_enum_teletext,
@@ -778,6 +833,7 @@ const idclass_t esfilter_class_teletext = {
       .type     = PT_STR,
       .id       = "language",
       .name     = N_("Language"),
+      .desc     = N_("The language the filter should apply to."),
       .get      = esfilter_class_language_get,
       .set      = esfilter_class_language_set,
       .list     = esfilter_class_language_enum,
@@ -786,6 +842,9 @@ const idclass_t esfilter_class_teletext = {
       .type     = PT_STR,
       .id       = "service",
       .name     = N_("Service"),
+      .desc     = N_("The service the filter should apply to. "
+                     "Leave blank to apply the filter to all "
+                     "services."),
       .get      = esfilter_class_service_get,
       .set      = esfilter_class_service_set,
       .list     = esfilter_class_service_enum,
@@ -794,18 +853,32 @@ const idclass_t esfilter_class_teletext = {
       .type     = PT_INT,
       .id       = "sindex",
       .name     = N_("Stream index"),
+      .desc     = N_("The logical stream index to compare. Note that "
+                     "this index is computed using all filters."
+                     "Example: If filter is set to AC3 audio type and "
+                     "the language to ‘eng’ and there are two AC3 "
+                     "‘eng’ streams in the service, the first stream "
+                     "could be identified using number 1 and the "
+                     "second using number 2."),
       .off      = offsetof(esfilter_t, esf_sindex),
     },
     {
       .type     = PT_INT,
       .id       = "pid",
       .name     = N_("PID"),
+      .desc     = N_("Program identification (PID) number to compare. "
+                     "Zero means any. This comparison is processed "
+                     "only when service comparison is active and for "
+                     "the Conditional Access filter."),
       .off      = offsetof(esfilter_t, esf_pid),
     },
     {
       .type     = PT_INT,
       .id       = "action",
       .name     = N_("Action"),
+      .desc     = N_("The rule action defines the operation when all "
+                     "comparisons succeed. See Help for more "
+                     "information on what the various rules do."),
       .get      = esfilter_class_action_get,
       .set      = esfilter_class_action_set,
       .list     = esfilter_class_action_enum,
@@ -814,12 +887,17 @@ const idclass_t esfilter_class_teletext = {
       .type     = PT_BOOL,
       .id       = "log",
       .name     = N_("Log"),
+      .desc     = N_("Write a short message to log identifying the "
+                     "matched parameters. It is useful for debugging "
+                     "your setup or structure of incoming streams."),
       .off      = offsetof(esfilter_t, esf_log),
     },
     {
       .type     = PT_STR,
       .id       = "comment",
       .name     = N_("Comment"),
+      .desc     = N_("Free-format text field. Enter whatever you "
+                     "like here."),
       .off      = offsetof(esfilter_t, esf_comment),
     },
     {}
@@ -836,6 +914,8 @@ const idclass_t esfilter_class_subtit = {
       .islist   = 1,
       .id       = "type",
       .name     = N_("Stream type"),
+      .desc     = N_("The subtitle stream types the filter should "
+                     "apply to."),
       .get      = esfilter_class_type_get,
       .set      = esfilter_class_type_set_subtit,
       .list     = esfilter_class_type_enum_subtit,
@@ -845,6 +925,7 @@ const idclass_t esfilter_class_subtit = {
       .type     = PT_STR,
       .id       = "language",
       .name     = N_("Language"),
+      .desc     = N_("The language the filter should apply to."),
       .get      = esfilter_class_language_get,
       .set      = esfilter_class_language_set,
       .list     = esfilter_class_language_enum,
@@ -853,6 +934,9 @@ const idclass_t esfilter_class_subtit = {
       .type     = PT_STR,
       .id       = "service",
       .name     = N_("Service"),
+      .desc     = N_("The service the filter should apply to. "
+                     "Leave blank to apply the filter to all "
+                     "services."),
       .get      = esfilter_class_service_get,
       .set      = esfilter_class_service_set,
       .list     = esfilter_class_service_enum,
@@ -861,18 +945,32 @@ const idclass_t esfilter_class_subtit = {
       .type     = PT_INT,
       .id       = "sindex",
       .name     = N_("Stream index"),
+      .desc     = N_("The logical stream index to compare. Note that "
+                     "this index is computed using all filters."
+                     "Example: If filter is set to AC3 audio type and "
+                     "the language to ‘eng’ and there are two AC3 "
+                     "‘eng’ streams in the service, the first stream "
+                     "could be identified using number 1 and the "
+                     "second using number 2."),
       .off      = offsetof(esfilter_t, esf_sindex),
     },
     {
       .type     = PT_INT,
       .id       = "pid",
       .name     = N_("PID"),
+      .desc     = N_("Program identification (PID) number to compare. "
+                     "Zero means any. This comparison is processed "
+                     "only when service comparison is active and for "
+                     "the Conditional Access filter."),
       .off      = offsetof(esfilter_t, esf_pid),
     },
     {
       .type     = PT_INT,
       .id       = "action",
       .name     = N_("Action"),
+      .desc     = N_("The rule action defines the operation when all "
+                     "comparisons succeed. See Help for more "
+                     "information on what the various rules do."),
       .get      = esfilter_class_action_get,
       .set      = esfilter_class_action_set,
       .list     = esfilter_class_action_enum,
@@ -881,12 +979,17 @@ const idclass_t esfilter_class_subtit = {
       .type     = PT_BOOL,
       .id       = "log",
       .name     = N_("Log"),
+      .desc     = N_("Write a short message to log identifying the "
+                     "matched parameters. It is useful for debugging "
+                     "your setup or structure of incoming streams."),
       .off      = offsetof(esfilter_t, esf_log),
     },
     {
       .type     = PT_STR,
       .id       = "comment",
       .name     = N_("Comment"),
+      .desc     = N_("Free-format text field. Enter whatever you "
+                     "like here."),
       .off      = offsetof(esfilter_t, esf_comment),
     },
     {}
@@ -903,6 +1006,8 @@ const idclass_t esfilter_class_ca = {
       .islist   = 1,
       .id       = "type",
       .name     = N_("Stream type"),
+      .desc     = N_("The CA stream type is only available for this "
+                     "filter."),
       .get      = esfilter_class_type_get,
       .set      = esfilter_class_type_set_ca,
       .list     = esfilter_class_type_enum_ca,
@@ -912,6 +1017,8 @@ const idclass_t esfilter_class_ca = {
       .type     = PT_STR,
       .id       = "CAid",
       .name     = N_("CA identification"),
+      .desc     = N_("The CAID to compare. Leave blank to apply to "
+                     "all IDs."),
       .get      = esfilter_class_caid_get,
       .set      = esfilter_class_caid_set,
       .list     = esfilter_class_caid_enum,
@@ -920,6 +1027,8 @@ const idclass_t esfilter_class_ca = {
       .type     = PT_STR,
       .id       = "CAprovider",
       .name     = N_("CA provider"),
+      .desc     = N_("The CA provider to compare. Leave blank to apply "
+                     "to all providers."),
       .get      = esfilter_class_caprovider_get,
       .set      = esfilter_class_caprovider_set,
       .list     = esfilter_class_caprovider_enum,
@@ -928,6 +1037,9 @@ const idclass_t esfilter_class_ca = {
       .type     = PT_STR,
       .id       = "service",
       .name     = N_("Service"),
+      .desc     = N_("The service the filter should apply to. "
+                     "Leave blank to apply the filter to all "
+                     "services."),
       .get      = esfilter_class_service_get,
       .set      = esfilter_class_service_set,
       .list     = esfilter_class_service_enum,
@@ -936,18 +1048,32 @@ const idclass_t esfilter_class_ca = {
       .type     = PT_INT,
       .id       = "sindex",
       .name     = N_("Stream index"),
+      .desc     = N_("The logical stream index to compare. Note that "
+                     "this index is computed using all filters."
+                     "Example: If filter is set to AC3 audio type and "
+                     "the language to ‘eng’ and there are two AC3 "
+                     "‘eng’ streams in the service, the first stream "
+                     "could be identified using number 1 and the "
+                     "second using number 2."),
       .off      = offsetof(esfilter_t, esf_sindex),
     },
     {
       .type     = PT_INT,
       .id       = "pid",
       .name     = N_("PID"),
+      .desc     = N_("Program identification (PID) number to compare. "
+                     "Zero means any. This comparison is processed "
+                     "only when service comparison is active and for "
+                     "the Conditional Access filter."),
       .off      = offsetof(esfilter_t, esf_pid),
     },
     {
       .type     = PT_INT,
       .id       = "action",
       .name     = N_("Action"),
+      .desc     = N_("The rule action defines the operation when all "
+                     "comparisons succeed. See Help for more "
+                     "information on what the various rules do."),
       .get      = esfilter_class_action_get,
       .set      = esfilter_class_action_set,
       .list     = esfilter_class_action_enum,
@@ -956,12 +1082,17 @@ const idclass_t esfilter_class_ca = {
       .type     = PT_BOOL,
       .id       = "log",
       .name     = N_("Log"),
+      .desc     = N_("Write a short message to log identifying the "
+                     "matched parameters. It is useful for debugging "
+                     "your setup or structure of incoming streams."),
       .off      = offsetof(esfilter_t, esf_log),
     },
     {
       .type     = PT_STR,
       .id       = "comment",
       .name     = N_("Comment"),
+      .desc     = N_("Free-format text field. Enter whatever you "
+                     "like here."),
       .off      = offsetof(esfilter_t, esf_comment),
     },
     {}
@@ -978,6 +1109,8 @@ const idclass_t esfilter_class_other = {
       .islist   = 1,
       .id       = "type",
       .name     = N_("Stream type"),
+      .desc     = N_("The MPEGTS stream type is only available for "
+                     "this filter."),
       .get      = esfilter_class_type_get,
       .set      = esfilter_class_type_set_other,
       .list     = esfilter_class_type_enum_other,
@@ -987,6 +1120,7 @@ const idclass_t esfilter_class_other = {
       .type     = PT_STR,
       .id       = "language",
       .name     = N_("Language"),
+      .desc     = N_("The language the filter should apply to."),
       .get      = esfilter_class_language_get,
       .set      = esfilter_class_language_set,
       .list     = esfilter_class_language_enum,
@@ -995,6 +1129,9 @@ const idclass_t esfilter_class_other = {
       .type     = PT_STR,
       .id       = "service",
       .name     = N_("Service"),
+      .desc     = N_("The service the filter should apply to. "
+                     "Leave blank to apply the filter to all "
+                     "services."),
       .get      = esfilter_class_service_get,
       .set      = esfilter_class_service_set,
       .list     = esfilter_class_service_enum,
@@ -1003,12 +1140,19 @@ const idclass_t esfilter_class_other = {
       .type     = PT_INT,
       .id       = "pid",
       .name     = N_("PID"),
+      .desc     = N_("Program identification (PID) number to compare. "
+                     "Zero means any. This comparison is processed "
+                     "only when service comparison is active and for "
+                     "the Conditional Access filter."),
       .off      = offsetof(esfilter_t, esf_pid),
     },
     {
       .type     = PT_INT,
       .id       = "action",
       .name     = N_("Action"),
+      .desc     = N_("The rule action defines the operation when all "
+                     "comparisons succeed. See Help for more "
+                     "information on what the various rules do."),
       .get      = esfilter_class_action_get,
       .set      = esfilter_class_action_set,
       .list     = esfilter_class_action_enum,
@@ -1017,12 +1161,17 @@ const idclass_t esfilter_class_other = {
       .type     = PT_BOOL,
       .id       = "log",
       .name     = N_("Log"),
+      .desc     = N_("Write a short message to log identifying the "
+                     "matched parameters. It is useful for debugging "
+                     "your setup or structure of incoming streams."),
       .off      = offsetof(esfilter_t, esf_log),
     },
     {
       .type     = PT_STR,
       .id       = "comment",
       .name     = N_("Comment"),
+      .desc     = N_("Free-format text field. Enter whatever you "
+                     "like here."),
       .off      = offsetof(esfilter_t, esf_comment),
     },
     {}

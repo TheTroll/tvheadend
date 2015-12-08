@@ -199,7 +199,8 @@ SRCS-1 = \
 	src/intlconv.c \
 	src/profile.c \
 	src/bouquet.c \
-	src/lock.c
+	src/lock.c \
+	src/wizard.c
 SRCS = $(SRCS-1)
 I18N-C = $(SRCS-1)
 
@@ -241,7 +242,8 @@ SRCS-2 = \
 	src/api/api_bouquet.c \
 	src/api/api_language.c \
 	src/api/api_satip.c \
-	src/api/api_timeshift.c
+	src/api/api_timeshift.c \
+	src/api/api_wizard.c
 
 SRCS-2 += \
 	src/parsers/parsers.c \
@@ -267,8 +269,9 @@ SRCS-2 += \
 	src/dvr/dvr_rec.c \
 	src/dvr/dvr_autorec.c \
 	src/dvr/dvr_timerec.c \
+	src/dvr/dvr_vfsmgr.c \
 	src/dvr/dvr_config.c \
-	src/dvr/dvr_cutpoints.c \
+	src/dvr/dvr_cutpoints.c
 
 SRCS-2 += \
 	src/webui/webui.c \
@@ -414,6 +417,9 @@ SRCS-$(CONFIG_BONJOUR) = $(SRCS-BONJOUR)
 I18N-C += $(SRCS-BONJOUR)
 
 # libav
+DEPS-LIBAV = \
+	src/main.c \
+	src/tvhlog.c
 SRCS-LIBAV = \
 	src/libav.c \
 	src/muxer/muxer_libav.c \
@@ -524,10 +530,10 @@ OBJS_EXTRA = $(SRCS_EXTRA:%.c=$(BUILDDIR)/%.so)
 DEPS       = ${OBJS:%.o=%.d}
 
 ifeq ($(CONFIG_LIBFFMPEG_STATIC),yes)
-DEPS      += ${BUILDDIR}/libffmpeg_stamp
+ALL-yes   += ${BUILDDIR}/libffmpeg_stamp
 endif
 ifeq ($(CONFIG_HDHOMERUN_STATIC),yes)
-DEPS      += ${BUILDDIR}/libhdhomerun_stamp
+ALL-yes   += ${BUILDDIR}/libhdhomerun_stamp
 endif
 
 SRCS += build.c timestamp.c
@@ -537,10 +543,8 @@ SRCS += build.c timestamp.c
 #
 
 # Default
+.PHONY: all
 all: $(ALL-yes) ${PROG}
-
-# Special
-.PHONY:	clean distclean reconfigure
 
 # Check configure output is valid
 .config.mk: configure
@@ -548,6 +552,7 @@ all: $(ALL-yes) ${PROG}
 	@false
 
 # Recreate configuration
+.PHONY: reconfigure
 reconfigure:
 	$(ROOTDIR)/configure $(CONFIGURE_ARGS)
 
@@ -566,12 +571,15 @@ ${BUILDDIR}/%.so: ${SRCS_EXTRA}
 	${CC} -O -fbuiltin -fomit-frame-pointer -fPIC -shared -o $@ $< -ldl
 
 # Clean
+.PHONY: clean
 clean:
 	rm -rf ${BUILDDIR}/src ${BUILDDIR}/bundle* ${BUILDDIR}/build.o ${BUILDDIR}/timestamp.* \
 	       src/tvh_locale_inc.c
 	find . -name "*~" | xargs rm -f
 	$(MAKE) -f Makefile.webui clean
 
+# Distclean
+.PHONY: distclean
 distclean: clean
 	rm -rf ${ROOTDIR}/libav_static
 	rm -rf ${ROOTDIR}/libhdhomerun_static
@@ -667,8 +675,7 @@ make_webui:
 # Static FFMPEG
 
 ifeq ($(CONFIG_LIBFFMPEG_STATIC),yes)
-${ROOTDIR}/src/libav.h: ${BUILDDIR}/libffmpeg_stamp
-${SRCS_LIBAV}: ${BUILDDIR}/libffmpeg_stamp
+src/libav.h ${SRCS-LIBAV} ${DEPS-LIBAV}: ${BUILDDIR}/libffmpeg_stamp
 endif
 
 ${BUILDDIR}/libffmpeg_stamp: ${ROOTDIR}/libav_static/build/ffmpeg/lib/libavcodec.a
@@ -680,8 +687,7 @@ ${ROOTDIR}/libav_static/build/ffmpeg/lib/libavcodec.a: Makefile.ffmpeg
 # Static HDHOMERUN library
 
 ifeq ($(CONFIG_LIBHDHOMERUN_STATIC),yes)
-${ROOTDIR}/src/input/mpegts/tvhdhomerun/tvhdhomerun_private.h: ${BUILDDIR}/libhdhomerun_stamp
-${SRCS_HDHOMERUN}: ${BUILDDIR}/libhdhomerun_stamp
+src/input/mpegts/tvhdhomerun/tvhdhomerun_private.h ${SRCS-HDHOMERUN}: ${BUILDDIR}/libhdhomerun_stamp
 endif
 
 ${BUILDDIR}/libhdhomerun_stamp: ${ROOTDIR}/libhdhomerun_static/libhdhomerun/libhdhomerun.a

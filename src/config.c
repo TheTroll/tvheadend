@@ -1469,7 +1469,7 @@ dobackup(const char *oldver)
     char *s;
     htsbuf_queue_init(&q, 0);
     for (arg = argv; *arg; arg++) {
-      htsbuf_append(&q, *arg, strlen(*arg));
+      htsbuf_append_str(&q, *arg);
       if (arg[1])
         htsbuf_append(&q, " ", 1);
     }
@@ -1626,6 +1626,8 @@ config_boot ( const char *path, gid_t gid, uid_t uid )
 
   memset(&config, 0, sizeof(config));
   config.idnode.in_class = &config_class;
+  config.ui_quicktips = 1;
+  config.wizard = strdup("hello");
   config.info_area = strdup("login,storage,time");
   config.cookie_expires = 7;
   config.dscp = -1;
@@ -1676,6 +1678,7 @@ config_boot ( const char *path, gid_t gid, uid_t uid )
   config2 = hts_settings_load("config");
   if (!config2) {
     tvhlog(LOG_DEBUG, "config", "no configuration, loading defaults");
+    config_newcfg = 1;
   } else {
     f = htsmsg_field_find(config2, "language");
     if (f && f->hmf_type == HMF_STR) {
@@ -1731,6 +1734,7 @@ config_init ( int backup )
 void config_done ( void )
 {
   /* note: tvhlog is inactive !!! */
+  free(config.wizard);
   free(config.full_version);
   free(config.server_name);
   free(config.language);
@@ -1897,6 +1901,17 @@ config_class_dscp_list ( void *o, const char *lang )
   return strtab2htsmsg(tab, 1, lang);
 }
 
+static htsmsg_t *
+config_class_uilevel ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("Basic"),    UILEVEL_BASIC },
+    { N_("Advanced"), UILEVEL_ADVANCED },
+    { N_("Expert"),   UILEVEL_EXPERT },
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
 const idclass_t config_class = {
   .ic_snode      = &config.idnode,
   .ic_class      = "config",
@@ -1941,8 +1956,9 @@ const idclass_t config_class = {
       .type   = PT_U32,
       .id     = "version",
       .name   = N_("Configuration version"),
+      .desc   = N_("The current configuration version."),
       .off    = offsetof(config_t, version),
-      .opts   = PO_RDONLY | PO_HIDDEN,
+      .opts   = PO_RDONLY | PO_HIDDEN | PO_EXPERT,
       .group  = 1
     },
     {
@@ -1950,44 +1966,99 @@ const idclass_t config_class = {
       .id     = "full_version",
       .name   = N_("Last updated from"),
       .off    = offsetof(config_t, full_version),
-      .opts   = PO_RDONLY | PO_HIDDEN,
+      .opts   = PO_RDONLY | PO_HIDDEN | PO_EXPERT,
       .group  = 1
     },
     {
       .type   = PT_STR,
       .id     = "server_name",
       .name   = N_("Tvheadend server name"),
+      .desc   = N_("Set the name of the server so you can distinguish "
+                   "multiple instances apart on your LAN."),
       .off    = offsetof(config_t, server_name),
+      .group  = 1
+    },
+    {
+      .type   = PT_INT,
+      .id     = "uilevel",
+      .name   = N_("User interface level"),
+      .desc   = N_("Sets the default interface view level (next to the "
+                   "help button)."),
+      .off    = offsetof(config_t, uilevel),
+      .list   = config_class_uilevel,
+      .group  = 1
+    },
+    {
+      .type   = PT_BOOL,
+      .id     = "uilevel_nochange",
+      .name   = N_("Persistent user interface level"),
+      .desc   = N_("Prevents users from overriding the above user "
+                   "interface level setting and removes the view level "
+                   "drop-dowm from the interface."),
+      .off    = offsetof(config_t, uilevel_nochange),
+      .opts   = PO_ADVANCED,
+      .group  = 1
+    },
+    {
+      .type   = PT_BOOL,
+      .id     = "ui_quicktips",
+      .name   = N_("User interface quick tips"),
+      .desc   = N_("Allow to show the quick tips for the form fields."),
+      .off    = offsetof(config_t, ui_quicktips),
+      .opts   = PO_ADVANCED,
       .group  = 1
     },
     {
       .type   = PT_U32,
       .id     = "cookie_expires",
       .name   = N_("Cookie expiration (days)"),
+      .desc   = N_("The number of days cookies set by Tvheadend should "
+                   "expire."),
       .off    = offsetof(config_t, cookie_expires),
+      .opts   = PO_ADVANCED,
       .group  = 1
     },
     {
       .type   = PT_STR,
       .id     = "cors_origin",
       .name   = N_("HTTP CORS origin"),
+      .desc   = N_("HTTP Cross-origin resource sharing origin. This "
+                   "option is usually set when Tvheadend is behind a "
+                   "proxy. Enter a domain (or IP) to allow "
+                   "cross-domain requests."),
       .set    = config_class_cors_origin_set,
       .off    = offsetof(config_t, cors_origin),
+      .opts   = PO_EXPERT,
       .group  = 1
     },
     {
       .type   = PT_INT,
       .id     = "dscp",
       .name   = N_("DSCP/TOS for streaming"),
+      .desc   = N_("Differentiated Services Code Point / Type of "
+                   "Service: Set the service class Tvheadend sends "
+                   "with each packet. Depending on the option selected "
+                   "this tells your router the prority in which to "
+                   "give packets sent from Tvheadend, this option does "
+                   "not usually need changing. See "
+                   "https://en.wikipedia.org/wiki/"
+                   "Differentiated_services for more information. "),
       .off    = offsetof(config_t, dscp),
       .list   = config_class_dscp_list,
+      .opts   = PO_EXPERT,
       .group  = 1
     },
     {
       .type   = PT_U32,
       .id     = "descrambler_buffer",
       .name   = N_("Descrambler buffer (TS packets)"),
+      .desc   = N_("The number of packets Tvheadend buffers in case "
+                   "there is a delay receiving CA keys. "),
+                   /* Note: I'm not sure I've explained this very well
+                    * ;)
+                    */
       .off    = offsetof(config_t, descrambler_buffer),
+      .opts   = PO_EXPERT,
       .group  = 1
     },
     {
@@ -1995,6 +2066,10 @@ const idclass_t config_class = {
       .islist = 1,
       .id     = "language",
       .name   = N_("Default language(s)"),
+      .desc   = N_("Select the list of languages (in order of "
+                   "priority) to be used for supplying EPG information "
+                   "to clients that don’t provide their own "
+                   "configuration."),
       .set    = config_class_language_set,
       .get    = config_class_language_get,
       .list   = config_class_language_list,
@@ -2006,16 +2081,20 @@ const idclass_t config_class = {
       .islist = 1,
       .id     = "info_area",
       .name   = N_("Information area"),
+      .desc   = N_("Show, hide and sort the various details that "
+                   "appear on the interface next to the About tab."),
       .set    = config_class_info_area_set,
       .get    = config_class_info_area_get,
       .list   = config_class_info_area_list,
-      .opts   = PO_LORDER,
+      .opts   = PO_LORDER | PO_ADVANCED,
       .group  = 3
     },
     {
       .type   = PT_STR,
       .id     = "language_ui",
       .name   = N_("User language"),
+      .desc   = N_("The default language to use if the user "
+                   " language isn't set in the Access Entries tab."),
       .list   = language_get_list,
       .off    = offsetof(config_t, language_ui),
       .group  = 3
@@ -2024,57 +2103,97 @@ const idclass_t config_class = {
       .type   = PT_STR,
       .id     = "muxconfpath",
       .name   = N_("DVB scan files path"),
+      .desc   = N_("Select the path to use for DVB scan configuration "
+                   "files. Typically dvb-apps stores these in "
+                   "/usr/share/dvb/. Leave blank to use Tvheadend's "
+                   "internal file set."),
       .off    = offsetof(config_t, muxconf_path),
+      .opts   = PO_ADVANCED,
       .group  = 4
     },
     {
       .type   = PT_BOOL,
       .id     = "tvhtime_update_enabled",
       .name   = N_("Update time"),
+      .desc   = N_("Enable system time updates. This will only work if "
+                   "the user running Tvheadend has rights to update "
+                   "the system clock (normally only root)."),
       .off    = offsetof(config_t, tvhtime_update_enabled),
+      .opts   = PO_EXPERT,
       .group  = 5,
     },
     {
       .type   = PT_BOOL,
       .id     = "tvhtime_ntp_enabled",
       .name   = N_("Enable NTP driver"),
-      .off    = offsetof(config_t, tvhtime_update_enabled),
+      .desc   = N_("This will create an NTP driver (using shmem "
+                   "interface) that you can feed into ntpd. This can "
+                   "be run without root privileges, but generally the "
+                   "performance is not that great."),
+      .off    = offsetof(config_t, tvhtime_ntp_enabled),
+      .opts   = PO_EXPERT,
       .group  = 5,
     },
     {
       .type   = PT_U32,
       .id     = "tvhtime_tolerance",
       .name   = N_("Update tolerance (ms)"),
+      .desc   = N_("Only update the system clock (doesn’t affect NTP "
+                   "driver) if the delta between the system clock and "
+                   "DVB time is greater than this. This can help stop "
+                   "excessive oscillations on the system clock."),
       .off    = offsetof(config_t, tvhtime_tolerance),
+      .opts   = PO_EXPERT,
       .group  = 5,
     },
     {
       .type   = PT_BOOL,
       .id     = "prefer_picon",
       .name   = N_("Prefer picons over channel name"),
+      .desc   = N_("If both a picon and a channel-specific "
+      "(e.g. channelname.jpg) icon are defined, use the picon."),
       .off    = offsetof(config_t, prefer_picon),
+      .opts   = PO_ADVANCED,
       .group  = 6,
     },
     {
       .type   = PT_STR,
       .id     = "chiconpath",
       .name   = N_("Channel icon path (see Help)"),
+      .desc   = N_("Path to an icon for this channel. This can be "
+                   "named however you wish, as either a local "
+                   "(file://) or remote (http://) image. "
+                   "See Help for more infomation."),
       .off    = offsetof(config_t, chicon_path),
+      .opts   = PO_ADVANCED,
       .group  = 6,
     },
     {
       .type   = PT_BOOL,
       .id     = "chiconlowercase",
       .name   = N_("Channel icon name lower-case"),
+      .desc   = N_("Use icons with lower-case filenames only."),
       .off    = offsetof(config_t, chicon_lowercase),
+      .opts   = PO_ADVANCED,
       .group  = 6,
     },
     {
       .type   = PT_STR,
       .id     = "piconpath",
       .name   = N_("Picon path (see Help)"),
+      .desc   = N_("Path to a directory (folder) containing your picon "
+                   "collection. See Help for more detailed "
+                   "information."),
       .off    = offsetof(config_t, picon_path),
+      .opts   = PO_ADVANCED,
       .group  = 6,
+    },
+    {
+      .type   = PT_STR,
+      .id     = "wizard",
+      .name   = "Wizard level", /* untranslated */
+      .off    = offsetof(config_t, wizard),
+      .opts   = PO_NOUI,
     },
     {
       .type   = PT_STR,

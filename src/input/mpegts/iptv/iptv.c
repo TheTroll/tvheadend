@@ -90,8 +90,8 @@ iptv_handler_find ( const char *scheme )
 static bouquet_t *
 iptv_bouquet_get (iptv_network_t *in, int create)
 {
-  char buf[128];
-  snprintf(buf, sizeof(buf), "iptv-network://%s", idnode_uuid_as_sstr(&in->mn_id));
+  char buf[128], ubuf[UUID_HEX_SIZE];
+  snprintf(buf, sizeof(buf), "iptv-network://%s", idnode_uuid_as_str(&in->mn_id, ubuf));
   return bouquet_find_by_source(in->mn_network_name, buf, create);
 }
 
@@ -295,7 +295,7 @@ static htsstr_substitute_t iptv_input_subst[] = {
 };
 
 static int
-iptv_input_start_mux ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi )
+iptv_input_start_mux ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi, int weight )
 {
   int ret = SM_CODE_TUNING_FAILED;
   iptv_mux_t *im = (iptv_mux_t*)mmi->mmi_mux;
@@ -407,14 +407,39 @@ iptv_input_display_name ( mpegts_input_t *mi, char *buf, size_t len )
   snprintf(buf, len, "IPTV");
 }
 
-static void
+static inline int
+iptv_input_pause_check ( iptv_mux_t *im )
+{
+  int64_t s64;
+
+  if (im->im_pcr == PTS_UNSET)
+    return 0;
+  s64 = getmonoclock() - im->im_pcr_start;
+  im->im_pcr_start += s64;
+  im->im_pcr += (((s64 / 10LL) * 9LL) + 4LL) / 10LL;
+  im->im_pcr &= PTS_MASK;
+  tvhtrace("iptv-pcr", "pcr: updated %"PRId64", time start %"PRId64, im->im_pcr, im->im_pcr_start);
+
+  /* queued more than 3 seconds? trigger the pause */
+  return im->im_pcr_end - im->im_pcr_start >= 3000000LL;
+}
+
+void
 iptv_input_unpause ( void *aux )
 {
   iptv_mux_t *im = aux;
+  int pause;
   pthread_mutex_lock(&iptv_lock);
-  tvhtrace("iptv-pcr", "unpause timer callback");
-  im->im_handler->pause(im, 0);
+  if (iptv_input_pause_check(im)) {
+    pause = 1;
+  } else {
+    tvhtrace("iptv-pcr", "unpause timer callback");
+    im->im_handler->pause(im, 0);
+    pause = 0;
+  }
   pthread_mutex_unlock(&iptv_lock);
+  if (pause)
+    gtimer_arm(&im->im_pause_timer, iptv_input_unpause, im, 1);
 }
 
 static void *
@@ -481,11 +506,16 @@ iptv_input_pause_handler ( iptv_mux_t *im, int pause )
     tvhpoll_add(iptv_poll, &ev, 1);
 }
 
-static inline int
-iptv_input_pause_check ( iptv_mux_t *im )
+void
+iptv_input_recv_flush ( iptv_mux_t *im )
 {
-  /* queued more than 3 seconds? trigger the pause */
-  return im->im_pcr_end - im->im_pcr_start >= 3000000LL;
+  mpegts_mux_instance_t *mmi = im->mm_active;
+
+  if (mmi == NULL)
+    return;
+  mpegts_input_recv_packets((mpegts_input_t*)iptv_input, mmi,
+                            &im->mm_iptv_buffer, MPEGTS_DATA_CC_RESTART,
+                            NULL);
 }
 
 int
@@ -494,8 +524,12 @@ iptv_input_recv_packets ( iptv_mux_t *im, ssize_t len )
   static time_t t1 = 0, t2;
   iptv_network_t *in = (iptv_network_t*)im->mm_network;
   mpegts_mux_instance_t *mmi;
-  int64_t pcr_first = PTS_UNSET, pcr_last = PTS_UNSET, s64;
+  mpegts_pcr_t pcr;
+  int64_t s64;
 
+  pcr.pcr_first = PTS_UNSET;
+  pcr.pcr_last  = PTS_UNSET;
+  pcr.pcr_pid   = im->im_pcr_pid;
   in->in_bps += len * 8;
   time(&t2);
   if (t2 != t1) {
@@ -514,35 +548,28 @@ iptv_input_recv_packets ( iptv_mux_t *im, ssize_t len )
   /* Pass on, but with timing */
   mmi = im->mm_active;
   if (mmi) {
-    if (im->im_pcr != PTS_UNSET) {
-      s64 = getmonoclock() - im->im_pcr_start;
-      im->im_pcr_start += s64;
-      im->im_pcr += (((s64 / 10LL) * 9LL) + 4LL) / 10LL;
-      im->im_pcr &= PTS_MASK;
-      tvhtrace("iptv-pcr", "pcr: updated %"PRId64", time start %"PRId64, im->im_pcr, im->im_pcr_start);
-    }
     if (iptv_input_pause_check(im)) {
       tvhtrace("iptv-pcr", "pcr: paused");
       return 1;
     }
     mpegts_input_recv_packets((mpegts_input_t*)iptv_input, mmi,
-                              &im->mm_iptv_buffer,
-                              &pcr_first, &pcr_last, &im->im_pcr_pid);
-    if (pcr_first != PTS_UNSET && pcr_last != PTS_UNSET) {
+                              &im->mm_iptv_buffer, 0, &pcr);
+    if (pcr.pcr_first != PTS_UNSET && pcr.pcr_last != PTS_UNSET) {
+      im->im_pcr_pid = pcr.pcr_pid;
       if (im->im_pcr == PTS_UNSET) {
-        s64 = pts_diff(pcr_first, pcr_last);
+        s64 = pts_diff(pcr.pcr_first, pcr.pcr_last);
         if (s64 != PTS_UNSET) {
-          im->im_pcr = pcr_first;
+          im->im_pcr = pcr.pcr_first;
           im->im_pcr_start = getmonoclock();
           im->im_pcr_end = im->im_pcr_start + ((s64 * 100LL) + 50LL) / 9LL;
           tvhtrace("iptv-pcr", "pcr: first %"PRId64" last %"PRId64", time start %"PRId64", end %"PRId64,
-                   pcr_first, pcr_last, im->im_pcr_start, im->im_pcr_end);
+                   pcr.pcr_first, pcr.pcr_last, im->im_pcr_start, im->im_pcr_end);
         }
       } else {
-        s64 = pts_diff(im->im_pcr, pcr_last);
+        s64 = pts_diff(im->im_pcr, pcr.pcr_last);
         if (s64 != PTS_UNSET) {
           im->im_pcr_end = im->im_pcr_start + ((s64 * 100LL) + 50LL) / 9LL;
-          tvhtrace("iptv-pcr", "pcr: last %"PRId64", time end %"PRId64, pcr_last, im->im_pcr_end);
+          tvhtrace("iptv-pcr", "pcr: last %"PRId64", time end %"PRId64, pcr.pcr_last, im->im_pcr_end);
         }
       }
       if (iptv_input_pause_check(im)) {
@@ -622,6 +649,7 @@ iptv_network_delete ( mpegts_network_t *mn, int delconf )
   char *sane_url = in->in_url_sane;
   char *icon_url = in->in_icon_url;
   char *icon_url_sane = in->in_icon_url_sane;
+  char ubuf[UUID_HEX_SIZE];
 
   gtimer_disarm(&in->in_bouquet_timer);
 
@@ -631,7 +659,7 @@ iptv_network_delete ( mpegts_network_t *mn, int delconf )
   /* Remove config */
   if (delconf) {
     hts_settings_remove("input/iptv/networks/%s",
-                        idnode_uuid_as_sstr(&in->mn_id));
+                        idnode_uuid_as_str(&in->mn_id, ubuf));
     bouquet_delete(iptv_bouquet_get(in, 0));
   }
 
@@ -684,7 +712,7 @@ const idclass_t iptv_network_class = {
       .name     = N_("Service ID"),
       .off      = offsetof(iptv_network_t, in_service_id),
       .def.i    = 0,
-      .opts     = PO_ADVANCED
+      .opts     = PO_EXPERT
     },
     {
       .type     = PT_INT,
@@ -722,6 +750,7 @@ const idclass_t iptv_network_class = {
       .name     = N_("Maximum timeout (seconds)"),
       .off      = offsetof(iptv_network_t, in_max_timeout),
       .def.i    = 15,
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_STR,
@@ -729,7 +758,7 @@ const idclass_t iptv_network_class = {
       .name     = N_("Icon base URL"),
       .off      = offsetof(iptv_network_t, in_icon_url),
       .set      = iptv_network_class_icon_url_set,
-      .opts     = PO_MULTILINE
+      .opts     = PO_MULTILINE | PO_ADVANCED
     },
     {
       .id       = "autodiscovery",
@@ -780,7 +809,7 @@ iptv_auto_network_class_charset_list(void *o, const char *lang)
 const idclass_t iptv_auto_network_class = {
   .ic_super      = &iptv_network_class,
   .ic_class      = "iptv_auto_network",
-  .ic_caption    = N_("IPTV Automatic Network"),
+  .ic_caption    = N_("IPTV automatic network"),
   .ic_properties = (const property_t[]){
     {
       .type     = PT_STR,
@@ -805,6 +834,7 @@ const idclass_t iptv_auto_network_class = {
       .off      = offsetof(iptv_network_t, in_ctx_charset),
       .list     = iptv_auto_network_class_charset_list,
       .notify   = iptv_auto_network_class_notify_url,
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_S64,
@@ -819,19 +849,22 @@ const idclass_t iptv_auto_network_class = {
       .name     = N_("Re-fetch period (mins)"),
       .off      = offsetof(iptv_network_t, in_refetch_period),
       .def.i    = 60,
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_BOOL,
       .id       = "ssl_peer_verify",
       .name     = N_("SSL verify peer"),
       .off      = offsetof(iptv_network_t, in_ssl_peer_verify),
+      .opts     = PO_EXPERT
     },
     {
       .type     = PT_STR,
       .id       = "remove_args",
       .name     = N_("Remove HTTP arguments"),
       .off      = offsetof(iptv_network_t, in_remove_args),
-      .def.s    = "ticket"
+      .def.s    = "ticket",
+      .opts     = PO_EXPERT
     },
     {}
   }
@@ -863,9 +896,10 @@ static void
 iptv_network_config_save ( mpegts_network_t *mn )
 {
   htsmsg_t *c = htsmsg_create_map();
+  char ubuf[UUID_HEX_SIZE];
   idnode_save(&mn->mn_id, c);
   hts_settings_save(c, "input/iptv/networks/%s/config",
-                    idnode_uuid_as_sstr(&mn->mn_id));
+                    idnode_uuid_as_str(&mn->mn_id, ubuf));
   htsmsg_destroy(c);
 }
 
@@ -875,6 +909,7 @@ iptv_network_create0
 {
   iptv_network_t *in = calloc(1, sizeof(*in));
   htsmsg_t *c;
+  char ubuf[UUID_HEX_SIZE];
 
   /* Init Network */
   in->in_scan_create        = 1;
@@ -904,7 +939,7 @@ iptv_network_create0
 
   /* Load muxes */
   if ((c = hts_settings_load_r(1, "input/iptv/networks/%s/muxes",
-                                idnode_uuid_as_sstr(&in->mn_id)))) {
+                                idnode_uuid_as_str(&in->mn_id, ubuf)))) {
     htsmsg_field_t *f;
     htsmsg_t *e;
     HTSMSG_FOREACH(f, c) {

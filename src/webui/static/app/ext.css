@@ -168,6 +168,26 @@
     background-image: url(../icons/find.png) !important;
 }
 
+.wizard {
+    background-image: url(../icons/wand.png) !important;
+}
+
+.uilevel {
+    background-image: url(../icons/application_form.png) !important;
+}
+
+.uilevel_basic {
+    background-image: url(../icons/award_star_bronze_3.png) !important;
+}
+
+.uilevel_advanced {
+    background-image: url(../icons/award_star_silver_3.png) !important;
+}
+
+.uilevel_expert {
+    background-image: url(../icons/award_star_gold_3.png) !important;
+}
+
 .imdb {
     background-image: url(../icons/imdb.png) !important;
 }
@@ -360,19 +380,23 @@
     background-image: url(../icons/arrow_branch.png) !important;
 }
 
-.bullet_add {
-    background-image: url(../icons/bullet_add.png) !important;
+.chnumops {
+    background-image: url(../icons/brick.png) !important;
 }
 
-.arrow_up {
+.chnumops_low {
+    background-image: url(../icons/world_add.png) !important;
+}
+
+.chnumops_up {
     background-image: url(../icons/arrow_up.png) !important;
 }
 
-.arrow_down {
+.chnumops_down {
     background-image: url(../icons/arrow_down.png) !important;
 }
 
-.arrow_switch {
+.chnumops_swap {
     background-image: url(../icons/arrow_switch.png) !important;
 }
 
@@ -528,7 +552,7 @@
     background-image: url(../icons/broadcast_details.png) !important;
 }
 
-.time_schedules{
+.timers{
     background-image: url(../icons/time_schedules.png) !important;
 }
 
@@ -562,6 +586,18 @@
 
 .fetch_images {
     background-image: url(../icons/fetch_images.png) !important;
+}
+
+.previous {
+    background-image: url(../icons/arrow_left.png) !important;
+}
+
+.next {
+    background-image: url(../icons/arrow_right.png) !important;
+}
+
+.finish {
+    background-image: url(../icons/accept.png) !important;
 }
 
 .x-linked {
@@ -647,6 +683,15 @@
     height: 100%;
     background: black;
     color: white;
+}
+
+.x-wizard-icon {
+    float: right;
+}
+
+.x-wizard-description {
+    margin: 5px;
+    font: normal 12px arial, tahoma, helvetica, sans-serif;
 }
 
 /* Table styles for webUI help */

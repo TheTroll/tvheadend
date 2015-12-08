@@ -168,6 +168,7 @@ const idclass_t service_class = {
       .name     = N_("Automatic checking"),
       .list     = service_class_auto_list,
       .off      = offsetof(service_t, s_auto),
+      .opts     = PO_ADVANCED,
     },
     {
       .type     = PT_STR,
@@ -185,6 +186,7 @@ const idclass_t service_class = {
       .id       = "priority",
       .name     = N_("Priority (-10..10)"),
       .off      = offsetof(service_t, s_prio),
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_BOOL,
@@ -198,7 +200,7 @@ const idclass_t service_class = {
       .id       = "caid",
       .name     = N_("CAID"),
       .get      = service_class_caid_get,
-      .opts     = PO_NOSAVE | PO_RDONLY | PO_HIDDEN,
+      .opts     = PO_NOSAVE | PO_RDONLY | PO_HIDDEN | PO_EXPERT,
     },
     {}
   }
@@ -232,6 +234,8 @@ stream_init(elementary_stream_t *st)
   st->es_prevdts = PTS_UNSET;
 
   st->es_blank = 0;
+
+  TAILQ_INIT(&st->es_backlog);
 }
 
 
@@ -245,6 +249,8 @@ stream_clean(elementary_stream_t *st)
   st->es_priv = NULL;
 
   /* Clear reassembly buffers */
+
+  streaming_queue_clear(&st->es_backlog);
 
   st->es_startcode = 0;
   
@@ -385,6 +391,7 @@ service_build_filter(service_t *t)
   caid_t *ca, *ca2;
   int i, n, p, o, exclusive, sindex;
   uint32_t mask;
+  char ubuf[UUID_HEX_SIZE];
 
   /* rebuild the filtered and ordered components */
   TAILQ_INIT(&t->s_filt_components);
@@ -440,7 +447,7 @@ filter:
             strncmp(esf->esf_language, st->es_lang, 4))
           continue;
         if (esf->esf_service[0]) {
-          if (strcmp(esf->esf_service, idnode_uuid_as_sstr(&t->s_id)))
+          if (strcmp(esf->esf_service, idnode_uuid_as_str(&t->s_id, ubuf)))
             continue;
           if (esf->esf_pid && esf->esf_pid != st->es_pid)
             continue;
@@ -702,6 +709,12 @@ service_find_instance
       service_instance_destroy(sil, si);
   }
   
+  if (TAILQ_EMPTY(sil)) {
+    if (*error < SM_CODE_NO_ADAPTERS)
+      *error = SM_CODE_NO_ADAPTERS;
+    return NULL;
+  }
+
   /* Debug */
   TAILQ_FOREACH(si, sil, si_link) {
     const char *name = ch ? channel_get_name(ch) : NULL;

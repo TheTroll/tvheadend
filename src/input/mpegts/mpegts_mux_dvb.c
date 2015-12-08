@@ -213,6 +213,7 @@ const idclass_t dvb_mux_dvbt_class =
       .type     = PT_U32,
       .id       = "frequency",
       .name     = N_("Frequency (Hz)"),
+      .desc     = N_("The frequency of the mux (in Hertz)."),
       .off      = offsetof(dvb_mux_t, lm_tuning.dmc_fe_freq),
       .set      = dvb_mux_dvbt_class_frequency_set,
     },
@@ -285,6 +286,7 @@ const idclass_t dvb_mux_dvbc_class =
       .type     = PT_U32,
       .id       = "frequency",
       .name     = N_("Frequency (Hz)"),
+      .desc     = N_("The frequency of the mux (in Hertz)."),
       .off      = offsetof(dvb_mux_t, lm_tuning.dmc_fe_freq),
       .set      = dvb_mux_dvbt_class_frequency_set,
     },
@@ -292,6 +294,7 @@ const idclass_t dvb_mux_dvbc_class =
       .type     = PT_U32,
       .id       = "symbolrate",
       .name     = N_("Symbol rate (Sym/s)"),
+      .desc     = N_("The symbol rate."),
       .off      = offsetof(dvb_mux_t, lm_tuning.u.dmc_fe_qam.symbol_rate),
     },
     {
@@ -539,6 +542,7 @@ const idclass_t dvb_mux_dvbs_class =
       .type     = PT_U32,
       .id       = "frequency",
       .name     = N_("Frequency (kHz)"),
+      .desc     = N_("The frequency of the mux (in Hertz)."),
       .off      = offsetof(dvb_mux_t, lm_tuning.dmc_fe_freq),
       .set      = dvb_mux_dvbs_class_frequency_set,
     },
@@ -546,6 +550,7 @@ const idclass_t dvb_mux_dvbs_class =
       .type     = PT_U32,
       .id       = "symbolrate",
       .name     = N_("Symbol rate (Sym/s)"),
+      .desc     = N_("The symbol rate."),
       .off      = offsetof(dvb_mux_t, lm_tuning.u.dmc_fe_qpsk.symbol_rate),
       .set      = dvb_mux_dvbs_class_symbol_rate_set,
     },
@@ -556,6 +561,7 @@ const idclass_t dvb_mux_dvbs_class =
       .type     = PT_STR,
       .id       = "modulation",
       .name     = N_("Modulation"),
+      .desc     = N_("The modulation used on the mux."),
       .set      = dvb_mux_dvbs_class_modulation_set,
       .get      = dvb_mux_dvbs_class_modulation_get,
       .list     = dvb_mux_dvbs_class_modulation_list,
@@ -568,6 +574,8 @@ const idclass_t dvb_mux_dvbs_class =
       .type     = PT_STR,
       .id       = "rolloff",
       .name     = N_("Rolloff"),
+      .desc     = N_("The mux rolloff. Leave as AUTO unless you know the "
+                     "exact rolloff for this mux."),
       .set      = dvb_mux_dvbs_class_rolloff_set,
       .get      = dvb_mux_dvbs_class_rolloff_get,
       .list     = dvb_mux_dvbs_class_rolloff_list,
@@ -577,6 +585,8 @@ const idclass_t dvb_mux_dvbs_class =
       .type     = PT_STR,
       .id       = "pilot",
       .name     = N_("Pilot"),
+      .desc     = N_("Use pilot on this mux. AUTO is the recommended "
+                     "value."),
       .opts     = PO_ADVANCED,
       .set      = dvb_mux_dvbs_class_pilot_set,
       .get      = dvb_mux_dvbs_class_pilot_get,
@@ -586,8 +596,10 @@ const idclass_t dvb_mux_dvbs_class =
       .type     = PT_INT,
       .id       = "stream_id",
       .name     = N_("ISI (Stream ID)"),
+      .desc     = N_("The stream ID used for this mux."),
       .off      = offsetof(dvb_mux_t, lm_tuning.dmc_fe_stream_id),
       .def.i	= DVB_NO_STREAM_ID_FILTER,
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_STR,
@@ -597,18 +609,23 @@ const idclass_t dvb_mux_dvbs_class =
       .get      = dvb_mux_dvbs_class_pls_mode_get,
       .list     = dvb_mux_dvbs_class_pls_mode_list,
       .def.s    = "ROOT",
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_U32,
       .id       = "pls_code",
       .name     = N_("PLS code"),
+      .desc     = N_("Enter the Physical Layer Scrambling (PLS) code "
+                     "used on this mux."),
       .off      = offsetof(dvb_mux_t, lm_tuning.dmc_fe_pls_code),
       .def.u32	= 1,
+      .opts     = PO_ADVANCED
     },
     {
       .type     = PT_STR,
       .id       = "orbital",
       .name     = N_("Orbital position"),
+      .desc     = N_("The orbital position of the satellite this mux is on."),
       .set      = dvb_mux_dvbs_class_orbital_set,
       .get      = dvb_mux_dvbs_class_orbital_get,
       .opts     = PO_ADVANCED | PO_RDONLY
@@ -645,6 +662,7 @@ const idclass_t dvb_mux_atsc_class =
       .type     = PT_U32,
       .id       = "frequency",
       .name     = N_("Frequency (Hz)"),
+      .desc     = N_("The frequency of the mux (in Hertz)."),
       .off      = offsetof(dvb_mux_t, lm_tuning.dmc_fe_freq),
       .set      = dvb_mux_dvbt_class_frequency_set,
     },
@@ -662,12 +680,13 @@ const idclass_t dvb_mux_atsc_class =
 static void
 dvb_mux_config_save ( mpegts_mux_t *mm )
 {
-  char ubuf[UUID_HEX_SIZE];
+  char ubuf1[UUID_HEX_SIZE];
+  char ubuf2[UUID_HEX_SIZE];
   htsmsg_t *c = htsmsg_create_map();
   mpegts_mux_save(mm, c);
   hts_settings_save(c, "input/dvb/networks/%s/muxes/%s/config",
-                    idnode_uuid_as_sstr(&mm->mm_network->mn_id),
-                    idnode_uuid_as_str(&mm->mm_id, ubuf));
+                    idnode_uuid_as_str(&mm->mm_network->mn_id, ubuf1),
+                    idnode_uuid_as_str(&mm->mm_id, ubuf2));
   htsmsg_destroy(c);
 }
 
@@ -714,13 +733,14 @@ dvb_mux_create_instances ( mpegts_mux_t *mm )
 static void
 dvb_mux_delete ( mpegts_mux_t *mm, int delconf )
 {
-  char ubuf[UUID_HEX_SIZE];
+  char ubuf1[UUID_HEX_SIZE];
+  char ubuf2[UUID_HEX_SIZE];
 
   /* Remove config */
   if (delconf)
     hts_settings_remove("input/dvb/networks/%s/muxes/%s",
-                      idnode_uuid_as_sstr(&mm->mm_network->mn_id),
-                      idnode_uuid_as_str(&mm->mm_id, ubuf));
+                      idnode_uuid_as_str(&mm->mm_network->mn_id, ubuf1),
+                      idnode_uuid_as_str(&mm->mm_id, ubuf2));
 
   /* Delete the mux */
   mpegts_mux_delete(mm, delconf);
@@ -742,7 +762,8 @@ dvb_mux_create0
   htsmsg_t *c, *e;
   htsmsg_field_t *f;
   dvb_fe_delivery_system_t delsys;
-  char ubuf[UUID_HEX_SIZE];
+  char ubuf1[UUID_HEX_SIZE];
+  char ubuf2[UUID_HEX_SIZE];
 
   /* Class */
   if (ln->ln_type == DVB_TYPE_S) {
@@ -792,8 +813,8 @@ dvb_mux_create0
 
   /* Services */
   c = hts_settings_load_r(1, "input/dvb/networks/%s/muxes/%s/services",
-                         idnode_uuid_as_sstr(&ln->mn_id),
-                         idnode_uuid_as_str(&mm->mm_id, ubuf));
+                         idnode_uuid_as_str(&ln->mn_id, ubuf1),
+                         idnode_uuid_as_str(&mm->mm_id, ubuf2));
   if (c) {
     HTSMSG_FOREACH(f, c) {
       if (!(e = htsmsg_get_map_by_field(f))) continue;
