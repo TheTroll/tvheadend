@@ -172,6 +172,8 @@ dvr_rec_unsubscribe(dvr_entry_t *de)
   de->de_chain = NULL;
   profile_chain_close(prch);
   free(prch);
+
+  dvr_vfs_refresh_entry(de);
 }
 
 /**
@@ -904,6 +906,8 @@ dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
     dvr_rec_fatal_error(de, "Unable to open file");
     return -1;
   }
+
+  dvr_vfs_refresh_entry(de);
 
   ss_copy = streaming_start_copy(ss);
 

@@ -1,5 +1,5 @@
 /*
- *  tvheadend, Wizard
+ *  File system management
  *  Copyright (C) 2015 Jaroslav Kysela
  *
  *  This program is free software: you can redistribute it and/or modify
@@ -16,25 +16,19 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __TVH_WIZARD_H__
-#define __TVH_WIZARD_H__
+#ifndef __TVH_VFS_H__
+#define __TVH_VFS_H__
 
-#include "tvheadend.h"
-#include "idnode.h"
+#if ENABLE_ANDROID
+#include <sys/vfs.h>
+#define statvfs statfs
+#define fstatvfs fstatfs
+#define tvh_fsid_t uint64_t
+#define tvh_fsid(x) (((uint64_t)x.__val[0] << 32) | (x.__val[1]))
+#else
+#include <sys/statvfs.h>
+#define tvh_fsid_t unsigned long
+#define tvh_fsid(x) (x)
+#endif
 
-typedef struct wizard_page {
-  idnode_t idnode;
-  void (*free)(struct wizard_page *);
-  void *aux;
-} wizard_page_t;
-
-typedef wizard_page_t *(*wizard_build_fcn_t)(void);
-
-wizard_page_t *wizard_hello(void);
-wizard_page_t *wizard_login(void);
-wizard_page_t *wizard_network(void);
-wizard_page_t *wizard_input(void);
-wizard_page_t *wizard_status(void);
-wizard_page_t *wizard_mapping(void);
-
-#endif /* __TVH_WIZARD_H__ */
+#endif /* __TVH_VFS_H__ */

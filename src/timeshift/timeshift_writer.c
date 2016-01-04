@@ -59,6 +59,7 @@ static ssize_t _write
 {
   uint8_t *ram;
   size_t alloc;
+  ssize_t ret;
   if (tsf->ram) {
     pthread_mutex_lock(&tsf->ram_lock);
     if (tsf->ram_size < tsf->woff + count) {
@@ -80,7 +81,10 @@ static ssize_t _write
     pthread_mutex_unlock(&tsf->ram_lock);
     return count;
   }
-  return _write_fd(tsf->wfd, buf, count);
+  ret = _write_fd(tsf->wfd, buf, count);
+  if (ret > 0)
+    tsf->woff += ret;
+  return ret;
 }
 
 /*
@@ -226,30 +230,40 @@ ssize_t timeshift_write_eof ( timeshift_file_t *tsf )
   return _write(tsf, &sz, sizeof(sz));
 }
 
+/*
+ * Stream start handling
+ */
+static void _handle_sstart ( timeshift_t *ts, timeshift_file_t *tsf, streaming_message_t *sm )
+{
+  timeshift_index_data_t *ti = calloc(1, sizeof(timeshift_index_data_t));
+  streaming_start_t *ss;
+  int i;
+
+  ti->pos  = tsf->size;
+  ti->data = sm;
+  TAILQ_INSERT_TAIL(&tsf->sstart, ti, link);
+
+  /* Update video index */
+  ss = sm->sm_data;
+  for (i = 0; i < ss->ss_num_components; i++)
+    if (SCT_ISVIDEO(ss->ss_components[i].ssc_type)) {
+      ts->vididx = ss->ss_components[i].ssc_index;
+      break;
+    }
+}
+
 /* **************************************************************************
  * Thread
  * *************************************************************************/
 
 static inline ssize_t _process_msg0
-  ( timeshift_t *ts, timeshift_file_t *tsf, streaming_message_t **smp )
+  ( timeshift_t *ts, timeshift_file_t *tsf, streaming_message_t *sm )
 {
-  int i;
   ssize_t err;
-  streaming_start_t *ss;
-  streaming_message_t *sm = *smp;
+
   if (sm->sm_type == SMT_START) {
     err = 0;
-    timeshift_index_data_t *ti = calloc(1, sizeof(timeshift_index_data_t));
-    ti->pos  = tsf->size;
-    ti->data = sm;
-    *smp = NULL;
-    TAILQ_INSERT_TAIL(&tsf->sstart, ti, link);
-
-    /* Update video index */
-    ss = sm->sm_data;
-    for (i = 0; i < ss->ss_num_components; i++)
-      if (SCT_ISVIDEO(ss->ss_components[i].ssc_type))
-        ts->vididx = ss->ss_components[i].ssc_index;
+    _handle_sstart(ts, tsf, streaming_msg_clone(sm));
   } else if (sm->sm_type == SMT_SIGNAL_STATUS)
     err = timeshift_write_sigstat(tsf, sm->sm_time, sm->sm_data);
   else if (sm->sm_type == SMT_PACKET) {
@@ -266,8 +280,9 @@ static inline ssize_t _process_msg0
         TAILQ_INSERT_TAIL(&tsf->iframes, ti, link);
       }
     }
-  } else if (sm->sm_type == SMT_MPEGTS)
+  } else if (sm->sm_type == SMT_MPEGTS) {
     err = timeshift_write_mpegts(tsf, sm->sm_time, sm->sm_data);
+  }
   else
     err = 0;
 
@@ -275,9 +290,9 @@ static inline ssize_t _process_msg0
   if (err > 0) {
     tsf->last  = sm->sm_time;
     tsf->size += err;
-    atomic_add_u64(&timeshift_conf.total_size, err);
+    atomic_add_u64(&timeshift_total_size, err);
     if (tsf->ram)
-      atomic_add_u64(&timeshift_conf.total_ram_size, err);
+      atomic_add_u64(&timeshift_total_ram_size, err);
   }
   return err;
 }
@@ -296,9 +311,9 @@ static void _process_msg
       if (run) *run = 0;
       break;
     case SMT_STOP:
-      if (sm->sm_code == 0 && run)
+      if (sm->sm_code != SM_CODE_SOURCE_RECONFIGURED && run)
         *run = 0;
-      break;
+      goto live;
 
     /* Timeshifting */
     case SMT_SKIP:
@@ -312,29 +327,45 @@ static void _process_msg
     case SMT_SERVICE_STATUS:
     case SMT_TIMESHIFT_STATUS:
     case SMT_DESCRAMBLE_INFO:
-      break;
+      goto live;
 
     /* Store */
     case SMT_SIGNAL_STATUS:
     case SMT_START:
     case SMT_MPEGTS:
     case SMT_PACKET:
-      pthread_mutex_lock(&ts->rdwr_mutex);
-      if ((tsf = timeshift_filemgr_get(ts, 1)) && (tsf->wfd >= 0 || tsf->ram)) {
-        if ((err = _process_msg0(ts, tsf, &sm)) < 0) {
-          timeshift_filemgr_close(tsf);
-          tsf->bad = 1;
-          ts->full = 1; ///< Stop any more writing
-        }
-        tsf->refcount--;
+      pthread_mutex_lock(&ts->state_mutex);
+      ts->buf_time = sm->sm_time;
+      if (ts->state == TS_LIVE) {
+        streaming_target_deliver2(ts->output, streaming_msg_clone(sm));
+        if (sm->sm_type == SMT_PACKET)
+          timeshift_packet_log("liv", ts, sm);
       }
-      pthread_mutex_unlock(&ts->rdwr_mutex);
+      if (ts->dobuf) {
+        if ((tsf = timeshift_filemgr_get(ts, sm->sm_time)) && (tsf->wfd >= 0 || tsf->ram)) {
+          if ((err = _process_msg0(ts, tsf, sm)) < 0) {
+            timeshift_filemgr_close(tsf);
+            tsf->bad = 1;
+            ts->full = 1; ///< Stop any more writing
+          } else {
+            timeshift_packet_log("sav", ts, sm);
+          }
+          tsf->refcount--;
+        }
+      }
+      pthread_mutex_unlock(&ts->state_mutex);
       break;
   }
 
   /* Next */
-  if (sm)
-    streaming_msg_free(sm);
+  streaming_msg_free(sm);
+  return;
+
+live:
+  pthread_mutex_lock(&ts->state_mutex);
+  if (ts->state == TS_LIVE)
+    streaming_target_deliver2(ts->output, sm);
+  pthread_mutex_unlock(&ts->state_mutex);
 }
 
 void *timeshift_writer ( void *aux )
@@ -365,22 +396,3 @@ void *timeshift_writer ( void *aux )
   pthread_mutex_unlock(&sq->sq_mutex);
   return NULL;
 }
-
-/* **************************************************************************
- * Utilities
- * *************************************************************************/
-
-void timeshift_writer_flush ( timeshift_t *ts )
-
-{
-  streaming_message_t *sm;
-  streaming_queue_t *sq = &ts->wr_queue;
-
-  pthread_mutex_lock(&sq->sq_mutex);
-  while ((sm = TAILQ_FIRST(&sq->sq_queue))) {
-    streaming_queue_remove(sq, sm);
-    _process_msg(ts, sm, NULL);
-  }
-  pthread_mutex_unlock(&sq->sq_mutex);
-}
-

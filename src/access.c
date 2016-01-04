@@ -1087,10 +1087,14 @@ access_entry_create(const char *uuid, htsmsg_t *conf)
 /**
  *
  */
-static void
-access_entry_destroy(access_entry_t *ae)
+void
+access_entry_destroy(access_entry_t *ae, int delconf)
 {
   access_ipmask_t *ai;
+  char ubuf[UUID_HEX_SIZE];
+
+  if (delconf)
+    hts_settings_remove("accesscontrol/%s", idnode_uuid_as_str(&ae->ae_id, ubuf));
 
   TAILQ_REMOVE(&access_entries, ae, ae_link);
   idnode_unlink(&ae->ae_id);
@@ -1185,10 +1189,7 @@ static void
 access_entry_class_delete(idnode_t *self)
 {
   access_entry_t *ae = (access_entry_t *)self;
-  char ubuf[UUID_HEX_SIZE];
-
-  hts_settings_remove("accesscontrol/%s", idnode_uuid_as_str(&ae->ae_id, ubuf));
-  access_entry_destroy(ae);
+  access_entry_destroy(ae, 1);
 }
 
 static void
@@ -1364,6 +1365,15 @@ language_get_list ( void *obj, const char *lang )
 }
 
 htsmsg_t *
+language_get_ui_list ( void *obj, const char *lang )
+{
+  htsmsg_t *m = htsmsg_create_map();
+  htsmsg_add_str(m, "type",  "api");
+  htsmsg_add_str(m, "uri",   "language/ui_locale");
+  return m;
+}
+
+htsmsg_t *
 user_get_userlist ( void *obj, const char *lang )
 {
   htsmsg_t *m = htsmsg_create_map();
@@ -1429,7 +1439,8 @@ const idclass_t access_entry_class = {
     {
       .type     = PT_STR,
       .id       = "prefix",
-      .name     = N_("Network prefix"),
+      .name     = N_("Allowed networks"),
+      .desc     = N_("List of allowed IPv4 or IPv6 hosts or networks (comma separated)"),
       .set      = access_entry_class_prefix_set,
       .get      = access_entry_class_prefix_get,
       .opts     = PO_ADVANCED
@@ -1462,7 +1473,7 @@ const idclass_t access_entry_class = {
       .type     = PT_STR,
       .id       = "langui",
       .name     = N_("Web interface language"),
-      .list     = language_get_list,
+      .list     = language_get_ui_list,
       .off      = offsetof(access_entry_t, ae_lang_ui),
       .opts     = PO_ADVANCED,
     },
@@ -1602,6 +1613,13 @@ const idclass_t access_entry_class = {
       .name     = N_("Comment"),
       .off      = offsetof(access_entry_t, ae_comment),
     },
+    {
+      .type     = PT_BOOL,
+      .id       = "wizard",
+      .name     = N_("Wizard"),
+      .off      = offsetof(access_entry_t, ae_wizard),
+      .opts     = PO_NOUI
+    },
     {}
   }
 };
@@ -1704,11 +1722,16 @@ passwd_entry_create(const char *uuid, htsmsg_t *conf)
   return pw;
 }
 
-static void
-passwd_entry_destroy(passwd_entry_t *pw)
+void
+passwd_entry_destroy(passwd_entry_t *pw, int delconf)
 {
+  char ubuf[UUID_HEX_SIZE];
+
   if (pw == NULL)
     return;
+
+  if (delconf)
+    hts_settings_remove("passwd/%s", idnode_uuid_as_str(&pw->pw_id, ubuf));
   TAILQ_REMOVE(&passwd_entries, pw, pw_link);
   idnode_unlink(&pw->pw_id);
   free(pw->pw_username);
@@ -1738,10 +1761,7 @@ static void
 passwd_entry_class_delete(idnode_t *self)
 {
   passwd_entry_t *pw = (passwd_entry_t *)self;
-  char ubuf[UUID_HEX_SIZE];
-
-  hts_settings_remove("passwd/%s", idnode_uuid_as_str(&pw->pw_id, ubuf));
-  passwd_entry_destroy(pw);
+  passwd_entry_destroy(pw, 1);
 }
 
 static const char *
@@ -1837,6 +1857,13 @@ const idclass_t passwd_entry_class = {
       .id       = "comment",
       .name     = N_("Comment"),
       .off      = offsetof(passwd_entry_t, pw_comment),
+    },
+    {
+      .type     = PT_BOOL,
+      .id       = "wizard",
+      .name     = N_("Wizard"),
+      .off      = offsetof(passwd_entry_t, pw_wizard),
+      .opts     = PO_NOUI
     },
     {}
   }
@@ -2070,11 +2097,11 @@ access_done(void)
 
   pthread_mutex_lock(&global_lock);
   while ((ae = TAILQ_FIRST(&access_entries)) != NULL)
-    access_entry_destroy(ae);
+    access_entry_destroy(ae, 0);
   while ((at = TAILQ_FIRST(&access_tickets)) != NULL)
     access_ticket_destroy(at);
   while ((pw = TAILQ_FIRST(&passwd_entries)) != NULL)
-    passwd_entry_destroy(pw);
+    passwd_entry_destroy(pw, 0);
   while ((ib = TAILQ_FIRST(&ipblock_entries)) != NULL)
     ipblock_entry_destroy(ib);
   free((void *)superuser_username);

@@ -210,6 +210,7 @@ void tasklet_disarm(tasklet_t *gti);
  */
 LIST_HEAD(access_entry_list, access_entry);
 LIST_HEAD(th_subscription_list, th_subscription);
+LIST_HEAD(dvr_vfs_list, dvr_vfs);
 LIST_HEAD(dvr_config_list, dvr_config);
 LIST_HEAD(dvr_entry_list, dvr_entry);
 TAILQ_HEAD(ref_update_queue, ref_update);
@@ -309,6 +310,17 @@ typedef struct descramble_info {
 } descramble_info_t;
 
 /**
+ *
+ */
+typedef struct timeshift_status
+{
+  int     full;
+  int64_t shift;
+  int64_t pts_start;
+  int64_t pts_end;
+} timeshift_status_t;
+
+/**
  * Streaming skip
  */
 typedef struct streaming_skip
@@ -325,6 +337,9 @@ typedef struct streaming_skip
     off_t   size;
     int64_t time;
   };
+#if ENABLE_TIMESHIFT
+  timeshift_status_t timeshift;
+#endif
 } streaming_skip_t;
 
 
@@ -514,7 +529,7 @@ typedef struct streaming_message {
   TAILQ_ENTRY(streaming_message) sm_link;
   streaming_message_type_t sm_type;
 #if ENABLE_TIMESHIFT
-  int64_t  sm_time;
+  int64_t sm_time;
 #endif
   union {
     void *sm_data;
@@ -699,7 +714,7 @@ static inline int64_t ts_rescale(int64_t ts, int tb)
   return (ts * tb ) / 90000LL;
 }
 
-static inline int64_t ts_rescale_i(int64_t ts, int tb)
+static inline int64_t ts_rescale_inv(int64_t ts, int tb)
 {
   return (ts * 90000LL) / tb;
 }

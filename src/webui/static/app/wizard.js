@@ -2,11 +2,14 @@
  * Wizard
  */
 
+tvheadend.wizard_delayed_activation = null;
+
 tvheadend.wizard_start = function(page) {
 
     var w = null;
     var tabMapping = {
-        hello: 'access_entry',
+        hello: 'base_config',
+        login: 'access_entry',
         network: 'mpegts_network',
         input: 'tvadapters',
         status: 'status_streams',
@@ -20,6 +23,8 @@ tvheadend.wizard_start = function(page) {
         tvheadend.wizard = null;
         if (conf.win)
             conf.win.close();
+        tvheadend.wizard_delayed_activation.cancel();
+        tvheadend.wizard_delayed_activation = null;
     }
 
     function getparam(data, prefix) {
@@ -90,16 +95,22 @@ tvheadend.wizard_start = function(page) {
         d = json_decode(d);
         var m = d[0];
         var last = getparam(m, 'page_next_') === null;
-        tvheadend.idnode_editor_win('basic', m, {
+        tvheadend.idnode_editor_win('basic', {
             build: pbuild,
             fullData: m,
-            url: 'api/wizard/' + page,
+            saveURL: 'api/wizard/' + page + '/save',
             winTitle: m.caption,
             iconCls: 'wizard',
             comet: m.events,
             noApply: true,
             noUIlevel: true,
-            postsave: function(conf) {
+            postsave: function(conf, data) {
+                if (data) {
+                    if (('ui_lang' in data) && data['ui_lang'] != tvh_locale_lang) {
+                        window.location.reload();
+                        return;
+                    }
+                }
                 if (!last)
                     newpage(conf, 'page_next_');
                 else
@@ -117,18 +128,19 @@ tvheadend.wizard_start = function(page) {
         });
     }
 
+    function activate_tab() {
+        if (page in tabMapping)
+            tvheadend.select_tab(tabMapping[page]);
+    }
+
     tvheadend.wizard = page;
 
-    if (page in tabMapping) {
-        var i = Ext.getCmp(tabMapping[page]);
-        var c = i ? i.ownerCt : null;
-        while (c) {
-            if ('activeTab' in c)
-                c.setActiveTab(i);
-            i = c;
-            c = c.ownerCt;
-        }
+    var delay = 1000;
+    if (tvheadend.wizard_delayed_activation == null) {
+        tvheadend.wizard_delayed_activation = new Ext.util.DelayedTask();
+        delay = 1;
     }
+    tvheadend.wizard_delayed_activation.delay(1000, activate_tab);
 
     tvheadend.Ajax({
         url: 'api/wizard/' + page + '/load',
@@ -138,6 +150,8 @@ tvheadend.wizard_start = function(page) {
         success: build,
         failure: function(response, options) {
             Ext.MessageBox.alert(_('Unable to obtain wizard page!'), response.statusText);
+            tvheadend.wizard_delayed_activation.cancel();
+            tvheadend.wizard_delayed_activation = null;
         }
     });
 

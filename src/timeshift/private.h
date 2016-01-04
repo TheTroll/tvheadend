@@ -19,8 +19,9 @@
 #ifndef __TVH_TIMESHIFT_PRIVATE_H__
 #define __TVH_TIMESHIFT_PRIVATE_H__
 
-#define TIMESHIFT_PLAY_BUF     200000 // us to buffer in TX
-#define TIMESHIFT_FILE_PERIOD      60 // number of secs in each buffer file
+#define TIMESHIFT_PLAY_BUF         1000000  //< us to buffer in TX
+#define TIMESHIFT_FILE_PERIOD      60      //< number of secs in each buffer file
+#define TIMESHIFT_BACKLOG_MAX      16      //< maximum elementary streams
 
 /**
  * Indexes of import data in the stream
@@ -55,7 +56,7 @@ typedef struct timeshift_file
   int                           rfd;      ///< Read descriptor
   char                          *path;    ///< Full path to file
 
-  time_t                        time;     ///< Files coarse timestamp
+  int64_t                       time;     ///< Files coarse timestamp
   size_t                        size;     ///< Current file size;
   int64_t                       last;     ///< Latest timestamp
   off_t                         woff;     ///< Write offset
@@ -90,33 +91,53 @@ typedef struct timeshift {
   char                        *path;      ///< Directory containing buffer
   time_t                      max_time;   ///< Maximum period to shift
   int                         ondemand;   ///< Whether this is an on-demand timeshift
-  int64_t                     pts_delta;  ///< Delta between system clock and PTS
-  int64_t                     pts_val[6]; ///< Decision PTS values for multiple packets
+  int                         packet_mode;///< Packet mode (otherwise MPEG-TS data mode)
+  int                         dobuf;      ///< Buffer packets (store)
+  int64_t                     last_time;  ///< Last time in us (PTS conversion)
+  int64_t                     last_wr_time;///< Last write time in us (PTS conversion)
+  int64_t                     start_pts;  ///< Start time for packets (PTS)
+  int64_t                     ref_time;   ///< Start time in us (monoclock)
+  int64_t                     buf_time;   ///< Last buffered time in us (PTS conversion)
+  struct streaming_message_queue backlog[TIMESHIFT_BACKLOG_MAX]; ///< Queued packets for time sorting
+  int                         backlog_max;///< Maximum component index in backlog
 
   enum {
-    TS_INIT,
     TS_EXIT,
     TS_LIVE,
     TS_PAUSE,
     TS_PLAY,
   }                           state;       ///< Play state
   pthread_mutex_t             state_mutex; ///< Protect state changes
+  uint8_t                     exit;        ///< Exit from the main input thread
   uint8_t                     full;        ///< Buffer is full
   
-  streaming_start_t          *smt_start;   ///< Current stream makeup
-
   streaming_queue_t           wr_queue;   ///< Writer queue
   pthread_t                   wr_thread;  ///< Writer thread
 
   pthread_t                   rd_thread;  ///< Reader thread
   th_pipe_t                   rd_pipe;    ///< Message passing to reader
 
-  pthread_mutex_t             rdwr_mutex; ///< Buffer protection
   timeshift_file_list_t       files;      ///< List of files
 
   int                         vididx;     ///< Index of (current) video stream
 
 } timeshift_t;
+
+/*
+ *
+ */
+extern uint64_t timeshift_total_size;
+extern uint64_t timeshift_total_ram_size;
+
+void timeshift_packet_log0
+  ( const char *prefix, timeshift_t *ts, streaming_message_t *sm );
+
+static inline void timeshift_packet_log
+  ( const char *prefix, timeshift_t *ts, streaming_message_t *sm )
+{
+  if (sm->sm_type == SMT_PACKET && tvhtrace_enabled())
+    timeshift_packet_log0(prefix, ts, sm);
+}
 
 /*
  * Write functions
@@ -130,8 +151,6 @@ ssize_t timeshift_write_speed   ( int fd, int speed );
 ssize_t timeshift_write_stop    ( int fd, int code );
 ssize_t timeshift_write_exit    ( int fd );
 ssize_t timeshift_write_eof     ( timeshift_file_t *tsf );
-
-void timeshift_writer_flush ( timeshift_t *ts );
 
 /*
  * Threads
@@ -147,7 +166,7 @@ void timeshift_filemgr_term     ( void );
 int  timeshift_filemgr_makedirs ( int ts_index, char *buf, size_t len );
 
 timeshift_file_t *timeshift_filemgr_get
-  ( timeshift_t *ts, int create );
+  ( timeshift_t *ts, int64_t start_time );
 timeshift_file_t *timeshift_filemgr_oldest
   ( timeshift_t *ts );
 timeshift_file_t *timeshift_filemgr_newest
@@ -160,5 +179,13 @@ void timeshift_filemgr_remove
   ( timeshift_t *ts, timeshift_file_t *tsf, int force );
 void timeshift_filemgr_flush ( timeshift_t *ts, timeshift_file_t *end );
 void timeshift_filemgr_close ( timeshift_file_t *tsf );
+
+void timeshift_filemgr_dump0 ( timeshift_t *ts );
+
+static inline void timeshift_filemgr_dump ( timeshift_t *ts )
+{
+  if (tvhtrace_enabled())
+    timeshift_filemgr_dump0(ts);
+}
 
 #endif /* __TVH_TIMESHIFT_PRIVATE_H__ */

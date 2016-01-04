@@ -1,6 +1,6 @@
 /*
  *  tvheadend, Wizard
- *  Copyright (C) 2015 Jaroslav Kysela
+ *  Copyright (C) 2015,2016 Jaroslav Kysela
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -17,6 +17,7 @@
  */
 
 #include "tvheadend.h"
+#include "config.h"
 #include "access.h"
 #include "settings.h"
 #include "input.h"
@@ -59,6 +60,22 @@ static const void *wizard_description_##page(void *o) \
   return &t; \
 }
 
+#define BASIC_STR_OPS(stru, field) \
+static const void *wizard_get_value_##field(void *o) \
+{ \
+  wizard_page_t *p = o; \
+  stru *w = p->aux; \
+  snprintf(prop_sbuf, PROP_SBUF_LEN, "%s", w->field); \
+  return &prop_sbuf_ptr; \
+} \
+static int wizard_set_value_##field(void *o, const void *v) \
+{ \
+  wizard_page_t *p = o; \
+  stru *w = p->aux; \
+  snprintf(w->field, sizeof(w->field), "%s", (const char *)v); \
+  return 1; \
+}
+
 /*
  *
  */
@@ -83,7 +100,7 @@ static wizard_page_t *page_init(const char *class_name, const char *caption)
 }
 
 /*
- * Hello
+ *
  */
 
 static const void *hello_get_network(void *o)
@@ -97,7 +114,247 @@ static int hello_set_network(void *o, const void *v)
   return 0;
 }
 
+/*
+ * Hello
+ */
+
+typedef struct wizard_hello {
+  char ui_lang[32];
+  char epg_lang1[32];
+  char epg_lang2[32];
+  char epg_lang3[32];
+} wizard_hello_t;
+
+
+static void hello_save(idnode_t *in)
+{
+  wizard_page_t *p = (wizard_page_t *)in;
+  wizard_hello_t *w = p->aux;
+  char buf[32];
+  size_t l = 0;
+  int save = 0;
+
+  if (w->ui_lang[0] && strcmp(config.language_ui ?: "", w->ui_lang)) {
+    free(config.language_ui);
+    config.language_ui = strdup(w->ui_lang);
+    save = 1;
+  }
+  buf[0] = '\0';
+  if (w->epg_lang1[0])
+    tvh_strlcatf(buf, sizeof(buf), l, "%s", w->epg_lang1);
+  if (w->epg_lang2[0])
+    tvh_strlcatf(buf, sizeof(buf), l, "%s%s", l > 0 ? "," : "", w->epg_lang2);
+  if (w->epg_lang3[0])
+    tvh_strlcatf(buf, sizeof(buf), l, "%s%s", l > 0 ? "," : "", w->epg_lang3);
+  if (buf[0] && strcmp(buf, config.language ?: "")) {
+    free(config.language);
+    config.language = strdup(buf);
+    save = 1;
+  }
+  if (save)
+    config_save();
+}
+
+BASIC_STR_OPS(wizard_hello_t, ui_lang)
+BASIC_STR_OPS(wizard_hello_t, epg_lang1)
+BASIC_STR_OPS(wizard_hello_t, epg_lang2)
+BASIC_STR_OPS(wizard_hello_t, epg_lang3)
+
 DESCRIPTION_FCN(hello, N_("\
+Enter the languages for the web user interface and \
+for EPG texts.\
+"))
+
+wizard_page_t *wizard_hello(void)
+{
+  static const property_group_t groups[] = {
+    {
+      .name     = N_("Web interface"),
+      .number   = 1,
+    },
+    {
+      .name     = N_("EPG Language (priority order)"),
+      .number   = 2,
+    },
+    {}
+  };
+  static const property_t props[] = {
+    {
+      .type     = PT_STR,
+      .id       = "ui_lang",
+      .name     = N_("Language"),
+      .get      = wizard_get_value_ui_lang,
+      .set      = wizard_set_value_ui_lang,
+      .list     = language_get_ui_list,
+      .group    = 1
+    },
+    {
+      .type     = PT_STR,
+      .id       = "epg_lang1",
+      .name     = N_("Language 1"),
+      .get      = wizard_get_value_epg_lang1,
+      .set      = wizard_set_value_epg_lang1,
+      .list     = language_get_list,
+      .group    = 2
+    },
+    {
+      .type     = PT_STR,
+      .id       = "epg_lang2",
+      .name     = N_("Language 2"),
+      .get      = wizard_get_value_epg_lang2,
+      .set      = wizard_set_value_epg_lang2,
+      .list     = language_get_list,
+      .group    = 2
+    },
+    {
+      .type     = PT_STR,
+      .id       = "epg_lang3",
+      .name     = N_("Language 3"),
+      .get      = wizard_get_value_epg_lang3,
+      .set      = wizard_set_value_epg_lang3,
+      .list     = language_get_list,
+      .group    = 2
+    },
+    ICON(),
+    DESCRIPTION(hello),
+    NEXT_BUTTON(login),
+    {}
+  };
+  wizard_page_t *page =
+    page_init("wizard_hello",
+    N_("Welcome - Tvheadend - your TV streaming server and video recorder"));
+  idclass_t *ic = (idclass_t *)page->idnode.in_class;
+  wizard_hello_t *w;
+  htsmsg_t *m;
+  htsmsg_field_t *f;
+  const char *s;
+  int idx;
+
+  ic->ic_properties = props;
+  ic->ic_groups = groups;
+  ic->ic_save = hello_save;
+  page->aux = w = calloc(1, sizeof(wizard_hello_t));
+
+  if (config.language_ui)
+    strncpy(w->ui_lang, config.language_ui, sizeof(w->ui_lang));
+
+  m = htsmsg_csv_2_list(config.language, ',');
+  f = m ? HTSMSG_FIRST(m) : NULL;
+  for (idx = 0; idx < 3 && f != NULL; idx++) {
+    s = htsmsg_field_get_string(f);
+    if (s == NULL) break;
+    switch (idx) {
+    case 0: strncpy(w->epg_lang1, s, sizeof(w->epg_lang1) - 1); break;
+    case 1: strncpy(w->epg_lang2, s, sizeof(w->epg_lang2) - 1); break;
+    case 2: strncpy(w->epg_lang3, s, sizeof(w->epg_lang3) - 1); break;
+    }
+    f = HTSMSG_NEXT(f);
+  }
+  htsmsg_destroy(m);
+
+  return page;
+}
+
+/*
+ * Login/Network access
+ */
+
+typedef struct wizard_login {
+  char network[256];
+  char admin_username[32];
+  char admin_password[32];
+  char username[32];
+  char password[32];
+} wizard_login_t;
+
+
+static void login_save(idnode_t *in)
+{
+  wizard_page_t *p = (wizard_page_t *)in;
+  wizard_login_t *w = p->aux;
+  access_entry_t *ae, *ae_next;
+  passwd_entry_t *pw, *pw_next;
+  htsmsg_t *conf;
+  const char *s;
+
+  for (ae = TAILQ_FIRST(&access_entries); ae; ae = ae_next) {
+    ae_next = TAILQ_NEXT(ae, ae_link);
+    if (ae->ae_wizard)
+      access_entry_destroy(ae, 1);
+  }
+
+  for (pw = TAILQ_FIRST(&passwd_entries); pw; pw = pw_next) {
+    pw_next = TAILQ_NEXT(pw, pw_link);
+    if (pw->pw_wizard)
+      passwd_entry_destroy(pw, 1);
+  }
+
+  s = w->admin_username[0] ? w->admin_username : "*";
+  conf = htsmsg_create_map();
+  htsmsg_add_bool(conf, "enabled", 1);
+  htsmsg_add_str(conf, "prefix", w->network);
+  htsmsg_add_str(conf, "username", s);
+  htsmsg_add_str(conf, "password", w->admin_password);
+  htsmsg_add_bool(conf, "streaming", 1);
+  htsmsg_add_bool(conf, "adv_streaming", 1);
+  htsmsg_add_bool(conf, "htsp_streaming", 1);
+  htsmsg_add_bool(conf, "dvr", 1);
+  htsmsg_add_bool(conf, "htsp_dvr", 1);
+  htsmsg_add_bool(conf, "webui", 1);
+  htsmsg_add_bool(conf, "admin", 1);
+  ae = access_entry_create(NULL, conf);
+  if (ae) {
+    ae->ae_wizard = 1;
+    access_entry_save(ae);
+  }
+  htsmsg_destroy(conf);
+
+  if (s && s[0] != '*' && w->admin_password[0]) {
+    conf = htsmsg_create_map();
+    htsmsg_add_bool(conf, "enabled", 1);
+    htsmsg_add_str(conf, "username", s);
+    htsmsg_add_str(conf, "password", w->admin_password);
+    pw = passwd_entry_create(NULL, conf);
+    if (pw) {
+      pw->pw_wizard = 1;
+      passwd_entry_save(pw);
+    }
+  }
+
+  if (w->username[0]) {
+    s = w->username && w->username[0] ? w->username : "*";
+    conf = htsmsg_create_map();
+    htsmsg_add_str(conf, "prefix", w->network);
+    htsmsg_add_str(conf, "username", s);
+    htsmsg_add_str(conf, "password", w->password);
+    ae = access_entry_create(NULL, conf);
+    if (ae) {
+      ae->ae_wizard = 1;
+      access_entry_save(ae);
+    }
+    htsmsg_destroy(conf);
+
+    if (s && s[0] != '*' && w->password && w->password[0]) {
+      conf = htsmsg_create_map();
+      htsmsg_add_bool(conf, "enabled", 1);
+      htsmsg_add_str(conf, "username", s);
+      htsmsg_add_str(conf, "password", w->password);
+      pw = passwd_entry_create(NULL, conf);
+      if (pw) {
+        pw->pw_wizard = 1;
+        passwd_entry_save(pw);
+      }
+    }
+  }
+}
+
+BASIC_STR_OPS(wizard_login_t, network)
+BASIC_STR_OPS(wizard_login_t, admin_username)
+BASIC_STR_OPS(wizard_login_t, admin_password)
+BASIC_STR_OPS(wizard_login_t, username)
+BASIC_STR_OPS(wizard_login_t, password)
+
+DESCRIPTION_FCN(login, N_("\
 Enter the access control details to secure your system. \
 The first part of this covers the IPv4 network details \
 for address-based access to the system; for example, \
@@ -112,7 +369,7 @@ This wizard should be run only on the initial setup. Please, cancel \
 it, if you are not willing to touch the current configuration.\
 "))
 
-wizard_page_t *wizard_hello(void)
+wizard_page_t *wizard_login(void)
 {
   static const property_group_t groups[] = {
     {
@@ -134,53 +391,86 @@ wizard_page_t *wizard_hello(void)
       .type     = PT_STR,
       .id       = "network",
       .name     = N_("Allowed network"),
-      .get      = hello_get_network,
-      .set      = hello_set_network,
+      .get      = wizard_get_value_network,
+      .set      = wizard_set_value_network,
       .group    = 1
     },
     {
       .type     = PT_STR,
       .id       = "admin_username",
       .name     = N_("Admin username"),
-      .get      = hello_get_network,
-      .set      = hello_set_network,
+      .get      = wizard_get_value_admin_username,
+      .set      = wizard_set_value_admin_username,
       .group    = 2
     },
     {
       .type     = PT_STR,
       .id       = "admin_password",
       .name     = N_("Admin password"),
-      .get      = hello_get_network,
-      .set      = hello_set_network,
+      .get      = wizard_get_value_admin_password,
+      .set      = wizard_set_value_admin_password,
       .group    = 2
     },
     {
       .type     = PT_STR,
       .id       = "username",
       .name     = N_("Username"),
-      .get      = hello_get_network,
-      .set      = hello_set_network,
+      .get      = wizard_get_value_username,
+      .set      = wizard_set_value_username,
       .group    = 3
     },
     {
       .type     = PT_STR,
       .id       = "password",
       .name     = N_("Password"),
-      .get      = hello_get_network,
-      .set      = hello_set_network,
+      .get      = wizard_get_value_password,
+      .set      = wizard_set_value_password,
       .group    = 3
     },
     ICON(),
-    DESCRIPTION(hello),
+    DESCRIPTION(login),
+    PREV_BUTTON(hello),
     NEXT_BUTTON(network),
     {}
   };
   wizard_page_t *page =
-    page_init("wizard_hello",
+    page_init("wizard_login",
     N_("Welcome - Tvheadend - your TV streaming server and video recorder"));
   idclass_t *ic = (idclass_t *)page->idnode.in_class;
+  wizard_login_t *w;
+  access_entry_t *ae;
+  passwd_entry_t *pw;
+
   ic->ic_properties = props;
   ic->ic_groups = groups;
+  ic->ic_save = login_save;
+  page->aux = w = calloc(1, sizeof(wizard_login_t));
+
+  TAILQ_FOREACH(ae, &access_entries, ae_link) {
+    if (!ae->ae_wizard)
+      continue;
+    if (ae->ae_admin) {
+      htsmsg_t *c = htsmsg_create_map();
+      idnode_save(&ae->ae_id, c);
+      snprintf(w->admin_username, sizeof(w->admin_username), "%s", ae->ae_username);
+      snprintf(w->network, sizeof(w->network), "%s", htsmsg_get_str(c, "prefix") ?: "");
+      htsmsg_destroy(c);
+    } else {
+      snprintf(w->username, sizeof(w->username), "%s", ae->ae_username);
+    }
+  }
+
+  TAILQ_FOREACH(pw, &passwd_entries, pw_link) {
+    if (!pw->pw_wizard || !pw->pw_username)
+      continue;
+    if (w->admin_username[0] &&
+        strcmp(w->admin_username, pw->pw_username) == 0) {
+      snprintf(w->admin_password, sizeof(w->admin_password), "%s", pw->pw_password);
+    } else if (w->username[0] && strcmp(w->username, pw->pw_username) == 0) {
+      snprintf(w->password, sizeof(w->password), "%s", pw->pw_password);
+    }
+  }
+
   return page;
 }
 
@@ -200,7 +490,7 @@ typedef struct wizard_network {
   .id   = "network" STRINGIFY(num), \
   .name = nameval, \
   .get  = network_get_value##num, \
-  .set  = hello_set_network, \
+  .set  = network_set_value##num, \
   .list = network_get_list, \
 }
 
@@ -211,6 +501,13 @@ static const void *network_get_value##num(void *o) \
   wizard_network_t *w = p->aux; \
   snprintf(prop_sbuf, PROP_SBUF_LEN, "%s", w->network_type##num); \
   return &prop_sbuf_ptr; \
+} \
+static int network_set_value##num(void *o, const void *v) \
+{ \
+  wizard_page_t *p = o; \
+  wizard_network_t *w = p->aux; \
+  snprintf(w->network_type##num, sizeof(w->network_type##num), "%s", (const char *)v); \
+  return 1; \
 }
 
 NETWORK_FCN(1)
@@ -219,7 +516,7 @@ NETWORK_FCN(3)
 NETWORK_FCN(4)
 
 DESCRIPTION_FCN(network, N_("\
-Create networks.\
+Create networks. The T means terresterial, C is cable and S is satellite.\
 "))
 
 static htsmsg_t *network_get_list(void *o, const char *lang)
@@ -244,7 +541,7 @@ wizard_page_t *wizard_network(void)
     NETWORK(4, N_("Network 4")),
     ICON(),
     DESCRIPTION(network),
-    PREV_BUTTON(hello),
+    PREV_BUTTON(login),
     NEXT_BUTTON(input),
     {}
   };
@@ -316,6 +613,7 @@ wizard_page_t *wizard_status(void)
       .type     = PT_STR,
       .id       = "muxes",
       .name     = N_("Found muxes"),
+      .desc     = N_("Number of muxes found."),
       .get      = hello_get_network,
       .set      = hello_set_network,
     },
@@ -323,6 +621,7 @@ wizard_page_t *wizard_status(void)
       .type     = PT_STR,
       .id       = "services",
       .name     = N_("Found services"),
+      .desc     = N_("Total number of services found."),
       .get      = hello_get_network,
       .set      = hello_set_network,
     },
@@ -354,6 +653,7 @@ wizard_page_t *wizard_mapping(void)
       .type     = PT_STR,
       .id       = "pnetwork",
       .name     = N_("Select network"),
+      .desc     = N_("Select a Network."),
       .get      = hello_get_network,
       .set      = hello_set_network,
     },

@@ -2068,7 +2068,7 @@ const idclass_t config_class = {
       .name   = N_("Default language(s)"),
       .desc   = N_("Select the list of languages (in order of "
                    "priority) to be used for supplying EPG information "
-                   "to clients that don’t provide their own "
+                   "to clients that don't provide their own "
                    "configuration."),
       .set    = config_class_language_set,
       .get    = config_class_language_get,
@@ -2095,7 +2095,7 @@ const idclass_t config_class = {
       .name   = N_("User language"),
       .desc   = N_("The default language to use if the user "
                    " language isn't set in the Access Entries tab."),
-      .list   = language_get_list,
+      .list   = language_get_ui_list,
       .off    = offsetof(config_t, language_ui),
       .group  = 3
     },
@@ -2138,7 +2138,7 @@ const idclass_t config_class = {
       .type   = PT_U32,
       .id     = "tvhtime_tolerance",
       .name   = N_("Update tolerance (ms)"),
-      .desc   = N_("Only update the system clock (doesn’t affect NTP "
+      .desc   = N_("Only update the system clock (doesn't affect NTP "
                    "driver) if the delta between the system clock and "
                    "DVB time is greater than this. This can help stop "
                    "excessive oscillations on the system clock."),
