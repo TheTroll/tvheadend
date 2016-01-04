@@ -504,6 +504,7 @@ typedef struct tcp_server {
   struct sockaddr_storage bound;
   tcp_server_ops_t ops;
   void *opaque;
+  LIST_ENTRY(tcp_server) link;
 } tcp_server_t;
 
 typedef struct tcp_server_launch {
@@ -522,6 +523,7 @@ typedef struct tcp_server_launch {
   LIST_ENTRY(tcp_server_launch) jlink;
 } tcp_server_launch_t;
 
+static LIST_HEAD(, tcp_server) tcp_server_delete_list = { 0 };
 static LIST_HEAD(, tcp_server_launch) tcp_server_launches = { 0 };
 static LIST_HEAD(, tcp_server_launch) tcp_server_active = { 0 };
 static LIST_HEAD(, tcp_server_launch) tcp_server_join = { 0 };
@@ -735,6 +737,10 @@ next:
           pthread_join(tsl->tid, NULL);
           free(tsl);
           goto next;
+        }
+        while ((ts = LIST_FIRST(&tcp_server_delete_list)) != NULL) {
+          LIST_REMOVE(ts, link);
+          free(ts);
         }
         pthread_mutex_unlock(&global_lock);
       }
@@ -970,6 +976,7 @@ tcp_server_delete(void *server)
 {
   tcp_server_t *ts = server;
   tvhpoll_event_t ev;
+  char c = 'D';
 
   if (server == NULL)
     return;
@@ -978,8 +985,9 @@ tcp_server_delete(void *server)
   ev.fd       = ts->serverfd;
   ev.events   = TVHPOLL_IN;
   ev.data.ptr = ts;
-  tvhpoll_rem(tcp_server_poll, &ev, 1);  
-  free(ts);
+  tvhpoll_rem(tcp_server_poll, &ev, 1);
+  LIST_INSERT_HEAD(&tcp_server_delete_list, ts, link);
+  tvh_write(tcp_server_pipe.wr, &c, 1);
 }
 
 /**
@@ -1132,6 +1140,7 @@ tcp_server_init(void)
 void
 tcp_server_done(void)
 {
+  tcp_server_t *ts;
   tcp_server_launch_t *tsl;  
   char c = 'E';
   int64_t t;
@@ -1167,6 +1176,10 @@ tcp_server_done(void)
     pthread_join(tsl->tid, NULL);
     free(tsl);
     pthread_mutex_lock(&global_lock);
+  }
+  while ((ts = LIST_FIRST(&tcp_server_delete_list)) != NULL) {
+    LIST_REMOVE(ts, link);
+    free(ts);
   }
   pthread_mutex_unlock(&global_lock);
 }

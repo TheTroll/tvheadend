@@ -224,6 +224,14 @@ const idclass_t timeshift_conf_class = {
       .name   = N_("RAM only"),
       .off    = offsetof(timeshift_conf_t, ram_only),
     },
+    {
+      .type   = PT_BOOL,
+      .id     = "ram_fit",
+      .name   = N_("Fit to RAM (cut rewind)"),
+      .desc   = N_("If possible, maintain the timeshift data in the server memory only. "
+                   "This may reduce the amount of allowed rewind time."),
+      .off    = offsetof(timeshift_conf_t, ram_fit),
+    },
     {}
   }
 };
@@ -262,15 +270,13 @@ timeshift_packet_flush ( timeshift_t *ts, int64_t time )
 }
 
 static void
-timeshift_packet( timeshift_t *ts, th_pkt_t *pkt )
+timeshift_packet( timeshift_t *ts, streaming_message_t *sm )
 {
-  streaming_message_t *sm;
+  th_pkt_t *pkt = sm->sm_data;
   int64_t time;
 
   if (pkt->pkt_componentindex >= TIMESHIFT_BACKLOG_MAX)
     return;
-
-  sm = streaming_msg_create_pkt(pkt);
 
   time = ts_rescale(pkt->pkt_pts, 1000000);
   if (time > ts->last_time) {
@@ -298,7 +304,7 @@ static void timeshift_input
 {
   int type = sm->sm_type;
   timeshift_t *ts = opaque;
-  th_pkt_t *pkt = sm->sm_data, *pkt2;
+  th_pkt_t *pkt, *pkt2;
 
   /* Control */
   if (type == SMT_SKIP) {
@@ -314,11 +320,12 @@ static void timeshift_input
 
     /* Change PTS/DTS offsets */
     else if (ts->packet_mode && ts->start_pts && type == SMT_PACKET) {
+      pkt = sm->sm_data;
       pkt2 = pkt_copy_shallow(pkt);
       pkt_ref_dec(pkt);
-      sm->sm_data = pkt = pkt2;
-      pkt->pkt_pts += ts->start_pts;
-      pkt->pkt_dts += ts->start_pts;
+      sm->sm_data = pkt2;
+      pkt2->pkt_pts += ts->start_pts;
+      pkt2->pkt_dts += ts->start_pts;
     }
 
     /* Check for exit */
@@ -333,8 +340,7 @@ static void timeshift_input
     if (ts->packet_mode) {
       sm->sm_time = ts->last_wr_time;
       if (type == SMT_PACKET) {
-        timeshift_packet(ts, pkt);
-        streaming_msg_free(sm);
+        timeshift_packet(ts, sm);
         goto _exit;
       }
     } else {
@@ -429,6 +435,10 @@ streaming_target_t *timeshift_create
   ts->buf_time   = 0;
   ts->start_pts  = 0;
   ts->ref_time   = 0;
+  ts->seek.file  = NULL;
+  ts->seek.frame = NULL;
+  ts->ram_segments = 0;
+  ts->file_segments = 0;
   for (i = 0; i < TIMESHIFT_BACKLOG_MAX; i++)
     TAILQ_INIT(&ts->backlog[i]);
   pthread_mutex_init(&ts->state_mutex, NULL);

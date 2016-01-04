@@ -129,8 +129,8 @@ timeshift_filemgr_dump0 ( timeshift_t *ts )
     return;
   }
   TAILQ_FOREACH(tsf, &ts->files, link) {
-    tvhtrace("timeshift", "ts %d file dump tsf %p time %"PRId64" last %"PRId64,
-             ts->id, tsf, tsf->time, tsf->last);
+    tvhtrace("timeshift", "ts %d (full=%d) file dump tsf %p time %4"PRId64" last %10"PRId64" bad %d refcnt %d",
+             ts->id, ts->full, tsf, tsf->time, tsf->last, tsf->bad, tsf->refcount);
   }
 }
 
@@ -205,6 +205,13 @@ void timeshift_filemgr_remove
                ts->id, tsf->time, (int64_t)tsf->size, (int64_t)tsf->ram_size);
   }
   TAILQ_REMOVE(&ts->files, tsf, link);
+  if (tsf->path) {
+    assert(ts->file_segments > 0);
+    ts->file_segments--;
+  } else {
+    assert(ts->ram_segments > 0);
+    ts->ram_segments--;
+  }
   atomic_dec_u64(&timeshift_total_size, tsf->size);
   if (tsf->ram)
     atomic_dec_u64(&timeshift_total_ram_size, tsf->size);
@@ -310,18 +317,31 @@ timeshift_file_t *timeshift_filemgr_get ( timeshift_t *ts, int64_t start_time )
       tvhtrace("timeshift", "ts %d RAM total %"PRId64" requested %"PRId64" segment %"PRId64,
                    ts->id, atomic_pre_add_u64(&timeshift_total_ram_size, 0),
                    timeshift_conf.ram_size, timeshift_conf.ram_segment_size);
-      if (timeshift_conf.ram_size >= 8*1024*1024 &&
-          atomic_pre_add_u64(&timeshift_total_ram_size, 0) <
-            timeshift_conf.ram_size + (timeshift_conf.ram_segment_size / 2)) {
-        tsf_tmp = timeshift_filemgr_file_init(ts, start_time);
-        tsf_tmp->ram_size = MIN(16*1024*1024, timeshift_conf.ram_segment_size);
-        tsf_tmp->ram = malloc(tsf_tmp->ram_size);
-        if (!tsf_tmp->ram) {
-          free(tsf_tmp);
-          tsf_tmp = NULL;
+      while (1) {
+        if (timeshift_conf.ram_size >= 8*1024*1024 &&
+            atomic_pre_add_u64(&timeshift_total_ram_size, 0) <
+              timeshift_conf.ram_size + (timeshift_conf.ram_segment_size / 2)) {
+          tsf_tmp = timeshift_filemgr_file_init(ts, start_time);
+          tsf_tmp->ram_size = MIN(16*1024*1024, timeshift_conf.ram_segment_size);
+          tsf_tmp->ram = malloc(tsf_tmp->ram_size);
+          if (!tsf_tmp->ram) {
+            free(tsf_tmp);
+            tsf_tmp = NULL;
+          } else {
+            tvhtrace("timeshift", "ts %d create RAM segment with %"PRId64" bytes (time %"PRId64")",
+                     ts->id, tsf_tmp->ram_size, start_time);
+            ts->ram_segments++;
+          }
+          break;
         } else {
-          tvhtrace("timeshift", "ts %d create RAM segment with %"PRId64" bytes (time %"PRId64")",
-                   ts->id, tsf_tmp->ram_size, start_time);
+          tsf_hd = TAILQ_FIRST(&ts->files);
+          if (timeshift_conf.ram_fit && tsf_hd && !tsf_hd->refcount &&
+              tsf_hd->ram && ts->file_segments == 0) {
+            tvhtrace("timeshift", "ts %d remove RAM segment %"PRId64" (fit)", ts->id, tsf_hd->time);
+            timeshift_filemgr_remove(ts, tsf_hd, 0);
+          } else {
+            break;
+          }
         }
       }
       
@@ -340,6 +360,7 @@ timeshift_file_t *timeshift_filemgr_get ( timeshift_t *ts, int64_t start_time )
           tsf_tmp = timeshift_filemgr_file_init(ts, start_time);
           tsf_tmp->wfd = fd;
           tsf_tmp->path = strdup(path);
+          ts->file_segments++;
         }
       }
 
@@ -358,9 +379,7 @@ timeshift_file_t *timeshift_filemgr_get ( timeshift_t *ts, int64_t start_time )
     tsf_tl = tsf_tmp;
   }
 
-  if (tsf_tl)
-    tsf_tl->refcount++;
-  return tsf_tl;
+  return timeshift_file_get(tsf_tl);
 }
 
 timeshift_file_t *timeshift_filemgr_next
@@ -369,22 +388,18 @@ timeshift_file_t *timeshift_filemgr_next
   timeshift_file_t *nxt = TAILQ_NEXT(tsf, link);
   if (!nxt && end)  *end = 1;
   if (!nxt && keep) return tsf;
-  tsf->refcount--;
-  if (nxt)
-    nxt->refcount++;
-  return nxt;
+  timeshift_file_put(tsf);
+  return timeshift_file_get(nxt);
 }
 
 timeshift_file_t *timeshift_filemgr_prev
   ( timeshift_file_t *tsf, int *end, int keep )
 {
-  timeshift_file_t *nxt = TAILQ_PREV(tsf, timeshift_file_list, link);
-  if (!nxt && end)  *end = 1;
-  if (!nxt && keep) return tsf;
-  tsf->refcount--;
-  if (nxt)
-    nxt->refcount++;
-  return nxt;
+  timeshift_file_t *prev = TAILQ_PREV(tsf, timeshift_file_list, link);
+  if (!prev && end)  *end = 1;
+  if (!prev && keep) return tsf;
+  timeshift_file_put(tsf);
+  return timeshift_file_get(prev);
 }
 
 /*
@@ -393,9 +408,7 @@ timeshift_file_t *timeshift_filemgr_prev
 timeshift_file_t *timeshift_filemgr_oldest ( timeshift_t *ts )
 {
   timeshift_file_t *tsf = TAILQ_FIRST(&ts->files);
-  if (tsf)
-    tsf->refcount++;
-  return tsf;
+  return timeshift_file_get(tsf);
 }
 
 /*
@@ -404,9 +417,7 @@ timeshift_file_t *timeshift_filemgr_oldest ( timeshift_t *ts )
 timeshift_file_t *timeshift_filemgr_newest ( timeshift_t *ts )
 {
   timeshift_file_t *tsf = TAILQ_LAST(&ts->files, timeshift_file_list);
-  if (tsf)
-    tsf->refcount++;
-  return tsf;
+  return timeshift_file_get(tsf);
 }
 
 /* **************************************************************************
