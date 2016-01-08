@@ -1078,7 +1078,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   enum AVPixelFormat pixfmt;
   AVFrame *frame_to_encode;
   AVFrame *deint_input_frame;
-  static int max_bitrate = (INT_MAX / 3000) * 0.8;
+  static int max_bitrate = INT_MAX / ((3000*10)/8);
 
   av_init_packet(&packet);
   av_init_packet(&packet2);
@@ -1511,6 +1511,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   frame_to_encode = vs->vid_enc_frame;
 
 skip_vpp:
+  got_output = 0;
   ret = avcodec_encode_video2(octx, &packet2, frame_to_encode, &got_output);
   if (ret < 0) {
     tvherror("transcode", "%04X: Error encoding frame", shortid(t));
