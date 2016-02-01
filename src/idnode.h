@@ -83,7 +83,7 @@ typedef RB_HEAD(, idnode) idnodes_rb_t;
  * Node definition
  */
 struct idnode {
-  uint8_t           in_uuid[UUID_BIN_SIZE]; ///< Unique ID
+  tvh_uuid_t        in_uuid;                ///< Unique ID
   RB_ENTRY(idnode)  in_link;                ///< Global hash
   RB_ENTRY(idnode)  in_domain_link;         ///< Root class link (domain)
   idnodes_rb_t     *in_domain;              ///< Domain nodes
@@ -255,6 +255,7 @@ int  idnode_filter
 static inline idnode_set_t * idnode_set_create(int sorted)
   { idnode_set_t *is = calloc(1, sizeof(idnode_set_t));
     is->is_sorted = sorted; return is; }
+void idnode_set_alloc ( idnode_set_t *is, size_t alloc );
 void idnode_set_add
   ( idnode_set_t *is, idnode_t *in, idnode_filter_t *filt, const char *lang );
 int idnode_set_remove ( idnode_set_t *is, idnode_t *in );
@@ -264,6 +265,7 @@ static inline int idnode_set_exists ( idnode_set_t *is, idnode_t *in )
 void idnode_set_sort ( idnode_set_t *is, idnode_sort_t *s );
 void idnode_set_sort_by_title ( idnode_set_t *is, const char *lang );
 htsmsg_t *idnode_set_as_htsmsg ( idnode_set_t *is );
+void idnode_set_clear ( idnode_set_t *is );
 void idnode_set_free ( idnode_set_t *is );
 
 #endif /* __TVH_IDNODE_H__ */

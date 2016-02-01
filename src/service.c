@@ -166,6 +166,9 @@ const idclass_t service_class = {
       .type     = PT_INT,
       .id       = "auto",
       .name     = N_("Automatic checking"),
+      .desc     = N_("Check for the service presence. If the service is no "
+                     "longer broadcast this field will change to "
+                     "“Missing In PAT/SDT”."),
       .list     = service_class_auto_list,
       .off      = offsetof(service_t, s_auto),
       .opts     = PO_ADVANCED,
@@ -175,6 +178,7 @@ const idclass_t service_class = {
       .islist   = 1,
       .id       = "channel",
       .name     = N_("Channel"),
+      .desc     = N_("The channel this service is mapped to."),
       .get      = service_class_channel_get,
       .set      = service_class_channel_set,
       .list     = channel_class_get_list,
@@ -185,6 +189,9 @@ const idclass_t service_class = {
       .type     = PT_INT,
       .id       = "priority",
       .name     = N_("Priority (-10..10)"),
+      .desc     = N_("Service priority. Enter a value between -10 and 10 "
+                     "Higher value indicates higher preference. See Help "
+                     "for more info."),
       .off      = offsetof(service_t, s_prio),
       .opts     = PO_ADVANCED
     },
@@ -192,6 +199,7 @@ const idclass_t service_class = {
       .type     = PT_BOOL,
       .id       = "encrypted",
       .name     = N_("Encrypted"),
+      .desc     = N_("The service encryption status."),
       .get      = service_class_encrypted_get,
       .opts     = PO_NOSAVE | PO_RDONLY
     },
@@ -199,6 +207,7 @@ const idclass_t service_class = {
       .type     = PT_STR,
       .id       = "caid",
       .name     = N_("CAID"),
+      .desc     = N_("The Conditional Access ID used for the service."),
       .get      = service_class_caid_get,
       .opts     = PO_NOSAVE | PO_RDONLY | PO_HIDDEN | PO_EXPERT,
     },
@@ -1468,9 +1477,9 @@ service_done(void)
 void
 service_source_info_free(struct source_info *si)
 {
-  free(si->si_device);
   free(si->si_adapter);
   free(si->si_network);
+  free(si->si_network_type);
   free(si->si_mux);
   free(si->si_provider);
   free(si->si_service);
@@ -1481,10 +1490,11 @@ service_source_info_free(struct source_info *si)
 void
 service_source_info_copy(source_info_t *dst, const source_info_t *src)
 {
-#define COPY(x) dst->si_##x = src->si_##x ? strdup(src->si_##x) : NULL
-  COPY(device);
+  *dst = *src;
+#define COPY(x) if (src->si_##x) dst->si_##x = strdup(src->si_##x)
   COPY(adapter);
   COPY(network);
+  COPY(network_type);
   COPY(mux);
   COPY(provider);
   COPY(service);

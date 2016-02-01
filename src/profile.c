@@ -300,6 +300,7 @@ const idclass_t profile_class =
       .type     = PT_BOOL,
       .id       = "enabled",
       .name     = N_("Enabled"),
+      .desc     = N_("Enable/disable the profile."),
       .off      = offsetof(profile_t, pro_enabled),
       .get_opts = profile_class_enabled_opts,
       .group    = 1
@@ -308,6 +309,7 @@ const idclass_t profile_class =
       .type     = PT_BOOL,
       .id       = "default",
       .name     = N_("Default"),
+      .desc     = N_("Set profile as default."),
       .set      = profile_class_default_set,
       .get      = profile_class_default_get,
       .opts     = PO_EXPERT,
@@ -324,6 +326,7 @@ const idclass_t profile_class =
       .type     = PT_STR,
       .id       = "name",
       .name     = N_("Profile name"),
+      .desc     = N_("The name of the profile."),
       .off      = offsetof(profile_t, pro_name),
       .get_opts = profile_class_name_opts,
       .notify   = idnode_notify_title_changed,
@@ -333,6 +336,8 @@ const idclass_t profile_class =
       .type     = PT_STR,
       .id       = "comment",
       .name     = N_("Comment"),
+      .desc     = N_("Free-form text field. You can enter whatever you "
+                     "like here."),
       .off      = offsetof(profile_t, pro_comment),
       .group    = 1
     },
@@ -340,6 +345,10 @@ const idclass_t profile_class =
       .type     = PT_INT,
       .id       = "priority",
       .name     = N_("Default priority"),
+      .desc     = N_("If no specific priority was requested. This "
+		             "gives certain users a higher priority by "
+		             "assigning a streaming profile with a higher "
+		             "priority."),
       .list     = profile_class_priority_list,
       .off      = offsetof(profile_t, pro_prio),
       .opts     = PO_SORTKEY | PO_ADVANCED,
@@ -350,6 +359,7 @@ const idclass_t profile_class =
       .type     = PT_INT,
       .id       = "fpriority",
       .name     = N_("Force priority"),
+      .desc     = N_("Force the stream profile to use this priority."),
       .off      = offsetof(profile_t, pro_fprio),
       .opts     = PO_EXPERT,
       .group    = 1
@@ -358,6 +368,8 @@ const idclass_t profile_class =
       .type     = PT_INT,
       .id       = "timeout",
       .name     = N_("Timeout (sec) (0=infinite)"),
+      .desc     = N_("The number of seconds to wait for a stream to "
+                     "start."),
       .off      = offsetof(profile_t, pro_timeout),
       .def.i    = 5,
       .group    = 1
@@ -366,6 +378,8 @@ const idclass_t profile_class =
       .type     = PT_BOOL,
       .id       = "restart",
       .name     = N_("Restart on error"),
+      .desc     = N_("Restart streaming on error. This is useful for "
+                     "DVR so a recording isn't aborted if an error occurs."),
       .off      = offsetof(profile_t, pro_restart),
       .opts     = PO_EXPERT,
       .def.i    = 0,
@@ -375,6 +389,9 @@ const idclass_t profile_class =
       .type     = PT_BOOL,
       .id       = "contaccess",
       .name     = N_("Continue even if descrambling fails"),
+      .desc     = N_("Don't abort streaming when an encrypted stream "
+                     "can't be decrypted by a CA client that normally "
+                     "should be able to decrypt the stream."),
       .off      = offsetof(profile_t, pro_contaccess),
       .opts     = PO_EXPERT,
       .def.i    = 1,
@@ -384,6 +401,8 @@ const idclass_t profile_class =
       .type     = PT_INT,
       .id       = "svfilter",
       .name     = N_("Preferred service video type"),
+      .desc     = N_("The selected video type should be preferred when "
+                     "multiple services are available for a channel."),
       .list     = profile_class_svfilter_list,
       .off      = offsetof(profile_t, pro_svfilter),
       .opts     = PO_SORTKEY | PO_ADVANCED,
@@ -1084,6 +1103,9 @@ const idclass_t profile_mpegts_pass_class =
       .type     = PT_BOOL,
       .id       = "rewrite_pmt",
       .name     = N_("Rewrite PMT"),
+      .desc     = N_("Rewrite PMT (Program Map Table) packets to only "
+                     "include information about the currently streamed "
+                     "service."),
       .off      = offsetof(profile_mpegts_t, pro_rewrite_pmt),
       .opts     = PO_ADVANCED,
       .def.i    = 1,
@@ -1093,6 +1115,9 @@ const idclass_t profile_mpegts_pass_class =
       .type     = PT_BOOL,
       .id       = "rewrite_pat",
       .name     = N_("Rewrite PAT"),
+      .desc     = N_("Rewrite PAT (Program Association Table) packets "
+                     "to only include information about the currently "
+                     "streamed service."),
       .off      = offsetof(profile_mpegts_t, pro_rewrite_pat),
       .opts     = PO_ADVANCED,
       .def.i    = 1,
@@ -1102,6 +1127,9 @@ const idclass_t profile_mpegts_pass_class =
       .type     = PT_BOOL,
       .id       = "rewrite_sdt",
       .name     = N_("Rewrite SDT"),
+      .desc     = N_("Rewrite SDT (Service Description Table) packets "
+                     "to only include information about the currently "
+                     "streamed service."),
       .off      = offsetof(profile_mpegts_t, pro_rewrite_sdt),
       .opts     = PO_ADVANCED,
       .def.i    = 1,
@@ -1111,6 +1139,9 @@ const idclass_t profile_mpegts_pass_class =
       .type     = PT_BOOL,
       .id       = "rewrite_eit",
       .name     = N_("Rewrite EIT"),
+      .desc     = N_("Rewrite EIT (Event Information Table) packets "
+                     "to only include information about the currently "
+                     "streamed service."),
       .off      = offsetof(profile_mpegts_t, pro_rewrite_eit),
       .opts     = PO_ADVANCED,
       .def.i    = 1,
@@ -1204,6 +1235,7 @@ const idclass_t profile_matroska_class =
       .type     = PT_BOOL,
       .id       = "webm",
       .name     = N_("WEBM"),
+      .desc     = N_("Use WEBM format."),
       .off      = offsetof(profile_matroska_t, pro_webm),
       .opts     = PO_ADVANCED,
       .def.i    = 0,
@@ -1373,6 +1405,7 @@ const idclass_t profile_libav_matroska_class =
       .type     = PT_BOOL,
       .id       = "webm",
       .name     = N_("WEBM"),
+      .desc     = N_("Use WEBM format."),
       .off      = offsetof(profile_libav_matroska_t, pro_webm),
       .opts     = PO_ADVANCED,
       .def.i    = 0,
@@ -1440,6 +1473,75 @@ profile_libav_matroska_builder(void)
   pro->pro_reopen = profile_libav_matroska_reopen;
   pro->pro_open   = profile_libav_matroska_open;
   pro->pro_get_mc = profile_libav_matroska_get_mc;
+  return (profile_t *)pro;
+}
+
+/*
+ *  LibAV/MP4 muxer
+ */
+typedef struct profile_libav_mp4 {
+  profile_t;
+} profile_libav_mp4_t;
+
+const idclass_t profile_libav_mp4_class =
+{
+  .ic_super      = &profile_class,
+  .ic_class      = "profile-libav-mp4",
+  .ic_caption    = N_("MP4/av-lib"),
+};
+
+static int
+profile_libav_mp4_reopen(profile_chain_t *prch,
+                         muxer_config_t *m_cfg, int flags)
+{
+  muxer_config_t c;
+
+  if (m_cfg)
+    c = *m_cfg; /* do not alter the original parameter */
+  else
+    memset(&c, 0, sizeof(c));
+  if (c.m_type != MC_AVMP4)
+    c.m_type = MC_AVMP4;
+
+  assert(!prch->prch_muxer);
+  prch->prch_muxer = muxer_create(&c);
+  return 0;
+}
+
+static int
+profile_libav_mp4_open(profile_chain_t *prch,
+                       muxer_config_t *m_cfg, int flags, size_t qsize)
+{
+  int r;
+
+  prch->prch_flags = SUBSCRIPTION_PACKET;
+  prch->prch_sq.sq_maxsize = qsize;
+
+  r = profile_htsp_work(prch, &prch->prch_sq.sq_st, 0, 0);
+  if (r) {
+    profile_chain_close(prch);
+    return r;
+  }
+
+  profile_libav_mp4_reopen(prch, m_cfg, flags);
+
+  return 0;
+}
+
+static muxer_container_type_t
+profile_libav_mp4_get_mc(profile_t *_pro)
+{
+  return MC_AVMP4;
+}
+
+static profile_t *
+profile_libav_mp4_builder(void)
+{
+  profile_libav_mp4_t *pro = calloc(1, sizeof(*pro));
+  pro->pro_sflags = SUBSCRIPTION_PACKET;
+  pro->pro_reopen = profile_libav_mp4_reopen;
+  pro->pro_open   = profile_libav_mp4_open;
+  pro->pro_get_mc = profile_libav_mp4_get_mc;
   return (profile_t *)pro;
 }
 
@@ -1654,6 +1756,7 @@ const idclass_t profile_transcode_class =
       .type     = PT_INT,
       .id       = "container",
       .name     = N_("Container"),
+      .desc     = N_("Container to use for the transcoded stream."),
       .off      = offsetof(profile_transcode_t, pro_mc),
       .def.i    = MC_MATROSKA,
       .list     = profile_class_mc_list,
@@ -1663,6 +1766,10 @@ const idclass_t profile_transcode_class =
       .type     = PT_U32,
       .id       = "resolution",
       .name     = N_("Resolution (height)"),
+      .desc     = N_("Vertical resolution (height) of the output video "
+                     "stream. Horizontal resolution is adjusted "
+                     "automatically to preserve aspect ratio. When set "
+                     "to 0, the input resolution is used."),
       .off      = offsetof(profile_transcode_t, pro_resolution),
       .def.u32  = 384,
       .group    = 2
@@ -1671,6 +1778,7 @@ const idclass_t profile_transcode_class =
       .type     = PT_U32,
       .id       = "channels",
       .name     = N_("Channels"),
+      .desc     = N_("Audio channel layout."),
       .off      = offsetof(profile_transcode_t, pro_channels),
       .def.u32  = 2,
       .list     = profile_class_channels_list,
@@ -1681,6 +1789,7 @@ const idclass_t profile_transcode_class =
       .type     = PT_STR,
       .id       = "language",
       .name     = N_("Language"),
+      .desc     = N_("Audio language (Not currently used)."),
       .off      = offsetof(profile_transcode_t, pro_language),
       .list     = profile_class_language_list,
       .opts     = PO_ADVANCED,
@@ -1690,6 +1799,8 @@ const idclass_t profile_transcode_class =
       .type     = PT_STR,
       .id       = "vcodec",
       .name     = N_("Video codec"),
+      .desc     = N_("Video codec to use for the transcode. "
+                     "\"Do not use\" will disable video output."),
       .off      = offsetof(profile_transcode_t, pro_vcodec),
       .def.s    = "libx264",
       .list     = profile_class_vcodec_list,
@@ -1700,6 +1811,7 @@ const idclass_t profile_transcode_class =
       .type     = PT_STR,
       .id       = "vcodec_preset",
       .name     = N_("Video codec preset"),
+      .desc     = N_("Video codec preset to use for transcoding."),
       .off      = offsetof(profile_transcode_t, pro_vcodec_preset),
       .def.s    = "faster",
       .list     = profile_class_vcodec_preset_list,
@@ -1710,6 +1822,8 @@ const idclass_t profile_transcode_class =
       .type     = PT_U32,
       .id       = "vbitrate",
       .name     = N_("Video bitrate (kb/s) (0=auto)"),
+      .desc     = N_("Bitrate to use for the transcode. See help for "
+                     "detailed information."),
       .off      = offsetof(profile_transcode_t, pro_vbitrate),
       .opts     = PO_ADVANCED,
       .def.u32  = 0,
@@ -1719,6 +1833,8 @@ const idclass_t profile_transcode_class =
       .type     = PT_STR,
       .id       = "acodec",
       .name     = N_("Audio codec"),
+      .desc     = N_("Audio codec to use for the transcode. \"Do not "
+                     "use \" will disable audio output."),
       .off      = offsetof(profile_transcode_t, pro_acodec),
       .def.s    = "libvorbis",
       .list     = profile_class_acodec_list,
@@ -1729,6 +1845,7 @@ const idclass_t profile_transcode_class =
       .type     = PT_U32,
       .id       = "abitrate",
       .name     = N_("Audio bitrate (kb/s) (0=auto)"),
+      .desc     = N_("Audio birate to use for transcoding."),
       .off      = offsetof(profile_transcode_t, pro_abitrate),
       .opts     = PO_ADVANCED,
       .def.u32  = 0,
@@ -1738,6 +1855,7 @@ const idclass_t profile_transcode_class =
       .type     = PT_STR,
       .id       = "scodec",
       .name     = N_("Subtitle codec"),
+      .desc     = N_("Select subtitle codec to use for transcoding."),
       .off      = offsetof(profile_transcode_t, pro_scodec),
       .def.s    = "",
       .list     = profile_class_scodec_list,
@@ -1960,6 +2078,7 @@ profile_init(void)
 #if ENABLE_LIBAV
   profile_register(&profile_libav_mpegts_class, profile_libav_mpegts_builder);
   profile_register(&profile_libav_matroska_class, profile_libav_matroska_builder);
+  profile_register(&profile_libav_mp4_class, profile_libav_mp4_builder);
   profile_transcode_experimental_codecs =
     getenv("TVHEADEND_LIBAV_NO_EXPERIMENTAL_CODECS") ? 0 : 1;
   profile_register(&profile_transcode_class, profile_transcode_builder);

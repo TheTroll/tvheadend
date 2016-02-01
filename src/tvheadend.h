@@ -96,18 +96,6 @@ extern int tvheadend_webui_port;
 extern int tvheadend_webui_debug;
 extern int tvheadend_htsp_port;
 
-typedef struct source_info {
-  char *si_device;
-  char *si_adapter;
-  char *si_network;
-  char *si_satpos;
-  char *si_mux;
-  char *si_provider;
-  char *si_service;
-  int   si_type;
-} source_info_t;
-
-
 static inline void
 lock_assert0(pthread_mutex_t *l, const char *file, int line)
 {
@@ -142,6 +130,13 @@ typedef enum {
 #define UILEVEL_BASIC    0
 #define UILEVEL_ADVANCED 1
 #define UILEVEL_EXPERT   2
+
+/*
+ *
+ */
+#define CHICON_NONE      0
+#define CHICON_LOWERCASE 1
+#define CHICON_SVCNAME   2
 
 /*
  * global timer

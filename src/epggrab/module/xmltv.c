@@ -261,6 +261,8 @@ xmltv_parse_vid_quality
   if ((str = htsmsg_xml_get_cdata_str(m, "quality"))) {
     if (strstr(str, "HD")) {
       hd    = 1;
+    } else if (strstr(str, "UHD")) {
+      hd    = 2;
     } else if (strstr(str, "480")) {
       lines  = 480;
       aspect = 150;
@@ -274,6 +276,14 @@ xmltv_parse_vid_quality
     } else if (strstr(str, "1080")) {
       lines  = 1080;
       hd     = 1;
+      aspect = 178;
+    } else if (strstr(str, "1716")) {
+      lines  = 1716;
+      hd     = 2;
+      aspect = 239;
+    } else if (strstr(str, "2160")) {
+      lines  = 2160;
+      hd     = 2;
       aspect = 178;
     }
   }
@@ -484,7 +494,9 @@ static int _xmltv_parse_programme_tags
   save |= xmltv_parse_accessibility(mod, ebc, tags);
 
   /* Misc */
-  save |= _xmltv_parse_previously_shown(mod, ebc, tags, &first_aired);
+  save |= _xmltv_parse_previously_shown(mod, ebc,
+                                        htsmsg_get_map(tags, "previously-shown"),
+                                        &first_aired);
   if (htsmsg_get_map(tags, "premiere") ||
       htsmsg_get_map(tags, "new"))
     save |= epg_broadcast_set_is_new(ebc, 1, mod);

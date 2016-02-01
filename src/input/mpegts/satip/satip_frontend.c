@@ -1754,8 +1754,69 @@ done:
  * Creation/Config
  * *************************************************************************/
 
+static int
+satip_frontend_default_positions ( satip_frontend_t *lfe )
+{
+  satip_device_t *sd = lfe->sf_device;
+
+  if (!strcmp(sd->sd_info.modelname, "IPLNB"))
+    return 1;
+  return sd->sd_info.srcs;
+}
+
+static mpegts_network_t *
+satip_frontend_wizard_network ( satip_frontend_t *lfe )
+{
+  satip_satconf_t *sfc;
+
+  sfc = TAILQ_FIRST(&lfe->sf_satconf);
+  if (sfc && sfc->sfc_networks)
+    if (sfc->sfc_networks->is_count > 0)
+      return (mpegts_network_t *)sfc->sfc_networks->is_array[0];
+  return NULL;
+}
+
+static htsmsg_t *
+satip_frontend_wizard_get( tvh_input_t *ti, const char *lang )
+{
+  satip_frontend_t *lfe = (satip_frontend_t*)ti;
+  mpegts_network_t *mn;
+  const idclass_t *idc = NULL;
+
+  mn = satip_frontend_wizard_network(lfe);
+  if (lfe->sf_master == 0 && (mn == NULL || (mn && mn->mn_wizard)))
+    idc = dvb_network_class_by_fe_type(lfe->sf_type);
+  return mpegts_network_wizard_get((mpegts_input_t *)lfe, idc, mn, lang);
+}
+
 static void
-satip_frontend_hacks( satip_frontend_t *lfe, int *def_positions )
+satip_frontend_wizard_set( tvh_input_t *ti, htsmsg_t *conf, const char *lang )
+{
+  satip_frontend_t *lfe = (satip_frontend_t*)ti;
+  const char *ntype = htsmsg_get_str(conf, "mpegts_network_type");
+  mpegts_network_t *mn;
+
+  mn = satip_frontend_wizard_network(lfe);
+  if (ntype && lfe->sf_master == 0 && (mn == NULL || mn->mn_wizard)) {
+    htsmsg_t *conf = htsmsg_create_map();
+    htsmsg_t *list = htsmsg_create_list();
+    htsmsg_t *pos  = htsmsg_create_map();
+    htsmsg_t *nlist;
+    mpegts_network_wizard_create(ntype, &nlist, lang);
+    htsmsg_add_bool(pos, "enabled", 1);
+    htsmsg_add_msg(pos, "networks", nlist);
+    htsmsg_add_msg(list, NULL, pos);
+    htsmsg_add_msg(conf, "satconf", list);
+    satip_satconf_create(lfe, conf, satip_frontend_default_positions(lfe));
+    htsmsg_destroy(conf);
+    if (satip_frontend_wizard_network(lfe))
+      mpegts_input_set_enabled((mpegts_input_t *)lfe, 1);
+    satip_device_save(lfe->sf_device);
+  }
+}
+
+static void
+satip_frontend_hacks( satip_frontend_t *lfe )
 {
   satip_device_t *sd = lfe->sf_device;
 
@@ -1766,8 +1827,6 @@ satip_frontend_hacks( satip_frontend_t *lfe, int *def_positions )
       lfe->sf_play2 = 1;
     lfe->sf_tdelay = 250;
     lfe->sf_teardown_delay = 1;
-  } else if (!strcmp(sd->sd_info.modelname, "IPLNB")) {
-    *def_positions = 1;
   } else if (strstr(sd->sd_info.manufacturer, "AVM Berlin") &&
               strstr(sd->sd_info.modelname, "FRITZ!")) {
     lfe->sf_play2 = 1;
@@ -1783,7 +1842,7 @@ satip_frontend_create
   char id[16], lname[256], nname[60];
   satip_frontend_t *lfe;
   uint32_t master = 0;
-  int i, def_positions = sd->sd_info.srcs;
+  int i;
 
   /* Override type */
   snprintf(id, sizeof(id), "override #%d", num);
@@ -1840,7 +1899,7 @@ satip_frontend_create
   lfe->sf_master   = master;
   lfe->sf_type_override = override ? strdup(override) : NULL;
   lfe->sf_pass_weight = 1;
-  satip_frontend_hacks(lfe, &def_positions);
+  satip_frontend_hacks(lfe);
   TAILQ_INIT(&lfe->sf_satconf);
   pthread_mutex_init(&lfe->sf_dvr_lock, NULL);
   lfe = (satip_frontend_t*)mpegts_input_create0((mpegts_input_t*)lfe, idc, uuid, conf);
@@ -1867,6 +1926,8 @@ satip_frontend_create
   }
 
   /* Input callbacks */
+  lfe->ti_wizard_get     = satip_frontend_wizard_get;
+  lfe->ti_wizard_set     = satip_frontend_wizard_set;
   lfe->mi_is_enabled     = satip_frontend_is_enabled;
   lfe->mi_start_mux      = satip_frontend_start_mux;
   lfe->mi_stop_mux       = satip_frontend_stop_mux;
@@ -1881,7 +1942,7 @@ satip_frontend_create
 
   /* Create satconf */
   if (lfe->sf_type == DVB_TYPE_S && master == 0)
-    satip_satconf_create(lfe, conf, def_positions);
+    satip_satconf_create(lfe, conf, satip_frontend_default_positions(lfe));
 
   /* Slave networks update */
   if (master) {

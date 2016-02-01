@@ -6,14 +6,14 @@ tvheadend.wizard_delayed_activation = null;
 
 tvheadend.wizard_start = function(page) {
 
-    var w = null;
     var tabMapping = {
         hello: 'base_config',
         login: 'access_entry',
-        network: 'mpegts_network',
-        input: 'tvadapters',
+        network: 'tvadapters',
+        muxes: 'mpegts_network',
         status: 'status_streams',
-        mapping: 'channels',
+        mapping: 'services',
+        channels: 'channels'
     }
 
     function cancel(conf) {
@@ -70,10 +70,32 @@ tvheadend.wizard_start = function(page) {
         buttons.splice(0, 0, prevBtn);
     }
 
+    function progressupdate() {
+        var conf = this;
+        Ext.Ajax.request({
+            url: 'api/wizard/' + page + '/progress',
+            success: function(d) {
+                d = json_decode(d);
+                var t = conf.progress.initialConfig.text;
+                var i = d['progress'];
+                conf.progress.updateProgress(i, t + ' ' + Math.round(100*i) + '%');
+                conf.progress_task.delay(1000, progressupdate, conf);
+                for (var key in d)
+                    if (key !== 'progress') {
+                        var f = conf.form.findField(key);
+                        if (f)
+                             f.setValue(d[key]);
+                    }
+            },
+        });
+    }
+
     function pbuild(conf, panel) {
         var data = conf.fullData;
         var icon = getvalue(data, 'icon');
         var text = getvalue(data, 'description');
+        var progress = getvalue(data, 'progress');
+        conf.form = panel.getForm();
         var c = '';
         if (icon)
             c += '<img class="x-wizard-icon" src="' + icon + '"/>';
@@ -89,6 +111,15 @@ tvheadend.wizard_start = function(page) {
             html: c
         });
         panel.insert(0, p);
+        if (progress) {
+            conf.progress = new Ext.ProgressBar({
+                text: progress,
+                style: 'margin: 5px 0 15px;'
+            });
+            panel.insert(1, conf.progress);
+            conf.progress_task = new Ext.util.DelayedTask(progressupdate, conf);
+            conf.progress_task.delay(1000);
+        }
     }
     
     function build(d) {
@@ -135,11 +166,8 @@ tvheadend.wizard_start = function(page) {
 
     tvheadend.wizard = page;
 
-    var delay = 1000;
-    if (tvheadend.wizard_delayed_activation == null) {
+    if (tvheadend.wizard_delayed_activation == null)
         tvheadend.wizard_delayed_activation = new Ext.util.DelayedTask();
-        delay = 1;
-    }
     tvheadend.wizard_delayed_activation.delay(1000, activate_tab);
 
     tvheadend.Ajax({

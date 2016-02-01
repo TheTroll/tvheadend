@@ -229,6 +229,7 @@ const idclass_t mpegts_input_class =
       .type     = PT_BOOL,
       .id       = "enabled",
       .name     = N_("Enabled"),
+      .desc     = N_("Enable/disable tuner/adapter."),
       .off      = offsetof(mpegts_input_t, mi_enabled),
       .notify   = mpegts_input_enabled_notify,
       .def.i    = 1,
@@ -237,6 +238,8 @@ const idclass_t mpegts_input_class =
       .type     = PT_INT,
       .id       = "priority",
       .name     = N_("Priority"),
+      .desc     = N_("The tuner priority value (a higher value means to "
+                     "use this tuner out of preference)."),
       .off      = offsetof(mpegts_input_t, mi_priority),
       .def.i    = 1,
       .opts     = PO_ADVANCED
@@ -245,6 +248,10 @@ const idclass_t mpegts_input_class =
       .type     = PT_INT,
       .id       = "spriority",
       .name     = N_("Streaming priority"),
+      .desc     = N_("The tuner priority value for streamed channels "
+                     "through HTTP or HTSP (a higher value means to use "
+                     "this tuner out of preference). If not set (zero), "
+                     "the standard priority value is used."),
       .off      = offsetof(mpegts_input_t, mi_streaming_priority),
       .def.i    = 1,
       .opts     = PO_ADVANCED
@@ -253,6 +260,7 @@ const idclass_t mpegts_input_class =
       .type     = PT_STR,
       .id       = "displayname",
       .name     = N_("Name"),
+      .desc     = N_("Name of the tuner/adapter."),
       .off      = offsetof(mpegts_input_t, mi_name),
       .notify   = idnode_notify_title_changed,
     },
@@ -260,6 +268,8 @@ const idclass_t mpegts_input_class =
       .type     = PT_BOOL,
       .id       = "ota_epg",
       .name     = N_("Over-the-air EPG"),
+      .desc     = N_("Enable over-the-air program guide (EPG) scanning "
+                     "on this input device."),
       .off      = offsetof(mpegts_input_t, mi_ota_epg),
       .def.i    = 1,
     },
@@ -267,6 +277,9 @@ const idclass_t mpegts_input_class =
       .type     = PT_BOOL,
       .id       = "initscan",
       .name     = N_("Initial scan"),
+      .desc     = N_("Allow the initial scan tuning on this device "
+                     "(scan when Tvheadend starts). See Skip Initial "
+                     "Scan in the network settings for further details."),
       .off      = offsetof(mpegts_input_t, mi_initscan),
       .def.i    = 1,
       .opts     = PO_ADVANCED,
@@ -275,6 +288,7 @@ const idclass_t mpegts_input_class =
       .type     = PT_BOOL,
       .id       = "idlescan",
       .name     = N_("Idle scan"),
+      .desc     = N_("Allow idle scan tuning on this device."),
       .off      = offsetof(mpegts_input_t, mi_idlescan),
       .def.i    = 1,
       .opts     = PO_ADVANCED,
@@ -283,7 +297,7 @@ const idclass_t mpegts_input_class =
       .type     = PT_U32,
       .id       = "free_weight",
       .name     = N_("Free subscription weight"),
-      .desc     = N_("If the subscription weight for this input is bellow "
+      .desc     = N_("If the subscription weight for this input is below "
                      "the specified threshold, the tuner is handled as free "
                      "(according the priority settings). Otherwise, a next "
                      "tuner (without any subscriptions) is used. Set this value "
@@ -297,6 +311,7 @@ const idclass_t mpegts_input_class =
       .type     = PT_STR,
       .id       = "networks",
       .name     = N_("Networks"),
+      .desc     = N_("Associate this device with one or more networks."),
       .islist   = 1,
       .set      = mpegts_input_class_network_set,
       .get      = mpegts_input_class_network_get,
@@ -307,6 +322,11 @@ const idclass_t mpegts_input_class =
       .type     = PT_STR,
       .id       = "linked",
       .name     = N_("Linked input"),
+      .desc     = N_("Wake up the linked input whenever this adapter "
+                     "is used. The subscriptions are named as “keep”. "
+                     "Note that this isn't normally needed, and is here "
+                     "simply as a workaround to driver bugs in certain "
+                     "dual tuner cards that otherwise lock the second tuner."),
       .set      = mpegts_input_class_linked_set,
       .get      = mpegts_input_class_linked_get,
       .list     = mpegts_input_class_linked_enum,
@@ -330,6 +350,18 @@ mpegts_input_is_enabled ( mpegts_input_t *mi, mpegts_mux_t *mm, int flags )
   if ((flags & SUBSCRIPTION_IDLESCAN) != 0 && !mi->mi_idlescan)
     return 0;
   return mi->mi_enabled;
+}
+
+void
+mpegts_input_set_enabled ( mpegts_input_t *mi, int enabled )
+{
+  enabled = !!enabled;
+  if (mi->mi_enabled != enabled) {
+    htsmsg_t *conf = htsmsg_create_map();
+    htsmsg_add_bool(conf, "enabled", enabled);
+    idnode_update(&mi->ti_id, conf);
+    htsmsg_destroy(conf);
+  }
 }
 
 static void
@@ -444,7 +476,8 @@ mpegts_input_close_pids
 
 mpegts_pid_t *
 mpegts_input_open_pid
-  ( mpegts_input_t *mi, mpegts_mux_t *mm, int pid, int type, int weight, void *owner )
+  ( mpegts_input_t *mi, mpegts_mux_t *mm, int pid, int type, int weight,
+    void *owner, int reopen )
 {
   char buf[512];
   mpegts_pid_t *mp;
@@ -475,6 +508,15 @@ mpegts_input_open_pid
         tvhdebug("mpegts", "%s - open PID %s subscription [%04x/%p]",
                  buf, (type & MPS_TABLES) ? "tables" : "fullmux", type, owner);
         mm->mm_update_pids_flag = 1;
+      } else {
+        if (!reopen) {
+          mpegts_mux_nice_name(mm, buf, sizeof(buf));
+          tvherror("mpegts",
+                   "%s - open PID %04x (%d) failed, dupe sub (owner %p)",
+                   buf, mp->mp_pid, mp->mp_pid, owner);
+        }
+        free(mps);
+        mp = NULL;
       }
     } else if (!RB_INSERT_SORTED(&mp->mp_subs, mps, mps_link, mpegts_mps_cmp)) {
       mp->mp_type |= type;
@@ -487,6 +529,11 @@ mpegts_input_open_pid
                buf, mp->mp_pid, mp->mp_pid, type, owner);
       mm->mm_update_pids_flag = 1;
     } else {
+      if (!reopen) {
+        mpegts_mux_nice_name(mm, buf, sizeof(buf));
+        tvherror("mpegts", "%s - open PID %04x (%d) failed, dupe sub (owner %p)",
+                 buf, mp->mp_pid, mp->mp_pid, owner);
+      }
       free(mps);
       mp = NULL;
     }
@@ -624,7 +671,7 @@ mpegts_input_cat_pass_callback
             pthread_mutex_lock(&mi->mi_output_lock);
             if ((mi = mm->mm_active->mmi_input) != NULL)
               mpegts_input_open_pid(mi, mm, pid,
-                                    MPS_SERVICE, MPS_WEIGHT_CAT, s);
+                                    MPS_SERVICE, MPS_WEIGHT_CAT, s, 0);
             pthread_mutex_unlock(&mi->mi_output_lock);
           }
         }
@@ -649,7 +696,7 @@ mpegts_input_open_service
   elementary_stream_t *st;
   mpegts_apids_t *pids;
   mpegts_apid_t *p;
-  int i;
+  int i, reopen = !init;
 
   /* Add to list */
   pthread_mutex_lock(&mi->mi_output_lock);
@@ -661,15 +708,16 @@ mpegts_input_open_service
   pthread_mutex_lock(&s->s_stream_mutex);
   if (s->s_type == STYPE_STD) {
 
-    mpegts_input_open_pid(mi, mm, s->s_pmt_pid, MPS_SERVICE, MPS_WEIGHT_PMT, s);
-    mpegts_input_open_pid(mi, mm, s->s_pcr_pid, MPS_SERVICE, MPS_WEIGHT_PCR, s);
+    mpegts_input_open_pid(mi, mm, s->s_pmt_pid, MPS_SERVICE, MPS_WEIGHT_PMT, s, reopen);
+    mpegts_input_open_pid(mi, mm, s->s_pcr_pid, MPS_SERVICE, MPS_WEIGHT_PCR, s, reopen);
     if (s->s_scrambled_pass)
-      mpegts_input_open_pid(mi, mm, DVB_CAT_PID, MPS_SERVICE, MPS_WEIGHT_CAT, s);
+      mpegts_input_open_pid(mi, mm, DVB_CAT_PID, MPS_SERVICE, MPS_WEIGHT_CAT, s, reopen);
     /* Open only filtered components here */
     TAILQ_FOREACH(st, &s->s_filt_components, es_filt_link)
-      if (s->s_scrambled_pass || st->es_type != SCT_CA) {
+      if ((s->s_scrambled_pass || st->es_type != SCT_CA) &&
+          st->es_pid != s->s_pmt_pid && st->es_pid != s->s_pcr_pid) {
         st->es_pid_opened = 1;
-        mpegts_input_open_pid(mi, mm, st->es_pid, MPS_SERVICE, mpegts_mps_weight(st), s);
+        mpegts_input_open_pid(mi, mm, st->es_pid, MPS_SERVICE, mpegts_mps_weight(st), s, reopen);
       }
 
     mpegts_service_update_slave_pids(s, 0);
@@ -677,17 +725,17 @@ mpegts_input_open_service
   } else {
     if ((pids = s->s_pids) != NULL) {
       if (pids->all) {
-        mpegts_input_open_pid(mi, mm, MPEGTS_FULLMUX_PID, MPS_RAW | MPS_ALL, MPS_WEIGHT_RAW, s);
+        mpegts_input_open_pid(mi, mm, MPEGTS_FULLMUX_PID, MPS_RAW | MPS_ALL, MPS_WEIGHT_RAW, s, reopen);
       } else {
         for (i = 0; i < pids->count; i++) {
           p = &pids->pids[i];
-          mpegts_input_open_pid(mi, mm, p->pid, MPS_RAW, p->weight, s);
+          mpegts_input_open_pid(mi, mm, p->pid, MPS_RAW, p->weight, s, reopen);
         }
       }
     } else if (flags & SUBSCRIPTION_TABLES) {
-      mpegts_input_open_pid(mi, mm, MPEGTS_TABLES_PID, MPS_RAW | MPS_TABLES, MPS_WEIGHT_PAT, s);
+      mpegts_input_open_pid(mi, mm, MPEGTS_TABLES_PID, MPS_RAW | MPS_TABLES, MPS_WEIGHT_PAT, s, reopen);
     } else if (flags & SUBSCRIPTION_MINIMAL) {
-      mpegts_input_open_pid(mi, mm, DVB_PAT_PID, MPS_RAW, MPS_WEIGHT_PAT, s);
+      mpegts_input_open_pid(mi, mm, DVB_PAT_PID, MPS_RAW, MPS_WEIGHT_PAT, s, reopen);
     }
   }
 
@@ -1140,7 +1188,7 @@ mpegts_input_table_waiting ( mpegts_input_t *mi, mpegts_mux_t *mm )
       if (!mt->mt_subscribed) {
         mt->mt_subscribed = 1;
         pthread_mutex_unlock(&mm->mm_tables_lock);
-        mpegts_input_open_pid(mi, mm, mt->mt_pid, mpegts_table_type(mt), mt->mt_weight, mt);
+        mpegts_input_open_pid(mi, mm, mt->mt_pid, mpegts_table_type(mt), mt->mt_weight, mt, 0);
       } else {
         pthread_mutex_unlock(&mm->mm_tables_lock);
       }

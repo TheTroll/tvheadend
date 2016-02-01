@@ -410,18 +410,25 @@ iptv_input_display_name ( mpegts_input_t *mi, char *buf, size_t len )
 static inline int
 iptv_input_pause_check ( iptv_mux_t *im )
 {
-  int64_t s64;
+  int64_t s64, limit;
 
   if (im->im_pcr == PTS_UNSET)
     return 0;
+  limit = im->mm_iptv_buffer_limit;
+  if (!limit)
+    limit = im->im_handler->buffer_limit;
+  if (limit == UINT32_MAX)
+    return 0;
+  limit *= 1000;
   s64 = getmonoclock() - im->im_pcr_start;
   im->im_pcr_start += s64;
   im->im_pcr += (((s64 / 10LL) * 9LL) + 4LL) / 10LL;
   im->im_pcr &= PTS_MASK;
-  tvhtrace("iptv-pcr", "pcr: updated %"PRId64", time start %"PRId64, im->im_pcr, im->im_pcr_start);
+  tvhtrace("iptv-pcr", "pcr: updated %"PRId64", time start %"PRId64", limit %"PRId64,
+           im->im_pcr, im->im_pcr_start, limit);
 
   /* queued more than 3 seconds? trigger the pause */
-  return im->im_pcr_end - im->im_pcr_start >= 3000000LL;
+  return im->im_pcr_end - im->im_pcr_start >= limit;
 }
 
 void
@@ -994,6 +1001,37 @@ iptv_network_init ( void )
   htsmsg_destroy(c);
 }
 
+static mpegts_network_t *
+iptv_input_wizard_network ( iptv_input_t *lfe )
+{
+  return (mpegts_network_t *)LIST_FIRST(&lfe->mi_networks);
+}
+
+static htsmsg_t *
+iptv_input_wizard_get( tvh_input_t *ti, const char *lang )
+{
+  iptv_input_t *mi = (iptv_input_t*)ti;
+  mpegts_network_t *mn;
+  const idclass_t *idc;
+
+  mn = iptv_input_wizard_network(mi);
+  if (mn == NULL || (mn && mn->mn_wizard))
+    idc = &iptv_auto_network_class;
+  return mpegts_network_wizard_get((mpegts_input_t *)mi, idc, mn, lang);
+}
+
+static void
+iptv_input_wizard_set( tvh_input_t *ti, htsmsg_t *conf, const char *lang )
+{
+  iptv_input_t *mi = (iptv_input_t*)ti;
+  const char *ntype = htsmsg_get_str(conf, "mpegts_network_type");
+  mpegts_network_t *mn;
+
+  mn = iptv_input_wizard_network(mi);
+  if ((mn == NULL || mn->mn_wizard))
+    mpegts_network_wizard_create(ntype, NULL, lang);
+}
+
 void iptv_init ( void )
 {
   /* Register handlers */
@@ -1008,6 +1046,8 @@ void iptv_init ( void )
   /* Init Input */
   mpegts_input_create0((mpegts_input_t*)iptv_input,
                        &iptv_input_class, NULL, NULL);
+  iptv_input->ti_wizard_get     = iptv_input_wizard_get;
+  iptv_input->ti_wizard_set     = iptv_input_wizard_set;
   iptv_input->mi_warm_mux       = iptv_input_warm_mux;
   iptv_input->mi_start_mux      = iptv_input_start_mux;
   iptv_input->mi_stop_mux       = iptv_input_stop_mux;

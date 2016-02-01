@@ -1627,7 +1627,6 @@ config_boot ( const char *path, gid_t gid, uid_t uid )
   memset(&config, 0, sizeof(config));
   config.idnode.in_class = &config_class;
   config.ui_quicktips = 1;
-  config.wizard = strdup("hello");
   config.info_area = strdup("login,storage,time");
   config.cookie_expires = 7;
   config.dscp = -1;
@@ -1678,6 +1677,7 @@ config_boot ( const char *path, gid_t gid, uid_t uid )
   config2 = hts_settings_load("config");
   if (!config2) {
     tvhlog(LOG_DEBUG, "config", "no configuration, loading defaults");
+    config.wizard = strdup("hello");
     config_newcfg = 1;
   } else {
     f = htsmsg_field_find(config2, "language");
@@ -1908,6 +1908,17 @@ config_class_uilevel ( void *o, const char *lang )
     { N_("Basic"),    UILEVEL_BASIC },
     { N_("Advanced"), UILEVEL_ADVANCED },
     { N_("Expert"),   UILEVEL_EXPERT },
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
+static htsmsg_t *
+config_class_chiconscheme_list ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("No scheme"),           CHICON_NONE },
+    { N_("All lower-case"),      CHICON_LOWERCASE },
+    { N_("Service name picons"), CHICON_SVCNAME },
   };
   return strtab2htsmsg(tab, 1, lang);
 }
@@ -2169,11 +2180,13 @@ const idclass_t config_class = {
       .group  = 6,
     },
     {
-      .type   = PT_BOOL,
-      .id     = "chiconlowercase",
-      .name   = N_("Channel icon name lower-case"),
-      .desc   = N_("Use icons with lower-case filenames only."),
-      .off    = offsetof(config_t, chicon_lowercase),
+      .type   = PT_INT,
+      .id     = "chiconscheme",
+      .name   = N_("Channel icon name scheme"),
+      .desc   = N_("Select scheme to generathe the channel icon names "
+                   "(all lower-case, service name picons etc.)."),
+      .list   = config_class_chiconscheme_list,
+      .off    = offsetof(config_t, chicon_scheme),
       .opts   = PO_ADVANCED,
       .group  = 6,
     },

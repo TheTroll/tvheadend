@@ -99,7 +99,7 @@ mpegts_network_class_get_num_chn ( void *ptr )
 static const void *
 mpegts_network_class_get_scanq_length ( void *ptr )
 {
-  static __thread int n;
+  static int n;
   mpegts_mux_t *mm;
   mpegts_network_t *mn = ptr;
 
@@ -250,6 +250,13 @@ const idclass_t mpegts_network_class =
       .name     = N_("Scan queue length"),
       .opts     = PO_RDONLY | PO_NOSAVE,
       .get      = mpegts_network_class_get_scanq_length,
+    },
+    {
+       .type     = PT_BOOL,
+       .id       = "wizard",
+       .name     = N_("Wizard"),
+       .off      = offsetof(mpegts_network_t, mn_wizard),
+       .opts     = PO_NOUI
     },
     {}
   }
@@ -449,6 +456,82 @@ mpegts_network_scan ( mpegts_network_t *mn )
     mpegts_mux_scan_state_set(mm, MM_SCAN_STATE_PEND);
 }
 
+void
+mpegts_network_get_type_str( mpegts_network_t *mn, char *buf, size_t buflen )
+{
+  const char *s = "IPTV";
+#if ENABLE_MPEGTS_DVB
+  dvb_fe_type_t ftype;
+  ftype = dvb_fe_type_by_network_class(mn->mn_id.in_class);
+  if (ftype != DVB_TYPE_NONE)
+    s = dvb_type2str(ftype);
+#endif
+  snprintf(buf, buflen, "%s", s);
+}
+
+/******************************************************************************
+ * Wizard
+ *****************************************************************************/
+
+htsmsg_t *
+mpegts_network_wizard_get
+  ( mpegts_input_t *mi, const idclass_t *idc,
+    mpegts_network_t *mn, const char *lang )
+{
+  htsmsg_t *m = htsmsg_create_map(), *l, *e;
+  char ubuf[UUID_HEX_SIZE], buf[256];
+
+  if (mi && idc) {
+    mi->mi_display_name(mi, buf, sizeof(buf));
+    htsmsg_add_str(m, "input_name", buf);
+    l = htsmsg_create_list();
+    e = htsmsg_create_map();
+    htsmsg_add_str(e, "key", idc->ic_class);
+    htsmsg_add_str(e, "val", idclass_get_caption(idc, lang));
+    htsmsg_add_msg(l, NULL, e);
+    htsmsg_add_msg(m, "mpegts_network_types", l);
+    if (mn)
+      htsmsg_add_str(m, "mpegts_network", idnode_uuid_as_str(&mn->mn_id, ubuf));
+  }
+  return m;
+}
+
+void
+mpegts_network_wizard_create
+  ( const char *clazz, htsmsg_t **nlist, const char *lang )
+{
+  char buf[256];
+  mpegts_network_t *mn;
+  mpegts_network_builder_t *mnb;
+  htsmsg_t *conf;
+
+  if (nlist)
+    *nlist = NULL;
+
+  mnb = mpegts_network_builder_find(clazz);
+  if (mnb == NULL)
+    return;
+
+  /* only one network per type */
+  LIST_FOREACH(mn, &mpegts_network_all, mn_global_link)
+    if (mn->mn_id.in_class == mnb->idc)
+      goto found;
+
+  conf = htsmsg_create_map();
+  htsmsg_add_str(conf, "networkname", idclass_get_caption(mnb->idc, lang));
+  htsmsg_add_bool(conf, "wizard", 1);
+  mn = mnb->build(mnb->idc, conf);
+  htsmsg_destroy(conf);
+  if (mn)
+    mn->mn_config_save(mn);
+
+found:
+  if (mn && nlist) {
+    *nlist = htsmsg_create_list();
+    htsmsg_add_str(*nlist, NULL, idnode_uuid_as_str(&mn->mn_id, buf));
+  }
+}
+
 /******************************************************************************
  * Network classes/creation
  *****************************************************************************/
@@ -480,15 +563,26 @@ mpegts_network_unregister_builder
   }
 }
 
+mpegts_network_builder_t *
+mpegts_network_builder_find
+  ( const char *clazz )
+{
+  mpegts_network_builder_t *mnb;
+  LIST_FOREACH(mnb, &mpegts_network_builders, link) {
+    if (!strcmp(mnb->idc->ic_class, clazz))
+      return mnb;
+  }
+  return NULL;
+}
+
 mpegts_network_t *
 mpegts_network_build
   ( const char *clazz, htsmsg_t *conf )
 {
   mpegts_network_builder_t *mnb;
-  LIST_FOREACH(mnb, &mpegts_network_builders, link) {
-    if (!strcmp(mnb->idc->ic_class, clazz))
-      return mnb->build(mnb->idc, conf);
-  }
+  mnb = mpegts_network_builder_find(clazz);
+  if (mnb)
+    return mnb->build(mnb->idc, conf);
   return NULL;
 }
 

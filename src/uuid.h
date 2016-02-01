@@ -25,6 +25,8 @@
 #define UUID_BIN_SIZE   (16)
 #define UUID_HEX_SIZE   (33) // inc NUL
 
+extern uint8_t ___uuid_empty[UUID_BIN_SIZE];
+
 /* Structure to hold UUID */
 typedef struct uuid {
   union {
@@ -58,6 +60,30 @@ int uuid_bin2hex  ( const tvh_uuid_t *a, tvh_uuid_t *b );
  * Note: conversion is done such that a and b can be the same
  */
 int uuid_hex2bin  ( const tvh_uuid_t *a, tvh_uuid_t *b );
+
+/**
+ * Copy
+ */
+static inline void uuid_copy ( tvh_uuid_t *dst, const tvh_uuid_t *src )
+{
+  *dst = *src;
+}
+
+/**
+ * Compare
+ */
+static inline int uuid_cmp ( const tvh_uuid_t *a, const tvh_uuid_t *b )
+{
+  return memcmp(a->bin, b->bin, UUID_BIN_SIZE);
+}
+
+/**
+ * Empty
+ */
+static inline int uuid_empty ( const tvh_uuid_t *a )
+{
+  return memcmp(a->bin, ___uuid_empty, UUID_BIN_SIZE) == 0;
+}
 
 /**
  * Valid hex uuid

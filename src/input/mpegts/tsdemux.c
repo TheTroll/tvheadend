@@ -106,7 +106,8 @@ skip_cc:
   if(streaming_pad_probe_type(&t->s_streaming_pad, SMT_MPEGTS))
     ts_remux(t, tsb, len, errors);
 
-  LIST_FOREACH(m, &t->s_masters, s_masters_link) {
+  for(off = 0; off < t->s_masters.is_count; off++) {
+    m = (mpegts_service_t *)t->s_masters.is_array[off];
     pthread_mutex_lock(&m->s_stream_mutex);
     if(streaming_pad_probe_type(&m->s_streaming_pad, SMT_MPEGTS)) {
       pid = (tsb[1] & 0x1f) << 8 | tsb[2];
@@ -114,6 +115,9 @@ skip_cc:
         ts_remux(m, tsb, len, errors);
     }
     pthread_mutex_unlock(&m->s_stream_mutex);
+    /* mark service live even without real subscribers */
+    service_set_streaming_status_flags((service_t*)t, TSS_PACKETS);
+    t->s_streaming_live |= TSS_LIVE;
   }
 }
 
@@ -125,7 +129,7 @@ ts_recv_skipped0
   (mpegts_service_t *t, elementary_stream_t *st, const uint8_t *tsb, int len)
 {
   mpegts_service_t *m;
-  int len2, cc, pid;
+  int len2, off, cc, pid;
   const uint8_t *tsb2;
 
   if (!st)
@@ -159,7 +163,8 @@ skip_cc:
   if(streaming_pad_probe_type(&t->s_streaming_pad, SMT_MPEGTS))
     ts_skip(t, tsb, len);
 
-  LIST_FOREACH(m, &t->s_masters, s_masters_link) {
+  for(off = 0; off < t->s_masters.is_count; off++) {
+    m = (mpegts_service_t *)t->s_masters.is_array[off];
     pthread_mutex_lock(&m->s_stream_mutex);
     if(streaming_pad_probe_type(&m->s_streaming_pad, SMT_MPEGTS)) {
       pid = (tsb[1] & 0x1f) << 8 | tsb[2];

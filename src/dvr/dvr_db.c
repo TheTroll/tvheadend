@@ -1679,7 +1679,7 @@ dvr_entry_update
 void 
 dvr_event_replaced(epg_broadcast_t *e, epg_broadcast_t *new_e)
 {
-  dvr_entry_t *de;
+  dvr_entry_t *de, *de_next;
   channel_t *ch = e->channel;
   epg_broadcast_t *e2;
   char ubuf[UUID_HEX_SIZE];
@@ -1691,7 +1691,8 @@ dvr_event_replaced(epg_broadcast_t *e, epg_broadcast_t *new_e)
   if (ch == NULL || e == new_e) return;
 
   /* Existing entry */
-  LIST_FOREACH(de, &ch->ch_dvrs, de_channel_link) {
+  for (de = LIST_FIRST(&ch->ch_dvrs); de; de = de_next) {
+    de_next = LIST_NEXT(de, de_channel_link);
 
     if (de->de_bcast != e)
       continue;
@@ -2804,6 +2805,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_BOOL,
       .id       = "enabled",
       .name     = N_("Enabled"),
+      .desc     = N_("Enable/disable the entry."),
       .off      = offsetof(dvr_entry_t, de_enabled),
       .opts     = PO_ADVANCED
     },
@@ -2811,6 +2813,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_TIME,
       .id       = "start",
       .name     = N_("Start time"),
+      .desc     = N_("The start time of the recording."),
       .set      = dvr_entry_class_start_set,
       .off      = offsetof(dvr_entry_t, de_start),
       .get_opts = dvr_entry_class_start_opts,
@@ -2819,6 +2822,13 @@ const idclass_t dvr_entry_class = {
       .type     = PT_TIME,
       .id       = "start_extra",
       .name     = N_("Pre-recording padding"),
+      .desc     = N_("Start recording earlier than the EPG/timer defined "
+                     "start time by x minutes, for example if a program "
+                     "is to start at 13:00 and you set a padding of 5 "
+                     "minutes it will start recording at 12:54:30 "
+                     "(including a warming-up time of 30 seconds). If this "
+                     "isn't set the pre-recording padding if set in the "
+                     "channel or DVR profile will be used."),
       .off      = offsetof(dvr_entry_t, de_start_extra),
       .set      = dvr_entry_class_start_extra_set,
       .list     = dvr_entry_class_extra_list,
@@ -2828,6 +2838,8 @@ const idclass_t dvr_entry_class = {
       .type     = PT_TIME,
       .id       = "start_real",
       .name     = N_("Scheduled start time"),
+      .desc     = N_("The scheduled start time, including any pre-recording padding "
+                     "and a warm-up time of 30 seconds."),
       .get      = dvr_entry_class_start_real_get,
       .opts     = PO_RDONLY | PO_NOSAVE,
     },
@@ -2835,6 +2847,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_TIME,
       .id       = "stop",
       .name     = N_("Stop time"),
+      .desc     = N_("The time the entry stops/stopped being recorded."),
       .set      = dvr_entry_class_stop_set,
       .off      = offsetof(dvr_entry_t, de_stop),
     },
@@ -2842,6 +2855,8 @@ const idclass_t dvr_entry_class = {
       .type     = PT_TIME,
       .id       = "stop_extra",
       .name     = N_("Post-recording padding"),
+      .desc     = N_("Continue recording for x minutes after scheduled "
+                     "stop time."),
       .off      = offsetof(dvr_entry_t, de_stop_extra),
       .list     = dvr_entry_class_extra_list,
       .opts     = PO_SORTKEY | PO_ADVANCED,
@@ -2850,6 +2865,8 @@ const idclass_t dvr_entry_class = {
       .type     = PT_TIME,
       .id       = "stop_real",
       .name     = N_("Scheduled stop time"),
+      .desc     = N_("The scheduled stop time including any post-recording "
+                     "padding."),
       .get      = dvr_entry_class_stop_real_get,
       .opts     = PO_RDONLY | PO_NOSAVE,
     },
@@ -2857,6 +2874,8 @@ const idclass_t dvr_entry_class = {
       .type     = PT_TIME,
       .id       = "duration",
       .name     = N_("Duration"),
+      .desc     = N_("The total recording time including pre and post "
+                     "recording padding."),
       .get      = dvr_entry_class_duration_get,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_DURATION,
     },
@@ -2864,6 +2883,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "channel",
       .name     = N_("Channel"),
+      .desc     = N_("The channel to be used/used for the recording."),
       .set      = dvr_entry_class_channel_set,
       .get      = dvr_entry_class_channel_get,
       .rend     = dvr_entry_class_channel_rend,
@@ -2874,6 +2894,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "channel_icon",
       .name     = N_("Channel icon"),
+      /*.desc     = N_("Channel icon URL."),*/
       .get      = dvr_entry_class_channel_icon_url_get,
       .opts     = PO_HIDDEN | PO_RDONLY | PO_NOSAVE | PO_NOUI,
     },
@@ -2881,6 +2902,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "channelname",
       .name     = N_("Channel name"),
+      .desc     = N_("Name of channel used for the recording."),
       .get      = dvr_entry_class_channel_name_get,
       .set      = dvr_entry_class_channel_name_set,
       .off      = offsetof(dvr_entry_t, de_channel_name),
@@ -2890,6 +2912,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_LANGSTR,
       .id       = "title",
       .name     = N_("Title"),
+      .desc     = N_("Title of the program."),
       .off      = offsetof(dvr_entry_t, de_title),
       .opts     = PO_RDONLY,
     },
@@ -2897,6 +2920,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "disp_title",
       .name     = N_("Title"),
+      .desc     = N_("Title of the program."),
       .get      = dvr_entry_class_disp_title_get,
       .set      = dvr_entry_class_disp_title_set,
       .opts     = PO_NOSAVE,
@@ -2905,6 +2929,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_LANGSTR,
       .id       = "subtitle",
       .name     = N_("Subtitle"),
+      .desc     = N_("Subtitle of the program (if any)."),
       .off      = offsetof(dvr_entry_t, de_subtitle),
       .opts     = PO_RDONLY,
     },
@@ -2912,6 +2937,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "disp_subtitle",
       .name     = N_("Subtitle"),
+      .desc     = N_("Subtitle of the program (if any)."),
       .get      = dvr_entry_class_disp_subtitle_get,
       .set      = dvr_entry_class_disp_subtitle_set,
       .opts     = PO_NOSAVE,
@@ -2920,6 +2946,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_LANGSTR,
       .id       = "description",
       .name     = N_("Description"),
+      .desc     = N_("Program synopsis."),
       .off      = offsetof(dvr_entry_t, de_desc),
       .opts     = PO_RDONLY,
     },
@@ -2927,6 +2954,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "disp_description",
       .name     = N_("Description"),
+      .desc     = N_("Program synopsis."),
       .get      = dvr_entry_class_disp_description_get,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_HIDDEN,
     },
@@ -2934,6 +2962,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_INT,
       .id       = "pri",
       .name     = N_("Priority"),
+      .desc     = N_("Priority of the recording."),
       .off      = offsetof(dvr_entry_t, de_pri),
       .def.i    = DVR_PRIO_NORMAL,
       .set      = dvr_entry_class_pri_set,
@@ -2944,6 +2973,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_U32,
       .id       = "retention",
       .name     = N_("DVR log retention"),
+      .desc     = N_("Number of days to retain entry information."),
       .off      = offsetof(dvr_entry_t, de_retention),
       .def.i    = DVR_RET_DVRCONFIG,
       .list     = dvr_entry_class_retention_list,
@@ -2953,6 +2983,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_U32,
       .id       = "removal",
       .name     = N_("DVR file retention period"),
+      .desc     = N_("Number of days to keep the file."),
       .off      = offsetof(dvr_entry_t, de_removal),
       .def.i    = DVR_RET_DVRCONFIG,
       .list     = dvr_entry_class_removal_list,
@@ -2962,6 +2993,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "config_name",
       .name     = N_("DVR configuration"),
+      .desc     = N_("The DVR profile to be used/used by the recording."),
       .set      = dvr_entry_class_config_name_set,
       .get      = dvr_entry_class_config_name_get,
       .list     = dvr_entry_class_config_name_list,
@@ -2972,6 +3004,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "owner",
       .name     = N_("Owner"),
+      .desc     = N_("Owner of the entry."),
       .off      = offsetof(dvr_entry_t, de_owner),
       .list     = user_get_userlist,
       .get_opts = dvr_entry_class_owner_opts,
@@ -2980,6 +3013,9 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "creator",
       .name     = N_("Creator"),
+      .desc     = N_("The user who created the recording or the "
+                     "auto-recording source and IP address if scheduled "
+                     "by a matching rule."),
       .off      = offsetof(dvr_entry_t, de_creator),
       .get_opts = dvr_entry_class_owner_opts,
     },
@@ -2987,6 +3023,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "filename",
       .name     = N_("Filename"),
+      /*.desc   = N_("Filename used by this entry."), */
       .get      = dvr_entry_class_filename_get,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_NOUI,
     },
@@ -2994,6 +3031,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "directory",
       .name     = N_("Directory"),
+      /*.desc   = N_("Directory used by this entry."), */
       .off      = offsetof(dvr_entry_t, de_directory),
       .opts     = PO_RDONLY | PO_NOUI,
     },
@@ -3001,6 +3039,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_U32,
       .id       = "errorcode",
       .name     = N_("Error code"),
+      /*.desc   = N_("Error code of entry."), */
       .off      = offsetof(dvr_entry_t, de_last_error),
       .opts     = PO_RDONLY | PO_NOUI,
     },
@@ -3008,6 +3047,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_U32,
       .id       = "errors",
       .name     = N_("Errors"),
+      .desc     = N_("Number of errors that occurred during recording."),
       .off      = offsetof(dvr_entry_t, de_errors),
       .opts     = PO_RDONLY | PO_ADVANCED,
     },
@@ -3015,6 +3055,8 @@ const idclass_t dvr_entry_class = {
       .type     = PT_U32,
       .id       = "data_errors",
       .name     = N_("Data errors"),
+      .desc     = N_("Number of errors that occurred during recording "
+                     "(Transport errors)."),
       .off      = offsetof(dvr_entry_t, de_data_errors),
       .opts     = PO_RDONLY | PO_ADVANCED,
     },
@@ -3022,6 +3064,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_U16,
       .id       = "dvb_eid",
       .name     = N_("DVB EPG ID"),
+      .desc     = N_("The EPG ID used by the entry."),
       .off      = offsetof(dvr_entry_t, de_dvb_eid),
       .opts     = PO_RDONLY | PO_EXPERT,
     },
@@ -3029,6 +3072,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_BOOL,
       .id       = "noresched",
       .name     = N_("Don't reschedule"),
+      .desc     = N_("Don`t re-schedule if recording fails."),
       .off      = offsetof(dvr_entry_t, de_dont_reschedule),
       .opts     = PO_HIDDEN | PO_NOUI,
     },
@@ -3036,6 +3080,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_BOOL,
       .id       = "norerecord",
       .name     = N_("Don't re-record"),
+      .desc     = N_("Don`t re-record if recording fails."),
       .off      = offsetof(dvr_entry_t, de_dont_rerecord),
       .opts     = PO_HIDDEN | PO_ADVANCED,
     },
@@ -3043,6 +3088,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "autorec",
       .name     = N_("Auto record"),
+      .desc     = N_("Automatically record."),
       .set      = dvr_entry_class_autorec_set,
       .get      = dvr_entry_class_autorec_get,
       .opts     = PO_RDONLY | PO_NOUI,
@@ -3051,6 +3097,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "autorec_caption",
       .name     = N_("Auto record caption"),
+      .desc     = N_("Automatic recording caption."),
       .get      = dvr_entry_class_autorec_caption_get,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_HIDDEN | PO_NOUI,
     },
@@ -3058,6 +3105,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "timerec",
       .name     = N_("Auto time record"),
+      .desc     = N_("Timer based automatic recording."),
       .set      = dvr_entry_class_timerec_set,
       .get      = dvr_entry_class_timerec_get,
       .opts     = PO_RDONLY | PO_EXPERT,
@@ -3066,6 +3114,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "timerec_caption",
       .name     = N_("Time record caption"),
+      .desc     = N_("Timer based automatic record caption."),
       .get      = dvr_entry_class_timerec_caption_get,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_HIDDEN | PO_NOUI,
     },
@@ -3073,6 +3122,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "parent",
       .name     = N_("Parent entry"),
+      .desc     = N_("Parent entry."),
       .set      = dvr_entry_class_parent_set,
       .get      = dvr_entry_class_parent_get,
       .opts     = PO_RDONLY | PO_NOUI,
@@ -3081,6 +3131,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "child",
       .name     = N_("Slave entry"),
+      .desc     = N_("Slave entry."),
       .set      = dvr_entry_class_child_set,
       .get      = dvr_entry_class_child_get,
       .opts     = PO_RDONLY | PO_NOUI,
@@ -3089,6 +3140,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_U32,
       .id       = "content_type",
       .name     = N_("Content type"),
+      .desc     = N_("Content type."),
       .list     = dvr_entry_class_content_type_list,
       .off      = offsetof(dvr_entry_t, de_content_type),
       .opts     = PO_RDONLY | PO_SORTKEY,
@@ -3097,6 +3149,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_U32,
       .id       = "broadcast",
       .name     = N_("Broadcast"),
+      .desc     = N_("Broadcast."),
       .set      = dvr_entry_class_broadcast_set,
       .get      = dvr_entry_class_broadcast_get,
       .opts     = PO_RDONLY | PO_NOUI,
@@ -3105,6 +3158,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "episode",
       .name     = N_("Episode"),
+      .desc     = N_("Episode number/ID."),
       .off      = offsetof(dvr_entry_t, de_episode),
       .opts     = PO_RDONLY | PO_HIDDEN,
     },
@@ -3112,6 +3166,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "url",
       .name     = N_("URL"),
+      .desc     = N_("URL."),
       .get      = dvr_entry_class_url_get,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_NOUI,
     },
@@ -3119,6 +3174,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_S64,
       .id       = "filesize",
       .name     = N_("File size"),
+      .desc     = N_("Recording file size."),
       .get      = dvr_entry_class_filesize_get,
       .opts     = PO_RDONLY | PO_NOSAVE,
     },
@@ -3126,6 +3182,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "status",
       .name     = N_("Status"),
+      .desc     = N_("The recording/entry status."),
       .get      = dvr_entry_class_status_get,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_LOCALE,
     },
@@ -3133,6 +3190,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "sched_status",
       .name     = N_("Schedule status"),
+      .desc     = N_("Schedule status."),
       .get      = dvr_entry_class_sched_status_get,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_HIDDEN | PO_NOUI,
     },
@@ -3140,6 +3198,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_TIME,
       .id       = "duplicate",
       .name     = N_("Rerun of"),
+      .desc     = N_("Name (or date) of program the entry is a rerun of."),
       .get      = dvr_entry_class_duplicate_get,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_ADVANCED,
     },
@@ -3147,6 +3206,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "comment",
       .name     = N_("Comment"),
+      .desc     = N_("Free-form text field, enter whatever you like here."),
       .off      = offsetof(dvr_entry_t, de_comment),
     },
     {}
