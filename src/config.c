@@ -1443,7 +1443,7 @@ dobackup(const char *oldver)
   }
 
   snprintf(outfile, sizeof(outfile), "%s/backup", root);
-  if (makedirs(outfile, 0700, -1, -1))
+  if (makedirs("config", outfile, 0700, 1, -1, -1))
     goto fatal;
   if (chdir(root)) {
     tvherror("config", "unable to find directory '%s'", root);
@@ -1631,6 +1631,7 @@ config_boot ( const char *path, gid_t gid, uid_t uid )
   config.cookie_expires = 7;
   config.dscp = -1;
   config.descrambler_buffer = 9000;
+  config.epg_compress = 1;
 
   /* Generate default */
   if (!path) {
@@ -1646,7 +1647,7 @@ config_boot ( const char *path, gid_t gid, uid_t uid )
   /* Ensure directory exists */
   if (stat(path, &st)) {
     config_newcfg = 1;
-    if (makedirs(path, 0700, gid, uid)) {
+    if (makedirs("config", path, 0700, 1, gid, uid)) {
       tvhwarn("START", "failed to create settings directory %s,"
                        " settings will not be saved", path);
       return;
@@ -2063,12 +2064,20 @@ const idclass_t config_class = {
       .type   = PT_U32,
       .id     = "descrambler_buffer",
       .name   = N_("Descrambler buffer (TS packets)"),
-      .desc   = N_("The number of packets Tvheadend buffers in case "
+      .desc   = N_("The number of MPEG-TS packets Tvheadend buffers in case "
                    "there is a delay receiving CA keys. "),
-                   /* Note: I'm not sure I've explained this very well
-                    * ;)
-                    */
       .off    = offsetof(config_t, descrambler_buffer),
+      .opts   = PO_EXPERT,
+      .group  = 1
+    },
+    {
+      .type   = PT_BOOL,
+      .id     = "parser_backlog",
+      .name   = N_("Use packet backlog"),
+      .desc   = N_("Send previous stream frames to upper layers "
+                   "(before frame start is signalled in the stream). "
+                   "It may cause issues with some clients / players."),
+      .off    = offsetof(config_t, parser_backlog),
       .opts   = PO_EXPERT,
       .group  = 1
     },
@@ -2087,6 +2096,19 @@ const idclass_t config_class = {
       .opts   = PO_LORDER,
       .group  = 2
     },
+#if ENABLE_ZLIB
+    {
+      .type   = PT_BOOL,
+      .id     = "epg_compress",
+      .name   = N_("Compress EPG database"),
+      .desc   = N_("Compress the EPG database to reduce disk I/O "
+                   "and space."),
+      .off    = offsetof(config_t, epg_compress),
+      .opts   = PO_EXPERT,
+      .def.i  = 1,
+      .group  = 1
+    },
+#endif
     {
       .type   = PT_STR,
       .islist = 1,

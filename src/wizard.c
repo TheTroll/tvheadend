@@ -150,13 +150,31 @@ BASIC_STR_OPS(wizard_hello_t, epg_lang1)
 BASIC_STR_OPS(wizard_hello_t, epg_lang2)
 BASIC_STR_OPS(wizard_hello_t, epg_lang3)
 
-DESCRIPTION_FCN(hello, N_("\
+/*DESCRIPTION_FCN(hello, N_("\
 Enter the languages for the web user interface and \
 for EPG texts.\n\
 This wizard should be run only on the initial setup. Please, cancel \
 it, if you are not willing to touch the current configuration.\
 "))
-
+*/
+DESCRIPTION_FCN(hello, N_("\
+\
+Welcome to Tvheadend, your TV streaming server and video recorder. This \
+wizard will help you get up and running fast. Let`s start by configuring \
+the basic language settings. Please select the default user interface \
+and EPG language(s).\n\n\
+<b>This wizard should be run only on the initial setup. Please, cancel \
+it, if you are not willing to touch the current configuration. </b>\
+\
+\n\n<b>Notes</b>\n\
+If you cannot see your preferred language in the language list and would \
+like to help translate Tvheadend see \
+<a href=\"https://tvheadend.org/projects/tvheadend/wiki/Internationalization\" target=\"new\">here</a>.\n\
+If you don't enter a preferred language, US English will be used as a default.\n\
+Not selecting the correct EPG \
+language can result in garbled EPG text; if this happens, don't panic, \
+as you can easily change it later. \n\
+"))
 wizard_page_t *wizard_hello(const char *lang)
 {
   static const property_group_t groups[] = {
@@ -292,7 +310,6 @@ static void login_save(idnode_t *in)
   htsmsg_add_bool(conf, "enabled", 1);
   htsmsg_add_str(conf, "prefix", w->network);
   htsmsg_add_str(conf, "username", s);
-  htsmsg_add_str(conf, "password", w->admin_password);
   htsmsg_add_bool(conf, "streaming", 1);
   htsmsg_add_bool(conf, "adv_streaming", 1);
   htsmsg_add_bool(conf, "htsp_streaming", 1);
@@ -323,9 +340,14 @@ static void login_save(idnode_t *in)
   if (w->username[0]) {
     s = w->username[0] ? w->username : "*";
     conf = htsmsg_create_map();
+    htsmsg_add_bool(conf, "enabled", 1);
     htsmsg_add_str(conf, "prefix", w->network);
     htsmsg_add_str(conf, "username", s);
-    htsmsg_add_str(conf, "password", w->password);
+    htsmsg_add_bool(conf, "streaming", 1);
+    htsmsg_add_bool(conf, "htsp_streaming", 1);
+    htsmsg_add_bool(conf, "dvr", 1);
+    htsmsg_add_bool(conf, "htsp_dvr", 1);
+    htsmsg_add_bool(conf, "webui", 1);
     ae = access_entry_create(NULL, conf);
     if (ae) {
       ae->ae_wizard = 1;
@@ -355,16 +377,25 @@ BASIC_STR_OPS(wizard_login_t, username)
 BASIC_STR_OPS(wizard_login_t, password)
 
 DESCRIPTION_FCN(login, N_("\
+\
 Enter the access control details to secure your system. \
-The first part of this covers the IPv4 network details \
+The first part of this covers the network details \
 for address-based access to the system; for example, \
 192.168.1.0/24 to allow local access only to 192.168.1.x clients, \
 or 0.0.0.0/0 or empty value for access from any system.\n\
 This works alongside the second part, which is a familiar \
 username/password combination, so provide these for both \
 an administrator and regular (day-to-day) user. \
-You can leave the username and password blank if you don't want \
-this part, and would prefer anonymous access to anyone.\n\
+\n\n<b>Notes</b>\n\
+You may enter a comma-separated list of network prefixes (IPv4/IPv6).\n\
+if you were asked to enter a username and password during installation, \
+we'd recommend not using the same details for a user here as it may cause \
+unexpected behavior, incorrect permissions etc.\n\
+To allow anonymous access for any account (administrative or regular user) enter \
+an asterisk (*) in the username and password fields. <u>It is not</u> \
+recommended that you allow anonymous access to the admin account.</u> \n\
+If you plan on accessing Tvheadend over the Internet, make sure you use \
+strong credentials and <u>do not allow anonymous access at all</u>. \n\n\
 "))
 
 wizard_page_t *wizard_login(const char *lang)
@@ -389,7 +420,8 @@ wizard_page_t *wizard_login(const char *lang)
       .type     = PT_STR,
       .id       = "network",
       .name     = N_("Allowed network"),
-      .desc     = N_("Enter allowed network prefixes."),
+      .desc     = N_("Enter allowed network prefix(es). You can enter a "
+                     "comma seperated list of prefixes here."),
       .get      = wizard_get_value_network,
       .set      = wizard_set_value_network,
       .group    = 1
@@ -542,6 +574,7 @@ static void network_save(idnode_t *in)
   .type = PT_STR, \
   .id   = "tuner" STRINGIFY(num), \
   .name = N_("Tuner"), \
+  .desc = N_("Name of the tuner."), \
   .get  = network_get_tvalue##num, \
   .opts = PO_RDONLY, \
   .group = num, \
@@ -549,6 +582,7 @@ static void network_save(idnode_t *in)
   .type = PT_STR, \
   .id   = "tunerid" STRINGIFY(num), \
   .name = "Tuner", \
+  .desc = N_("Name of the tuner."), \
   .get  = network_get_tidvalue##num, \
   .set  = network_set_tidvalue##num, \
   .opts = PO_PERSIST | PO_NOUI, \
@@ -556,6 +590,7 @@ static void network_save(idnode_t *in)
   .type = PT_STR, \
   .id   = "network" STRINGIFY(num), \
   .name = N_("Network type"), \
+  .desc = N_("Select an available network type for this tuner."), \
   .get  = network_get_value##num, \
   .set  = network_set_value##num, \
   .list = network_get_list##num, \
@@ -615,7 +650,9 @@ NETWORK_FCN(6)
 
 DESCRIPTION_FCN(network, N_("\
 Select network type for detected tuners.\n\
-The T means terresterial, C is cable and S is satellite.\
+The T means terresterial, C is cable and S is satellite.\n\
+If you do not assign a network type to the tuner, the tuner\
+will not be used in TVH.\
 "))
 
 
@@ -840,7 +877,19 @@ static htsmsg_t *muxes_get_list##num(void *o, const char *lang) \
   wizard_muxes_t *w = p->aux; \
   mpegts_network_t *mn = mpegts_network_find(w->networkid[num-1]); \
   return mn ? dvb_network_class_scanfile_list(mn, lang) : NULL; \
-} \
+}
+
+
+MUXES_FCN(1)
+MUXES_FCN(2)
+MUXES_FCN(3)
+MUXES_FCN(4)
+MUXES_FCN(5)
+MUXES_FCN(6)
+
+#if ENABLE_IPTV
+
+#define MUXES_IPTV_FCN(num) \
 static const void *muxes_get_iptv_value##num(void *o) \
 { \
   wizard_page_t *p = o; \
@@ -856,12 +905,14 @@ static int muxes_set_iptv_value##num(void *o, const void *v) \
   return 1; \
 }
 
-MUXES_FCN(1)
-MUXES_FCN(2)
-MUXES_FCN(3)
-MUXES_FCN(4)
-MUXES_FCN(5)
-MUXES_FCN(6)
+MUXES_IPTV_FCN(1)
+MUXES_IPTV_FCN(2)
+MUXES_IPTV_FCN(3)
+MUXES_IPTV_FCN(4)
+MUXES_IPTV_FCN(5)
+MUXES_IPTV_FCN(6)
+
+#endif
 
 DESCRIPTION_FCN(muxes, N_("\
 Assign predefined muxes to networks.\
@@ -1078,7 +1129,6 @@ wizard_page_t *wizard_mapping(const char *lang)
     DESCRIPTION(mapping),
     PREV_BUTTON(status),
     NEXT_BUTTON(channels),
-    LAST_BUTTON(),
     {}
   };
   wizard_page_t *page = page_init("mapping", "wizard_mapping", N_("Service mapping"));
@@ -1096,11 +1146,36 @@ wizard_page_t *wizard_mapping(const char *lang)
  * Discovered channels
  */
 
+static void channels_save(idnode_t *in)
+{
+  access_entry_t *ae, *ae_next;
+
+  /* check, if we have another admin account */
+  TAILQ_FOREACH(ae, &access_entries, ae_link)
+    if (ae->ae_admin && ae->ae_wizard) break;
+  if (ae == NULL)
+    return;
+  /* remove the default access entry */
+  for (ae = TAILQ_FIRST(&access_entries); ae; ae = ae_next) {
+    ae_next = TAILQ_NEXT(ae, ae_link);
+    if (strcmp(ae->ae_comment, ACCESS_DEFAULT_COMMENT) == 0) {
+      access_entry_destroy(ae, 1);
+      break;
+    }
+  }
+}
+
 DESCRIPTION_FCN(channels, N_("\
+You are finished now.\n\
+You may further customize your settings by editing channel numbers etc.\n\
+If you confirm this dialog, the default administrator account will be\
+removed! Please, use credentals you defined through this wizard!\
+"))
+
+DESCRIPTION_FCN(channels2, N_("\
 You are finished now.\n\
 You may further customize your settings by editing channel numbers etc.\
 "))
-
 
 wizard_page_t *wizard_channels(const char *lang)
 {
@@ -1111,8 +1186,24 @@ wizard_page_t *wizard_channels(const char *lang)
     LAST_BUTTON(),
     {}
   };
-  wizard_page_t *page = page_init("channels", "wizard_channels", N_("Service mapping"));
+  static const property_t props2[] = {
+    ICON(),
+    DESCRIPTION(channels2),
+    PREV_BUTTON(mapping),
+    LAST_BUTTON(),
+    {}
+  };
+  wizard_page_t *page = page_init("channels", "wizard_channels", N_("Channels"));
   idclass_t *ic = (idclass_t *)page->idnode.in_class;
+  access_entry_t *ae;
+
   ic->ic_properties = props;
+  ic->ic_flags |= IDCLASS_ALWAYS_SAVE;
+  ic->ic_save = channels_save;
+  /* do we have an admin created by wizard? */
+  TAILQ_FOREACH(ae, &access_entries, ae_link)
+    if (ae->ae_admin && ae->ae_wizard) break;
+  if (ae == NULL)
+    ic->ic_properties = props2;
   return page;
 }

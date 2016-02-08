@@ -36,6 +36,7 @@
 #include "bitstream.h"
 #include "packet.h"
 #include "streaming.h"
+#include "config.h"
 
 /* parser states */
 #define PARSER_APPEND 0
@@ -46,6 +47,12 @@
 
 /* backlog special mask */
 #define PTS_BACKLOG (PTS_MASK + 1)
+
+static inline int
+is_ssc(uint32_t sc)
+{
+  return (sc & ~0x0f) == 0x1e0;
+}
 
 static inline int
 pts_is_backlog(int64_t pts)
@@ -1018,7 +1025,7 @@ parse_mpeg2video_pic_start(service_t *t, elementary_stream_t *st, int *frametype
   else
     st->es_vbv_delay = v;
 #endif
-  return 0;
+  return PARSER_APPEND;
 }
 
 /**
@@ -1341,7 +1348,8 @@ deliver:
       goto deliver;
     }
   }
-  parser_backlog(t, st, pkt);
+  if (config.parser_backlog)
+    parser_backlog(t, st, pkt);
 }
 
 static int
@@ -1376,7 +1384,7 @@ parse_h264(service_t *t, elementary_stream_t *st, size_t len,
     }
   }
 
-  if(sc >= 0x000001e0 && sc <= 0x000001ef) {
+  if(is_ssc(sc)) {
     /* System start codes for video */
     if(len >= 9) {
       uint16_t plen = buf[4] << 8 | buf[5];
@@ -1393,7 +1401,7 @@ parse_h264(service_t *t, elementary_stream_t *st, size_t len,
           pkt->pkt_payload = pktbuf_append(pkt->pkt_payload, buf + 6 + l2, len - 6 - l2);
         }
 
-        if (next_startcode >= 0x000001e0 && next_startcode <= 0x000001ef)
+        if (is_ssc(next_startcode))
           return PARSER_RESET;
 
         if (pkt->pkt_payload == NULL || pkt->pkt_dts == PTS_UNSET) {
@@ -1467,8 +1475,7 @@ parse_h264(service_t *t, elementary_stream_t *st, size_t len,
     }
   }
 
-  if((next_startcode >= 0x000001e0 && next_startcode <= 0x000001ef) ||
-     (next_startcode & 0x1f) == H264_NAL_AUD) {
+  if(is_ssc(next_startcode) || (next_startcode & 0x1f) == H264_NAL_AUD) {
     /* Complete frame - new start code or delimiter */
     if (st->es_incomplete)
       return PARSER_HEADER;
@@ -1517,7 +1524,7 @@ parse_hevc(service_t *t, elementary_stream_t *st, size_t len,
   bitstream_t bs;
   int ret = PARSER_APPEND;
 
-  if(sc >= 0x000001e0 && sc <= 0x000001ef) {
+  if(is_ssc(sc)) {
     /* System start codes for video */
     if(len >= 9) {
       uint16_t plen = buf[4] << 8 | buf[5];
@@ -1534,7 +1541,7 @@ parse_hevc(service_t *t, elementary_stream_t *st, size_t len,
           pkt->pkt_payload = pktbuf_append(pkt->pkt_payload, buf + 6 + l2, len - 6 - l2);
         }
 
-        if (next_startcode >= 0x000001e0 && next_startcode <= 0x000001ef)
+        if (is_ssc(next_startcode))
           return PARSER_RESET;
 
         parser_deliver(t, st, pkt);
@@ -1627,8 +1634,8 @@ parse_hevc(service_t *t, elementary_stream_t *st, size_t len,
     break;
   }
 
-  if((next_startcode >= 0x000001e0 && next_startcode <= 0x000001ef) ||
-     ((next_startcode >> 1) & 0x3f) == 1) {
+  if(is_ssc(next_startcode) ||
+     ((next_startcode >> 1) & 0x3f) == HEVC_NAL_TRAIL_R) {
     /* Complete frame - new start code or delimiter */
     if (st->es_incomplete)
       return PARSER_HEADER;
@@ -1886,7 +1893,8 @@ parser_do_backlog(service_t *t, elementary_stream_t *st,
   streaming_message_t *sm;
   int64_t prevdts = PTS_UNSET, absdts = PTS_UNSET;
   int64_t prevpts = PTS_UNSET, abspts = PTS_UNSET;
-  th_pkt_t *pkt;
+  th_pkt_t *pkt, *npkt;
+  size_t metalen;
 
   tvhtrace("parser",
            "pkt bcklog %2d %-12s - backlog flush start -",
@@ -1919,6 +1927,17 @@ parser_do_backlog(service_t *t, elementary_stream_t *st,
       if (pkt->pkt_meta == NULL) {
         pktbuf_ref_inc(meta);
         pkt->pkt_meta = meta;
+        /* insert the metadata into payload of the first packet, too */
+        npkt = pkt_copy_shallow(pkt);
+        pktbuf_ref_dec(npkt->pkt_payload);
+        metalen = pktbuf_len(meta);
+        npkt->pkt_payload = pktbuf_alloc(NULL, metalen + pktbuf_len(pkt->pkt_payload));
+        memcpy(pktbuf_ptr(npkt->pkt_payload), pktbuf_ptr(meta), metalen);
+        memcpy(pktbuf_ptr(npkt->pkt_payload) + metalen,
+               pktbuf_ptr(pkt->pkt_payload), pktbuf_len(pkt->pkt_payload));
+        npkt->pkt_payload->pb_err = pkt->pkt_payload->pb_err + meta->pb_err;
+        pkt_ref_dec(pkt);
+        pkt = npkt;
       }
       meta = NULL;
     }

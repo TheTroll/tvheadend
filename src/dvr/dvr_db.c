@@ -1166,6 +1166,9 @@ static dvr_entry_t *_dvr_duplicate_event(dvr_entry_t *de)
       if (lang_str_empty(de->de_desc))
         return NULL;
       break;
+    case DVR_AUTOREC_RECORD_ONCE_PER_DAY:
+    case DVR_AUTOREC_LRECORD_ONCE_PER_DAY:
+      break;
     case DVR_AUTOREC_RECORD_ONCE_PER_WEEK:
     case DVR_AUTOREC_LRECORD_ONCE_PER_WEEK:
       break;
@@ -2838,8 +2841,9 @@ const idclass_t dvr_entry_class = {
       .type     = PT_TIME,
       .id       = "start_real",
       .name     = N_("Scheduled start time"),
-      .desc     = N_("The scheduled start time, including any pre-recording padding "
-                     "and a warm-up time of 30 seconds."),
+      .desc     = N_("The scheduled start time, including any "
+                     "pre-recording padding and a warm-up time of 30 "
+                     "seconds."),
       .get      = dvr_entry_class_start_real_get,
       .opts     = PO_RDONLY | PO_NOSAVE,
     },

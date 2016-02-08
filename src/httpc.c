@@ -1026,9 +1026,7 @@ header:
   if (p && ver != RTSP_VERSION_1_0) {
     if (strcasecmp(p, "close") == 0)
       hc->hc_keepalive = 0;
-    else if (hc->hc_keepalive && strcasecmp(p, "keep-alive"))
-      return http_client_flush(hc, -EINVAL);
-    else if (!hc->hc_keepalive && strcasecmp(p, "close"))
+    else if (strcasecmp(p, "keep-alive")) /* no change for keep-alive */
       return http_client_flush(hc, -EINVAL);
   }
   if (ver == RTSP_VERSION_1_0) {
@@ -1923,7 +1921,7 @@ http_client_testsuite_run( void )
       cmd = http_str2cmd(s + 8);
       if (cmd < 0)
         goto fatal;
-      http_client_basic_args(&args, &u1, 1);
+      http_client_basic_args(hc, &args, &u1, 1);
       if (u2.host == NULL || u1.host == NULL || strcmp(u1.host, u2.host) ||
           u2.port != u1.port || !hc->hc_keepalive) {
         http_client_close(hc);
