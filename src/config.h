@@ -45,6 +45,7 @@ typedef struct config {
   int chicon_scheme;
   char *picon_path;
   char *sdconv_path;
+  int picon_scheme;
   int tvhtime_update_enabled;
   int tvhtime_ntp_enabled;
   uint32_t tvhtime_tolerance;
