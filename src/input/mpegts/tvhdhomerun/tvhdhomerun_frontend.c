@@ -501,6 +501,7 @@ static void tvhdhomerun_frontend_update_pids( mpegts_input_t *mi, mpegts_mux_t *
   if (wpids.all)
     tvhdhomerun_device_open_pid(hfe, MPEGTS_FULLMUX_PID);
   mpegts_pid_done(&wpids);
+  mpegts_pid_done(&pids);
 }
 
 static idnode_set_t *
@@ -512,10 +513,10 @@ tvhdhomerun_frontend_network_list ( mpegts_input_t *mi )
 }
 
 static void
-tvhdhomerun_frontend_class_save ( idnode_t *in )
+tvhdhomerun_frontend_class_changed ( idnode_t *in )
 {
   tvhdhomerun_device_t *la = ((tvhdhomerun_frontend_t*)in)->hf_device;
-  tvhdhomerun_device_save(la);
+  tvhdhomerun_device_changed(la);
 }
 
 void
@@ -540,7 +541,7 @@ const idclass_t tvhdhomerun_frontend_class =
   .ic_super      = &mpegts_input_class,
   .ic_class      = "tvhdhomerun_frontend",
   .ic_caption    = N_("HDHomeRun DVB frontend"),
-  .ic_save       = tvhdhomerun_frontend_class_save,
+  .ic_changed    = tvhdhomerun_frontend_class_changed,
   .ic_properties = (const property_t[]) {
     {
       .type     = PT_INT,
@@ -628,7 +629,7 @@ tvhdhomerun_frontend_wizard_set( tvh_input_t *ti, htsmsg_t *conf, const char *la
     htsmsg_destroy(nlist);
     if (tvhdhomerun_frontend_wizard_network(hfe))
       mpegts_input_set_enabled((mpegts_input_t *)hfe, 1);
-    tvhdhomerun_device_save(hfe->hf_device);
+    tvhdhomerun_device_changed(hfe->hf_device);
   } else {
     htsmsg_destroy(nlist);
   }

@@ -45,10 +45,10 @@ linuxdvb_frontend_input_thread ( void *aux );
  * *************************************************************************/
 
 static void
-linuxdvb_frontend_class_save ( idnode_t *in )
+linuxdvb_frontend_class_changed ( idnode_t *in )
 {
   linuxdvb_adapter_t *la = ((linuxdvb_frontend_t*)in)->lfe_adapter;
-  linuxdvb_adapter_save(la);
+  linuxdvb_adapter_changed(la);
 }
 
 const idclass_t linuxdvb_frontend_class =
@@ -56,7 +56,7 @@ const idclass_t linuxdvb_frontend_class =
   .ic_super      = &mpegts_input_class,
   .ic_class      = "linuxdvb_frontend",
   .ic_caption    = N_("Linux DVB frontend"),
-  .ic_save       = linuxdvb_frontend_class_save,
+  .ic_changed    = linuxdvb_frontend_class_changed,
   .ic_properties = (const property_t[]) {
     {
       .type     = PT_STR,
@@ -281,7 +281,7 @@ const idclass_t linuxdvb_frontend_dvbs_class =
                      "case, the position, the polarization and low-high "
                      "band settings must be equal. If you set another "
                      "tuner as master, then this tuner will act as "
-                     "a slave and tvheadend will assure that this tuner "
+                     "a slave and Tvheadend will assure that this tuner "
                      "will not use incompatible parameters (position, "
                      "polarization, lo-hi)."),
       .list     = linuxdvb_frontend_dvbs_class_master_enum,
@@ -1836,7 +1836,7 @@ linuxdvb_frontend_wizard_set( tvh_input_t *ti, htsmsg_t *conf, const char *lang 
     }
     if (linuxdvb_frontend_wizard_network(lfe))
       mpegts_input_set_enabled((mpegts_input_t *)lfe, 1);
-    linuxdvb_adapter_save(lfe->lfe_adapter);
+    linuxdvb_adapter_changed(lfe->lfe_adapter);
   } else {
     htsmsg_destroy(nlist);
   }

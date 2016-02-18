@@ -169,10 +169,10 @@ satip_satconf_class_get_title ( idnode_t *o, const char *lang )
 }
 
 static void
-satip_satconf_class_save ( idnode_t *in )
+satip_satconf_class_changed ( idnode_t *in )
 {
   satip_satconf_t *sfc = (satip_satconf_t*)in;
-  satip_device_save(sfc->sfc_lfe->sf_device);
+  satip_device_changed(sfc->sfc_lfe->sf_device);
 }
 
 const idclass_t satip_satconf_class =
@@ -181,7 +181,7 @@ const idclass_t satip_satconf_class =
   .ic_caption    = N_("Satconf"),
   .ic_event      = "satip_satconf",
   .ic_get_title  = satip_satconf_class_get_title,
-  .ic_save       = satip_satconf_class_save,
+  .ic_changed    = satip_satconf_class_changed,
   .ic_properties = (const property_t[]) {
     {
       .type     = PT_BOOL,
@@ -307,6 +307,7 @@ satip_satconf_destroy0
 {
   satip_frontend_t *lfe = sfc->sfc_lfe;
   TAILQ_REMOVE(&lfe->sf_satconf, sfc, sfc_link);
+  idnode_save_check(&sfc->sfc_id, 1);
   idnode_unlink(&sfc->sfc_id);
   idnode_set_free(sfc->sfc_networks);
   free(sfc->sfc_name);

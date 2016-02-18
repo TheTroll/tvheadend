@@ -28,6 +28,11 @@
 
 struct access;
 typedef struct idnode idnode_t;
+typedef struct idnode_save idnode_save_t;
+
+#define IDNODE_SAVE_DELAY 3
+
+#define SAVEPTR_OUTOFSERVICE ((void *)((intptr_t)-1LL))
 
 /*
  * Node set
@@ -61,7 +66,7 @@ struct idclass {
   const struct idclass   *ic_super;        ///< Parent class
   const char             *ic_class;        ///< Class name
   const char             *ic_caption;      ///< Class description
-  const char             *ic_order;        ///< Property order (comma separated)
+  const char             *ic_order;        ///< Property order (comma-separated)
   const property_group_t *ic_groups;       ///< Groups for visual representation
   const property_t       *ic_properties;   ///< Property list
   const char             *ic_event;        ///< Events to fire on add/delete/title
@@ -72,7 +77,8 @@ struct idclass {
   /* Callbacks */
   idnode_set_t   *(*ic_get_childs) (idnode_t *self);
   const char     *(*ic_get_title)  (idnode_t *self, const char *lang);
-  void            (*ic_save)       (idnode_t *self);
+  void            (*ic_changed)    (idnode_t *self);
+  htsmsg_t       *(*ic_save)       (idnode_t *self, char *filename, size_t fsize);
   void            (*ic_delete)     (idnode_t *self);
   void            (*ic_moveup)     (idnode_t *self);
   void            (*ic_movedown)   (idnode_t *self);
@@ -92,7 +98,16 @@ struct idnode {
   idnodes_rb_t     *in_domain;              ///< Domain nodes
   const idclass_t  *in_class;               ///< Class definition
   struct access    *in_access;              ///< Actual permissions
+  idnode_save_t    *in_save;                ///< Pointer to the save link
+};
 
+/*
+ * Node save list
+ */
+struct idnode_save {
+  TAILQ_ENTRY(idnode_save)  ise_link;       ///< List chain
+  idnode_t                 *ise_node;       ///< Node owning this
+  time_t                    ise_reqtime;    ///< First request
 };
 
 /*
@@ -202,6 +217,7 @@ htsmsg_t *idclass_serialize0 (const idclass_t *idc, htsmsg_t *list, int optmask,
 htsmsg_t *idnode_serialize0  (idnode_t *self, htsmsg_t *list, int optmask, const char *lang);
 void      idnode_read0  (idnode_t *self, htsmsg_t *m, htsmsg_t *list, int optmask, const char *lang);
 int       idnode_write0 (idnode_t *self, htsmsg_t *m, int optmask, int dosave);
+void      idnode_save_check (idnode_t *self, int weak);
 
 #define idclass_serialize(idc, lang) idclass_serialize0(idc, NULL, 0, lang)
 #define idnode_serialize(in, lang)   idnode_serialize0(in, NULL, 0, lang)

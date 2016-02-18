@@ -51,7 +51,7 @@
 
 static void service_data_timeout(void *aux);
 static void service_class_delete(struct idnode *self);
-static void service_class_save(struct idnode *self);
+static htsmsg_t *service_class_save(struct idnode *self, char *filename, size_t fsize);
 
 struct service_queue service_all;
 struct service_queue service_raw_all;
@@ -168,7 +168,7 @@ const idclass_t service_class = {
       .name     = N_("Automatic checking"),
       .desc     = N_("Check for the services' presence. If the service is no "
                      "longer broadcast this field will change to "
-                     "“Missing In PAT/SDT”."),
+                     "\"Missing In PAT/SDT\"."),
       .list     = service_class_auto_list,
       .off      = offsetof(service_t, s_auto),
       .opts     = PO_ADVANCED,
@@ -189,9 +189,9 @@ const idclass_t service_class = {
       .type     = PT_INT,
       .id       = "priority",
       .name     = N_("Priority (-10..10)"),
-      .desc     = N_("Service priority. Enter a value between -10 and 10 "
-                     "Higher value indicates higher preference. See Help "
-                     "for more info."),
+      .desc     = N_("Service priority. Enter a value between -10 and "
+                     "10. A higher value indicates a higher preference. " 
+                     "See Help for more info."),
       .off      = offsetof(service_t, s_prio),
       .opts     = PO_ADVANCED
     },
@@ -199,7 +199,7 @@ const idclass_t service_class = {
       .type     = PT_BOOL,
       .id       = "encrypted",
       .name     = N_("Encrypted"),
-      .desc     = N_("The service encryption status."),
+      .desc     = N_("The service`s encryption status."),
       .get      = service_class_encrypted_get,
       .opts     = PO_NOSAVE | PO_RDONLY
     },
@@ -822,6 +822,8 @@ service_destroy(service_t *t, int delconf)
 
   lock_assert(&global_lock);
 
+  idnode_save_check(&t->s_id, delconf);
+
   if(t->s_delete != NULL)
     t->s_delete(t, delconf);
 
@@ -1391,12 +1393,13 @@ service_class_delete(struct idnode *self)
 /**
  *
  */
-static void
-service_class_save(struct idnode *self)
+static htsmsg_t *
+service_class_save(struct idnode *self, char *filename, size_t fsize)
 {
   service_t *s = (service_t *)self;
   if (s->s_config_save)
-    s->s_config_save(s);
+    return s->s_config_save(s, filename, fsize);
+  return NULL;
 }
 
 /**
@@ -1426,7 +1429,7 @@ service_saver(void *aux)
     pthread_mutex_lock(&global_lock);
 
     if(t->s_status != SERVICE_ZOMBIE && t->s_config_save)
-      t->s_config_save(t);
+      idnode_changed(&t->s_id);
     if(t->s_status == SERVICE_RUNNING && restart)
       service_restart(t);
     service_unref(t);

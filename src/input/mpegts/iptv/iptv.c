@@ -658,6 +658,8 @@ iptv_network_delete ( mpegts_network_t *mn, int delconf )
   char *icon_url_sane = in->in_icon_url_sane;
   char ubuf[UUID_HEX_SIZE];
 
+  idnode_save_check(&mn->mn_id, delconf);
+
   gtimer_disarm(&in->in_bouquet_timer);
 
   if (in->mn_id.in_class == &iptv_auto_network_class)
@@ -899,15 +901,15 @@ iptv_network_mux_class ( mpegts_network_t *mm )
   return &iptv_mux_class;
 }
 
-static void
-iptv_network_config_save ( mpegts_network_t *mn )
+static htsmsg_t *
+iptv_network_config_save ( mpegts_network_t *mn, char *filename, size_t fsize )
 {
   htsmsg_t *c = htsmsg_create_map();
   char ubuf[UUID_HEX_SIZE];
   idnode_save(&mn->mn_id, c);
-  hts_settings_save(c, "input/iptv/networks/%s/config",
-                    idnode_uuid_as_str(&mn->mn_id, ubuf));
-  htsmsg_destroy(c);
+  snprintf(filename, fsize, "input/iptv/networks/%s/config",
+           idnode_uuid_as_str(&mn->mn_id, ubuf));
+  return c;
 }
 
 iptv_network_t *

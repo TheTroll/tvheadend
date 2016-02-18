@@ -28,13 +28,14 @@
  * Class definition
  * ***************************************************************************/
 
-static void
+static htsmsg_t *
 mpegts_network_class_save
-  ( idnode_t *in )
+  ( idnode_t *in, char *filename, size_t fsize )
 {
   mpegts_network_t *mn = (mpegts_network_t*)in;
   if (mn->mn_config_save)
-    mn->mn_config_save(mn);
+    return mn->mn_config_save(mn, filename, fsize);
+  return NULL;
 }
 
 static const char *
@@ -175,9 +176,9 @@ const idclass_t mpegts_network_class =
       .type     = PT_BOOL,
       .id       = "skipinitscan",
       .name     = N_("Skip initial scan"),
-      .desc     = N_("Skip scanning known muxes on Tvheadend start. "
-                     "If initial scan is allowed and new muxes are "
-                     "found they will be scanned too. See Help for "
+      .desc     = N_("Skip scanning known muxes when Tvheadend starts. "
+                     "If \"initial scan\" is allowed and new muxes are "
+                     "found then they will still be scanned. See Help for "
                      "more details."),
       .off      = offsetof(mpegts_network_t, mn_skipinitscan),
       .opts     = PO_EXPERT,
@@ -240,12 +241,12 @@ const idclass_t mpegts_network_class =
       .opts     = PO_ADVANCED,
     },
     {
-      .type     = PT_BOOL,
+      .type     = PT_INT,
       .id       = "localtime",
-      .name     = N_("EIT broadcast in local time"),
-      .desc     = N_("If EIT events use local time rather than UTC enable "
-                     "this option."),
+      .name     = N_("EIT time offset"),
+      .desc     = N_("Select the time offset for EIT events."),
       .off      = offsetof(mpegts_network_t, mn_localtime),
+      .list     = dvb_timezone_enum,
       .opts     = PO_EXPERT,
     },
     {
@@ -302,11 +303,12 @@ mpegts_network_display_name
   strncpy(buf, mn->mn_network_name ?: "unknown", len);
 }
 
-static void
+static htsmsg_t *
 mpegts_network_config_save
-  ( mpegts_network_t *mn )
+  ( mpegts_network_t *mn, char *filename, size_t size )
 {
   // Nothing - leave to child classes
+  return NULL;
 }
 
 static mpegts_mux_t *
@@ -354,6 +356,8 @@ mpegts_network_delete
 {
   mpegts_mux_t *mm;
   mpegts_network_link_t *mnl;
+
+  idnode_save_check(&mn->mn_id, delconf);
 
   /* Remove from global list */
   LIST_REMOVE(mn, mn_global_link);
@@ -418,6 +422,8 @@ mpegts_network_create0
 
   /* Defaults */
   mn->mn_satpos = INT_MAX;
+  mn->mn_skipinitscan = 1;
+  mn->mn_autodiscovery = 1;
 
   /* Load config */
   if (conf)
@@ -552,7 +558,7 @@ mpegts_network_wizard_create
   mn = mnb->build(mnb->idc, conf);
   htsmsg_destroy(conf);
   if (mn)
-    mn->mn_config_save(mn);
+    idnode_changed(&mn->mn_id);
 
 found:
   if (mn && nlist) {

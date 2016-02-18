@@ -74,7 +74,7 @@ dvr_config_find_by_name_default(const char *name)
   if (dvrdefaultconfig == NULL) {
     cfg = dvr_config_create("", NULL, NULL);
     assert(cfg);
-    dvr_config_save(cfg);
+    idnode_changed(&cfg->dvr_id);
     dvrdefaultconfig = cfg;
   }
 
@@ -235,6 +235,8 @@ static void
 dvr_config_destroy(dvr_config_t *cfg, int delconf)
 {
   char ubuf[UUID_HEX_SIZE];
+
+  idnode_save_check(&cfg->dvr_id, delconf);
 
   if (delconf) {
     tvhinfo("dvr", "Deleting configuration '%s'", cfg->dvr_config_name);
@@ -508,38 +510,12 @@ dvr_config_delete(const char *name)
     tvhwarn("dvr", "Attempt to delete default config ignored");
 }
 
-/*
- *
- */
-void
-dvr_config_save(dvr_config_t *cfg)
-{
-  htsmsg_t *m = htsmsg_create_map();
-  char ubuf[UUID_HEX_SIZE];
-
-  lock_assert(&global_lock);
-
-  dvr_config_storage_check(cfg);
-  if (cfg->dvr_cleanup_threshold_free < 50)
-    cfg->dvr_cleanup_threshold_free = 50; // as checking is only periodically, lower is not save
-  if (cfg->dvr_removal_days != DVR_RET_FOREVER &&
-      cfg->dvr_removal_days > cfg->dvr_retention_days)
-    cfg->dvr_retention_days = DVR_RET_ONREMOVE;
-  if (cfg->dvr_removal_days > DVR_RET_FOREVER)
-    cfg->dvr_removal_days = DVR_RET_FOREVER;
-  if (cfg->dvr_retention_days > DVR_RET_FOREVER)
-    cfg->dvr_retention_days = DVR_RET_FOREVER;
-  idnode_save(&cfg->dvr_id, m);
-  hts_settings_save(m, "dvr/config/%s", idnode_uuid_as_str(&cfg->dvr_id, ubuf));
-  htsmsg_destroy(m);
-}
-
 /* **************************************************************************
  * DVR Config Class definition
  * **************************************************************************/
 
 static void
-dvr_config_class_save(idnode_t *self)
+dvr_config_class_changed(idnode_t *self)
 {
   dvr_config_t *cfg = (dvr_config_t *)self;
   if (dvr_config_is_default(cfg))
@@ -551,7 +527,27 @@ dvr_config_class_save(idnode_t *self)
   } else {
     dvr_update_pathname_from_booleans(cfg);
   }
-  dvr_config_save(cfg);
+  dvr_config_storage_check(cfg);
+  if (cfg->dvr_cleanup_threshold_free < 50)
+    cfg->dvr_cleanup_threshold_free = 50; // as checking is only periodically, lower is not save
+  if (cfg->dvr_removal_days != DVR_RET_FOREVER &&
+      cfg->dvr_removal_days > cfg->dvr_retention_days)
+    cfg->dvr_retention_days = DVR_RET_ONREMOVE;
+  if (cfg->dvr_removal_days > DVR_RET_FOREVER)
+    cfg->dvr_removal_days = DVR_RET_FOREVER;
+  if (cfg->dvr_retention_days > DVR_RET_FOREVER)
+    cfg->dvr_retention_days = DVR_RET_FOREVER;
+}
+
+static htsmsg_t *
+dvr_config_class_save(idnode_t *self, char *filename, size_t fsize)
+{
+  dvr_config_t *cfg = (dvr_config_t *)self;
+  htsmsg_t *m = htsmsg_create_map();
+  char ubuf[UUID_HEX_SIZE];
+  idnode_save(&cfg->dvr_id, m);
+  snprintf(filename, fsize, "dvr/config/%s", idnode_uuid_as_str(&cfg->dvr_id, ubuf));
+  return m;
 }
 
 static void
@@ -787,6 +783,7 @@ const idclass_t dvr_config_class = {
   .ic_class      = "dvrconfig",
   .ic_caption    = N_("DVR configuration profile"),
   .ic_event      = "dvrconfig",
+  .ic_changed    = dvr_config_class_changed,
   .ic_save       = dvr_config_class_save,
   .ic_get_title  = dvr_config_class_get_title,
   .ic_delete     = dvr_config_class_delete,
@@ -869,7 +866,7 @@ const idclass_t dvr_config_class = {
       .id       = "cache",
       .name     = N_("Cache scheme"),
       .desc     = N_("The cache scheme to use/used to store recordings. "
-                     "Leave as “system” unless you have a special use "
+                     "Leave as \"system\" unless you have a special use "
                      "case for one of the others. See Help for details."),
       .off      = offsetof(dvr_config_t, dvr_muxcnf.m_cache),
       .def.i    = MC_CACHE_DONTKEEP,
@@ -937,12 +934,13 @@ const idclass_t dvr_config_class = {
       .id       = "pre-extra-time",
       .name     = N_("Pre-recording padding"),
       .desc     = N_("Start recording earlier than the defined "
-                     "start time by x minutes, for example if a program "
-                     "is to start at 13:00 and you set a padding of 5 "
+                     "Start recording earlier than the defined start "
+                     "time by x minutes: for example, if a program is "
+                     "to start at 13:00 and you set a padding of 5 "
                      "minutes it will start recording at 12:54:30 "
-                     "(including a warming-up time of 30 seconds). If this "
-                     "isn't set the pre-recording padding if set in the "
-                     "channel or DVR entry will be used."),
+                     "(including a warm-up time of 30 seconds). If this "
+                     "isn't specified, any pre-recording padding as set "
+                     "in the channel or DVR entry will be used."),
       .off      = offsetof(dvr_config_t, dvr_extra_time_pre),
       .list     = dvr_config_class_extra_list,
       .opts     = PO_ADVANCED,
@@ -976,9 +974,9 @@ const idclass_t dvr_config_class = {
       .id       = "epg-running",
       .name     = N_("Use EPG running state"),
       .desc     = N_("Use EITp/f to decide event start/stop. This is "
-                     "also known as accurate recording. Note that this "
-                     "can have unexpected results if the broadcaster "
-                     "isn`t very good at time keeping."),
+                     "also known as \"Accurate Recording\". Note that "
+                     "this can have unexpected results if the "
+                     "broadcaster isn't very good at time keeping."),
       .off      = offsetof(dvr_config_t, dvr_running),
       .opts     = PO_ADVANCED,
       .def.u32  = 1,
@@ -1122,9 +1120,9 @@ const idclass_t dvr_config_class = {
       .id       = "day-dir",
       .name     = N_("Make subdirectories per day"),
       .desc     = N_("Create a new directory per day in the "
-                     "recording system path. Only days when anything is "
-                     "recorded will the folder be created. The format of the "
-                     "directory will be ISO standard YYYY-MM-DD."),
+                     "recording system path. Folders will only be "
+                     "created when something is recorded. The format "
+                     "of the directory will be ISO standard YYYY-MM-DD."),
       .off      = offsetof(dvr_config_t, dvr_dir_per_day),
       .opts     = PO_EXPERT,
       .group    = 4,
@@ -1134,9 +1132,9 @@ const idclass_t dvr_config_class = {
       .id       = "channel-dir",
       .name     = N_("Make subdirectories per channel"),
       .desc     = N_("Create a directory per channel when "
-                     "storing recordings. If both this and the ‘directory "
-                     "per day’ checkbox is enabled, the date-directory "
-                     "will be parent to the per-channel directory."),
+                     "storing recordings. If both this and the 'directory "
+                     "per day' checkbox is enabled, the date-directory "
+                     "will be the parent of the per-channel directory."),
       .off      = offsetof(dvr_config_t, dvr_channel_dir),
       .opts     = PO_EXPERT,
       .group    = 4,
@@ -1210,7 +1208,7 @@ const idclass_t dvr_config_class = {
       .type     = PT_BOOL,
       .id       = "omit-title",
       .name     = N_("Don't include title in filename"),
-      .desc     = N_("Don`t include the title in the filename."),
+      .desc     = N_("Don't include the title in the filename."),
       .off      = offsetof(dvr_config_t, dvr_omit_title),
       .opts     = PO_EXPERT,
       .group    = 6,

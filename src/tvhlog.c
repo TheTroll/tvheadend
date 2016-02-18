@@ -477,10 +477,6 @@ tvhlog_end ( void )
  * Configuration
  */
 
-static void tvhlog_class_save(idnode_t *self)
-{
-}
-
 static const void *
 tvhlog_class_path_get ( void *o )
 {
@@ -626,7 +622,6 @@ const idclass_t tvhlog_conf_class = {
   .ic_caption    = N_("Debugging"),
   .ic_event      = "tvhlog_conf",
   .ic_perm_def   = ACCESS_ADMIN,
-  .ic_save       = tvhlog_class_save,
   .ic_groups     = (const property_group_t[]) {
     {
       .name   = N_("Settings"),
@@ -668,7 +663,7 @@ const idclass_t tvhlog_conf_class = {
       .type   = PT_STR,
       .id     = "debugsubs",
       .name   = N_("Debug subsystems"),
-      .desc   = N_("Enter comma separated list of subsystems you want "
+      .desc   = N_("Enter comma-separated list of subsystems you want "
                    "debugging output for (e.g "
                    "+linuxdvb,+subscriptions,+mpegts)."),
       .get    = tvhlog_class_debugsubs_get,
@@ -679,7 +674,7 @@ const idclass_t tvhlog_conf_class = {
       .type   = PT_BOOL,
       .id     = "trace",
       .name   = N_("Debug trace (low-level)"),
-      .desc   = N_("Enable/disable including of low level debug traces."),
+      .desc   = N_("Enable/disable inclusion of low-level debug traces."),
       .get    = tvhlog_class_trace_get,
       .set    = tvhlog_class_trace_set,
 #if !ENABLE_TRACE
@@ -691,7 +686,7 @@ const idclass_t tvhlog_conf_class = {
       .type   = PT_STR,
       .id     = "tracesubs",
       .name   = N_("Trace subsystems"),
-      .desc   = N_("Enter comma separated list of subsystems you want "
+      .desc   = N_("Enter comma-separated list of subsystems you want "
                    "to get traces for (e.g +linuxdvb,+subscriptions,+mpegts)."),
       .get    = tvhlog_class_tracesubs_get,
       .set    = tvhlog_class_tracesubs_set,

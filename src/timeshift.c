@@ -102,18 +102,24 @@ void timeshift_term ( void )
 }
 
 /*
+ * Changed settings
+ */
+static void
+timeshift_conf_class_changed ( idnode_t *self )
+{
+  timeshift_fixup();
+}
+
+/*
  * Save settings
  */
-static void timeshift_conf_class_save ( idnode_t *self )
+static htsmsg_t *
+timeshift_conf_class_save ( idnode_t *self, char *filename, size_t fsize )
 {
-  htsmsg_t *m;
-
-  timeshift_fixup();
-
-  m = htsmsg_create_map();
+  htsmsg_t *m = htsmsg_create_map();
   idnode_save(&timeshift_conf.idnode, m);
-  hts_settings_save(m, "timeshift/config");
-  htsmsg_destroy(m);
+  snprintf(filename, fsize, "timeshift/config");
+  return m;
 }
 
 /*
@@ -164,6 +170,7 @@ const idclass_t timeshift_conf_class = {
   .ic_caption    = N_("Timeshift"),
   .ic_event      = "timeshift",
   .ic_perm_def   = ACCESS_ADMIN,
+  .ic_changed    = timeshift_conf_class_changed,
   .ic_save       = timeshift_conf_class_save,
   .ic_properties = (const property_t[]){
     {
@@ -183,7 +190,7 @@ const idclass_t timeshift_conf_class = {
       .desc   = N_("Only activate timeshift when the client makes the first "
                    "rewind, fast-forward or pause request. Note, "
                    "because there is no buffer on the first request "
-                   "rewinding is not possible."),
+                   "rewinding is not possible at that point."),
       .off    = offsetof(timeshift_conf_t, ondemand),
     },
     {
@@ -229,7 +236,8 @@ const idclass_t timeshift_conf_class = {
       .name   = N_("Maximum RAM size (MB)"),
       .desc   = N_("The maximum RAM (system memory) size for timeshift "
                    "buffers. When free RAM buffers are available, they "
-                   "are used instead storage to save the timeshift data."),
+                   "are used for timeshift data in preference to using "
+                   "storage."),
       .set    = timeshift_conf_class_ram_size_set,
       .get    = timeshift_conf_class_ram_size_get,
     },

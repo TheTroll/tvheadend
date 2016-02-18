@@ -48,6 +48,7 @@ mpegts_mux_instance_delete
 {
   mpegts_mux_instance_t *mmi = (mpegts_mux_instance_t *)tii;
 
+  idnode_save_check(&tii->tii_id, 1);
   idnode_unlink(&tii->tii_id);
   LIST_REMOVE(mmi, mmi_mux_link);
   LIST_REMOVE(tii, tii_input_link);
@@ -288,11 +289,13 @@ mpegts_mux_instance_weight ( mpegts_mux_instance_t *mmi )
  * Class definition
  * ***************************************************************************/
 
-static void
-mpegts_mux_class_save ( idnode_t *self )
+static htsmsg_t *
+mpegts_mux_class_save ( idnode_t *self, char *filename, size_t fsize )
 {
   mpegts_mux_t *mm = (mpegts_mux_t*)self;
-  if (mm->mm_config_save) mm->mm_config_save(mm);
+  if (mm->mm_config_save)
+    return mm->mm_config_save(mm, filename, fsize);
+  return NULL;
 }
 
 static void
@@ -530,7 +533,7 @@ const idclass_t mpegts_mux_class =
       .type     = PT_STR,
       .id       = "name",
       .name     = N_("Name"),
-      .desc     = N_("The name (or freq) the mux is on."),
+      .desc     = N_("The name (or frequency) the mux is on."),
       .opts     = PO_RDONLY | PO_NOSAVE,
       .get      = mpegts_mux_class_get_name,
     },
@@ -658,6 +661,8 @@ mpegts_mux_delete ( mpegts_mux_t *mm, int delconf )
   th_subscription_t *ths;
   char buf[256];
 
+  idnode_save_check(&mm->mm_id, delconf);
+
   mpegts_mux_nice_name(mm, buf, sizeof(buf));
   tvhinfo("mpegts", "%s (%p) - deleting", buf, mm);
   
@@ -689,6 +694,7 @@ mpegts_mux_delete ( mpegts_mux_t *mm, int delconf )
   gtimer_disarm(&mm->mm_update_pids_timer);
 
   /* Free memory */
+  idnode_save_check(&mm->mm_id, 1);
   idnode_unlink(&mm->mm_id);
   free(mm->mm_provider_network_name);
   free(mm->mm_crid_authority);
@@ -696,9 +702,10 @@ mpegts_mux_delete ( mpegts_mux_t *mm, int delconf )
   free(mm);
 }
 
-static void
-mpegts_mux_config_save ( mpegts_mux_t *mm )
+static htsmsg_t *
+mpegts_mux_config_save ( mpegts_mux_t *mm, char *filename, size_t fsize )
 {
+  return NULL;
 }
 
 static int
@@ -1168,7 +1175,20 @@ mpegts_mux_create0
 void
 mpegts_mux_save ( mpegts_mux_t *mm, htsmsg_t *c )
 {
-  idnode_save(&mm->mm_id, c);
+  mpegts_service_t *ms;
+  htsmsg_t *root = htsmsg_create_map();
+  htsmsg_t *services = htsmsg_create_map();
+  htsmsg_t *e;
+  char ubuf[UUID_HEX_SIZE];
+
+  idnode_save(&mm->mm_id, root);
+  LIST_FOREACH(ms, &mm->mm_services, s_dvb_mux_link) {
+    e = htsmsg_create_map();
+    service_save((service_t *)ms, e);
+    htsmsg_add_msg(services, idnode_uuid_as_str(&ms->s_id, ubuf), e);
+  }
+  htsmsg_add_msg(root, "services", services);
+  htsmsg_add_msg(c, "config", root);
 }
 
 int
@@ -1189,8 +1209,7 @@ mpegts_mux_set_onid ( mpegts_mux_t *mm, uint16_t onid )
     return 0;
   mm->mm_onid = onid;
   mpegts_mux_nice_name(mm, buf, sizeof(buf));
-  mm->mm_config_save(mm);
-  idnode_notify_changed(&mm->mm_id);
+  idnode_changed(&mm->mm_id);
   return 1;
 }
 
@@ -1202,13 +1221,12 @@ mpegts_mux_set_tsid ( mpegts_mux_t *mm, uint16_t tsid, int force )
   if (!force && mm->mm_tsid)
     return 0;
   mm->mm_tsid = tsid;
-  mm->mm_config_save(mm);
   if (tvhtrace_enabled()) {
     char buf[256];
     mpegts_mux_nice_name(mm, buf, sizeof(buf));
     tvhtrace("mpegts", "%s - set tsid %04X (%d)", buf, tsid, tsid);
   }
-  idnode_notify_changed(&mm->mm_id);
+  idnode_changed(&mm->mm_id);
   return 1;
 }
 
@@ -1218,13 +1236,12 @@ mpegts_mux_set_crid_authority ( mpegts_mux_t *mm, const char *defauth )
   if (defauth && !strcmp(defauth, mm->mm_crid_authority ?: ""))
     return 0;
   tvh_str_update(&mm->mm_crid_authority, defauth);
-  mm->mm_config_save(mm);
   if (tvhtrace_enabled()) {
     char buf[256];
     mpegts_mux_nice_name(mm, buf, sizeof(buf));
     tvhtrace("mpegts", "%s - set crid authority %s", buf, defauth);
   }
-  idnode_notify_changed(&mm->mm_id);
+  idnode_changed(&mm->mm_id);
   return 1;
 }
 

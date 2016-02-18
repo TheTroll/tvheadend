@@ -120,7 +120,7 @@ typedef struct wizard_hello {
 } wizard_hello_t;
 
 
-static void hello_save(idnode_t *in)
+static void hello_changed(idnode_t *in)
 {
   wizard_page_t *p = (wizard_page_t *)in;
   wizard_hello_t *w = p->aux;
@@ -146,7 +146,7 @@ static void hello_save(idnode_t *in)
     save = 1;
   }
   if (save)
-    config_save();
+    idnode_changed(&config.idnode);
 }
 
 BASIC_STR_OPS(wizard_hello_t, ui_lang)
@@ -164,18 +164,18 @@ it, if you are not willing to touch the current configuration.\
 DESCRIPTION_FCN(hello, N_("\
 \
 Welcome to Tvheadend, your TV streaming server and video recorder. This \
-wizard will help you get up and running fast. Let`s start by configuring \
+wizard will help you get up and running fast. Let's start by configuring \
 the basic language settings. Please select the default user interface \
 and EPG language(s).\n\n\
 **This wizard should be run only on the initial setup. Please, cancel \
 it, if you are not willing to touch the current configuration.**\
 \
-\n\n**Notes**: \
-If you cannot see your preferred language in the language list and would \
+\n\n**Notes**:\n \
+* If you cannot see your preferred language in the language list and would \
 like to help translate Tvheadend see \
 [here](https://tvheadend.org/projects/tvheadend/wiki/Internationalization).\n\
-If you don't enter a preferred language, US English will be used as a default.\n\
-Not selecting the correct EPG \
+* If you don't enter a preferred language, US English will be used as a default.\n\
+* Not selecting the correct EPG \
 language can result in garbled EPG text; if this happens, don't panic, \
 as you can easily change it later.\n\
 "))
@@ -198,8 +198,8 @@ wizard_page_t *wizard_hello(const char *lang)
       .id       = "ui_lang",
       .name     = N_("Language"),
       .desc     = N_("Select the default user interface language. "
-                     "This can be overridden later in access entries "
-                     "on a per user basis."),
+                     "This can be overridden later in \"Access Entries\" "
+                     "on a per-user basis."),
       .get      = wizard_get_value_ui_lang,
       .set      = wizard_set_value_ui_lang,
       .list     = language_get_ui_list,
@@ -252,7 +252,7 @@ wizard_page_t *wizard_hello(const char *lang)
 
   ic->ic_properties = props;
   ic->ic_groups = groups;
-  ic->ic_save = hello_save;
+  ic->ic_changed = hello_changed;
   page->aux = w = calloc(1, sizeof(wizard_hello_t));
 
   if (config.language_ui)
@@ -288,7 +288,7 @@ typedef struct wizard_login {
 } wizard_login_t;
 
 
-static void login_save(idnode_t *in)
+static void login_changed(idnode_t *in)
 {
   wizard_page_t *p = (wizard_page_t *)in;
   wizard_login_t *w = p->aux;
@@ -324,7 +324,7 @@ static void login_save(idnode_t *in)
   ae = access_entry_create(NULL, conf);
   if (ae) {
     ae->ae_wizard = 1;
-    access_entry_save(ae);
+    idnode_changed(&ae->ae_id);
   }
   htsmsg_destroy(conf);
 
@@ -336,7 +336,7 @@ static void login_save(idnode_t *in)
     pw = passwd_entry_create(NULL, conf);
     if (pw) {
       pw->pw_wizard = 1;
-      passwd_entry_save(pw);
+      idnode_changed(&pw->pw_id);
     }
     htsmsg_destroy(conf);
   }
@@ -355,7 +355,7 @@ static void login_save(idnode_t *in)
     ae = access_entry_create(NULL, conf);
     if (ae) {
       ae->ae_wizard = 1;
-      access_entry_save(ae);
+      idnode_changed(&ae->ae_id);
     }
     htsmsg_destroy(conf);
 
@@ -367,7 +367,7 @@ static void login_save(idnode_t *in)
       pw = passwd_entry_create(NULL, conf);
       if (pw) {
         pw->pw_wizard = 1;
-        passwd_entry_save(pw);
+        idnode_changed(&pw->pw_id);
       }
       htsmsg_destroy(conf);
     }
@@ -386,20 +386,20 @@ Enter the access control details to secure your system. \
 The first part of this covers the network details \
 for address-based access to the system; for example, \
 192.168.1.0/24 to allow local access only to 192.168.1.x clients, \
-or 0.0.0.0/0 or empty value for access from any system.\n\
+or 0.0.0.0/0 or empty value for access from any system.\n\n\
 This works alongside the second part, which is a familiar \
 username/password combination, so provide these for both \
 an administrator and regular (day-to-day) user. \
-\n\n**Notes**: \
-You may enter a comma-separated list of network prefixes (IPv4/IPv6).\n\
+\n\n**Notes**:\n \
+* You may enter a comma-separated list of network prefixes (IPv4/IPv6).\n\
 if you were asked to enter a username and password during installation, \
 we'd recommend not using the same details for a user here as it may cause \
 unexpected behavior, incorrect permissions etc.\n\
-To allow anonymous access for any account (administrative or regular user) enter \
+* To allow anonymous access for any account (administrative or regular user) enter \
 an asterisk (*) in the username and password fields. ___It is not___ \
 recommended that you allow anonymous access to the admin account.\n\
-If you plan on accessing Tvheadend over the Internet, make sure you use \
-strong credentials and ___do not allow anonymous access at all___.\n\n\
+* If you plan on accessing Tvheadend over the Internet, make sure you use \
+strong credentials and ___do not allow anonymous access at all___.\n\
 "))
 
 wizard_page_t *wizard_login(const char *lang)
@@ -425,7 +425,7 @@ wizard_page_t *wizard_login(const char *lang)
       .id       = "network",
       .name     = N_("Allowed network"),
       .desc     = N_("Enter allowed network prefix(es). You can enter a "
-                     "comma seperated list of prefixes here."),
+                     "comma-seperated list of prefixes here."),
       .get      = wizard_get_value_network,
       .set      = wizard_set_value_network,
       .group    = 1
@@ -484,7 +484,7 @@ wizard_page_t *wizard_login(const char *lang)
 
   ic->ic_properties = props;
   ic->ic_groups = groups;
-  ic->ic_save = login_save;
+  ic->ic_changed = login_changed;
   page->aux = w = calloc(1, sizeof(wizard_login_t));
 
   TAILQ_FOREACH(ae, &access_entries, ae_link) {
@@ -539,7 +539,7 @@ static void network_free(wizard_page_t *page)
   page_free(page);
 }
 
-static void network_save(idnode_t *in)
+static void network_changed(idnode_t *in)
 {
   wizard_page_t *p = (wizard_page_t *)in;
   wizard_network_t *w = p->aux;
@@ -653,10 +653,33 @@ NETWORK_FCN(5)
 NETWORK_FCN(6)
 
 DESCRIPTION_FCN(network, N_("\
-Select network type for detected tuners.\n\
-The T means terresterial, C is cable and S is satellite.\n\
-If you do not assign a network type to the tuner, the tuner\
-will not be used in TVH.\
+Now let's get your tuners configured. Go ahead and select a network for \
+each of the tuners you would like to use. if you do not assign a \
+network to a tuner it will __not__ be used.\n\n\
+\
+**Selecting the Right Network**:\n\n\
+Many tuners are able to receive different signal types..\n\n\
+**If you \
+receive your channels through an antenna (also known as an aerial)** then \
+you would select the network under the tuners with DVB-T/ATSC-T/ISDB-T \
+in the name.\n\n\
+\
+**If you receive your channels through a satellite dish** then you would \
+select the network under the tuners with DVB-S/S2 in the name.\n\n\
+\
+**If you receive your channels via a cable** then you would select the \
+network under the tuners with DVB-C/ATSC-C/ISDB-C in the name.\n\n\
+\
+**Notes**:\n\
+* Tuners already in use will not appear below.\n\
+* If using IPTV, the playlist you enter must contain valid links to \
+streams using codecs supported by Tvheadend.\n\
+* For devices with multiple tuners (e.g. either cable or terrestrial), \
+be aware that many only allow you to use one tuner at a time. \
+Selecting more than one tuner per device can thus result in unexpected \
+behavior.\n\
+* If you've configured Tvheadend before running this wizard, changes \
+you make via this wizard may not be applied.\n\
 "))
 
 
@@ -697,7 +720,7 @@ wizard_page_t *wizard_network(const char *lang)
   page->aux = w = calloc(1, sizeof(wizard_network_t));
   ic->ic_groups = groups;
   ic->ic_properties = w->props;
-  ic->ic_save = network_save;
+  ic->ic_changed = network_changed;
   page->free = network_free;
   snprintf(w->lang, sizeof(w->lang), "%s", lang ?: "");
 
@@ -754,7 +777,7 @@ static void muxes_free(wizard_page_t *page)
   page_free(page);
 }
 
-static void muxes_save(idnode_t *in)
+static void muxes_changed(idnode_t *in)
 {
   wizard_page_t *p = (wizard_page_t *)in;
   wizard_muxes_t *w = p->aux;
@@ -966,7 +989,7 @@ wizard_page_t *wizard_muxes(const char *lang)
   page->aux = w = calloc(1, sizeof(wizard_muxes_t));
   ic->ic_groups = groups;
   ic->ic_properties = w->props;
-  ic->ic_save = muxes_save;
+  ic->ic_changed = muxes_changed;
   page->free = muxes_free;
   snprintf(w->lang, sizeof(w->lang), "%s", lang ?: "");
 
@@ -1061,7 +1084,7 @@ typedef struct wizard_mapping {
   int nettags;
 } wizard_mapping_t;
 
-static void mapping_save(idnode_t *in)
+static void mapping_changed(idnode_t *in)
 {
   wizard_page_t *p = (wizard_page_t *)in;
   wizard_mapping_t *w = p->aux;
@@ -1139,7 +1162,7 @@ wizard_page_t *wizard_mapping(const char *lang)
   idclass_t *ic = (idclass_t *)page->idnode.in_class;
   wizard_mapping_t *w;
   ic->ic_properties = props;
-  ic->ic_save = mapping_save;
+  ic->ic_changed = mapping_changed;
   page->aux = w = calloc(1, sizeof(wizard_mapping_t));
   w->provtags = service_mapper_conf.d.provider_tags;
   w->nettags = service_mapper_conf.d.network_tags;
@@ -1150,7 +1173,7 @@ wizard_page_t *wizard_mapping(const char *lang)
  * Discovered channels
  */
 
-static void channels_save(idnode_t *in)
+static void channels_changed(idnode_t *in)
 {
   access_entry_t *ae, *ae_next;
 
@@ -1170,15 +1193,15 @@ static void channels_save(idnode_t *in)
 }
 
 DESCRIPTION_FCN(channels, N_("\
-You are finished now.\n\
-You may further customize your settings by editing channel numbers etc.\n\
+You are now finished.\n\
+You may further customize your settings by editing channel numbers, etc.\n\
 If you confirm this dialog, the default administrator account will be\
-removed! Please, use credentals you defined through this wizard!\
+removed. Please then use credentals you defined thru this wizard.\
 "))
 
 DESCRIPTION_FCN(channels2, N_("\
-You are finished now.\n\
-You may further customize your settings by editing channel numbers etc.\
+You are now finished.\n\
+You may further customize your settings by editing channel numbers, etc.\
 "))
 
 wizard_page_t *wizard_channels(const char *lang)
@@ -1203,7 +1226,7 @@ wizard_page_t *wizard_channels(const char *lang)
 
   ic->ic_properties = props;
   ic->ic_flags |= IDCLASS_ALWAYS_SAVE;
-  ic->ic_save = channels_save;
+  ic->ic_changed = channels_changed;
   /* do we have an admin created by wizard? */
   TAILQ_FOREACH(ae, &access_entries, ae_link)
     if (ae->ae_admin && ae->ae_wizard) break;

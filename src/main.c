@@ -686,7 +686,7 @@ main(int argc, char **argv)
       OPT_BOOL, &opt_dbus_session },
 #endif
 #if ENABLE_LINUXDVB
-    { 'a', "adapters",  N_("Only use specified DVB adapters (comma separated, -1 = none)"),
+    { 'a', "adapters",  N_("Only use specified DVB adapters (comma-separated, -1 = none)"),
       OPT_STR, &opt_dvb_adapters },
 #endif
 #if ENABLE_SATIP_SERVER
@@ -1163,7 +1163,6 @@ main(int argc, char **argv)
   tasklet_flush();
   tvhtrace("main", "tasklet leave");
 
-  tvhftrace("main", hts_settings_done);
   tvhftrace("main", dvb_done);
   tvhftrace("main", lang_str_done);
   tvhftrace("main", esfilter_done);
@@ -1178,6 +1177,7 @@ main(int argc, char **argv)
   tvhlog_end();
 
   tvhftrace("main", config_done);
+  tvhftrace("main", hts_settings_done);
 
   if(opt_fork)
     unlink(opt_pidpath);

@@ -94,10 +94,10 @@ satip_frontend_signal_cb( void *aux )
  * *************************************************************************/
 
 static void
-satip_frontend_class_save ( idnode_t *in )
+satip_frontend_class_changed ( idnode_t *in )
 {
   satip_device_t *la = ((satip_frontend_t*)in)->sf_device;
-  satip_device_save(la);
+  satip_device_changed(la);
 }
 
 static int
@@ -138,7 +138,7 @@ const idclass_t satip_frontend_class =
   .ic_super      = &mpegts_input_class,
   .ic_class      = "satip_frontend",
   .ic_caption    = N_("SAT>IP DVB frontend"),
-  .ic_save       = satip_frontend_class_save,
+  .ic_changed    = satip_frontend_class_changed,
   .ic_properties = (const property_t[]) {
     {
       .type     = PT_INT,
@@ -987,7 +987,7 @@ done:
 
 static void
 satip_frontend_shutdown
-  ( satip_frontend_t *lfe, http_client_t *rtsp, tvhpoll_t *efd )
+  ( satip_frontend_t *lfe, const char *name, http_client_t *rtsp, tvhpoll_t *efd )
 {
   char b[32];
   tvhpoll_event_t ev;
@@ -997,6 +997,7 @@ satip_frontend_shutdown
     return;
 
   snprintf(b, sizeof(b), "/stream=%li", rtsp->hc_rtsp_stream_id);
+  tvhtrace("satip", "%s - shutdown for %s/%s", name, b, rtsp->hc_rtsp_session ?: "");
   r = rtsp_teardown(rtsp, (char *)b, NULL);
   if (r < 0) {
     tvhtrace("satip", "%s - bad teardown", b);
@@ -1040,7 +1041,7 @@ satip_frontend_tuning_error ( satip_frontend_t *lfe, satip_tune_req_t *tr )
 
 static void
 satip_frontend_close_rtsp
-  ( satip_frontend_t *lfe, tvhpoll_t *efd, http_client_t **rtsp )
+  ( satip_frontend_t *lfe, const char *name, tvhpoll_t *efd, http_client_t **rtsp )
 {
   tvhpoll_event_t ev;
 
@@ -1050,7 +1051,7 @@ satip_frontend_close_rtsp
   ev.data.ptr = NULL;
   tvhpoll_rem(efd, &ev, 1);
 
-  satip_frontend_shutdown(lfe, *rtsp, efd);
+  satip_frontend_shutdown(lfe, name, *rtsp, efd);
 
   memset(&ev, 0, sizeof(ev));
   ev.events   = TVHPOLL_IN;
@@ -1205,7 +1206,7 @@ new_tune:
   lfe_master = NULL;
 
   if (rtsp && !lfe->sf_device->sd_fast_switch)
-    satip_frontend_close_rtsp(lfe, efd, &rtsp);
+    satip_frontend_close_rtsp(lfe, buf, efd, &rtsp);
 
   if (rtsp)
     rtsp->hc_rtp_data_received = NULL;
@@ -1219,12 +1220,15 @@ new_tune:
   lfe->mi_display_name((mpegts_input_t*)lfe, buf, sizeof(buf));
   lfe->sf_display_name = buf;
 
+  u64_2 = getmonoclock();
+
   while (!start) {
 
     nfds = tvhpoll_wait(efd, ev, 1, rtsp ? 50 : -1);
 
     if (!tvheadend_running) { exit_flag = 1; goto done; }
-    if (rtsp && nfds == 0) satip_frontend_close_rtsp(lfe, efd, &rtsp);
+    if (rtsp && getmonoclock() - u64_2 > 50000) /* 50ms */
+      satip_frontend_close_rtsp(lfe, buf, efd, &rtsp);
     if (nfds <= 0) continue;
 
     if (ev[0].data.ptr == NULL) {
@@ -1712,7 +1716,7 @@ wrdata:
   tvhpoll_rem(efd, ev, nfds);
 
   if (exit_flag) {
-    satip_frontend_shutdown(lfe, rtsp, efd);
+    satip_frontend_shutdown(lfe, buf, rtsp, efd);
     http_client_close(rtsp);
     rtsp = NULL;
   }
@@ -1811,7 +1815,7 @@ satip_frontend_wizard_set( tvh_input_t *ti, htsmsg_t *conf, const char *lang )
     htsmsg_destroy(conf);
     if (satip_frontend_wizard_network(lfe))
       mpegts_input_set_enabled((mpegts_input_t *)lfe, 1);
-    satip_device_save(lfe->sf_device);
+    satip_device_changed(lfe->sf_device);
   } else {
     htsmsg_destroy(nlist);
   }

@@ -1093,6 +1093,8 @@ access_entry_destroy(access_entry_t *ae, int delconf)
   access_ipmask_t *ai;
   char ubuf[UUID_HEX_SIZE];
 
+  idnode_save_check(&ae->ae_id, delconf);
+
   if (delconf)
     hts_settings_remove("accesscontrol/%s", idnode_uuid_as_str(&ae->ae_id, ubuf));
 
@@ -1146,19 +1148,6 @@ access_destroy_by_channel_tag(channel_tag_t *ct, int delconf)
 /**
  *
  */
-void
-access_entry_save(access_entry_t *ae)
-{
-  htsmsg_t *c = htsmsg_create_map();
-  char ubuf[UUID_HEX_SIZE];
-  idnode_save(&ae->ae_id, c);
-  hts_settings_save(c, "accesscontrol/%s", idnode_uuid_as_str(&ae->ae_id, ubuf));
-  htsmsg_destroy(c);
-}
-
-/**
- *
- */
 static void
 access_entry_reindex(void)
 {
@@ -1168,7 +1157,7 @@ access_entry_reindex(void)
   TAILQ_FOREACH(ae, &access_entries, ae_link) {
     if (ae->ae_index != i) {
       ae->ae_index = i;
-      access_entry_save(ae);
+      idnode_changed(&ae->ae_id);
     }
     i++;
   }
@@ -1178,11 +1167,16 @@ access_entry_reindex(void)
  * Class definition
  * **************************************************************************/
 
-static void
-access_entry_class_save(idnode_t *self)
+static htsmsg_t *
+access_entry_class_save(idnode_t *self, char *filename, size_t fsize)
 {
+  access_entry_t *ae = (access_entry_t *)self;
+  char ubuf[UUID_HEX_SIZE];
+  htsmsg_t *c = htsmsg_create_map();
   access_entry_update_rights((access_entry_t *)self);
-  access_entry_save((access_entry_t *)self);
+  idnode_save(&ae->ae_id, c);
+  snprintf(filename, fsize, "accesscontrol/%s", idnode_uuid_as_str(&ae->ae_id, ubuf));
+  return c;
 }
 
 static void
@@ -1442,7 +1436,7 @@ const idclass_t access_entry_class = {
       .type     = PT_STR,
       .id       = "prefix",
       .name     = N_("Allowed networks"),
-      .desc     = N_("List of allowed IPv4 or IPv6 hosts or networks (comma separated)."),
+      .desc     = N_("List of allowed IPv4 or IPv6 hosts or networks (comma-separated)."),
       .set      = access_entry_class_prefix_set,
       .get      = access_entry_class_prefix_get,
       .opts     = PO_ADVANCED
@@ -1511,8 +1505,8 @@ const idclass_t access_entry_class = {
       .islist   = 1,
       .id       = "profile",
       .name     = N_("Streaming profiles"),
-      .desc     = N_("The streaming profile to use/used, if not set the "
-                     "default will be used."),
+      .desc     = N_("The streaming profile to use/used. If not set, "
+                     "the default will be used."),
       .set      = access_entry_profile_set,
       .get      = access_entry_profile_get,
       .list     = profile_class_get_list,
@@ -1547,7 +1541,7 @@ const idclass_t access_entry_class = {
       .type     = PT_BOOL,
       .id       = "all_rw_dvr",
       .name     = N_("All DVR (rw)"),
-      .desc     = N_("Allow/disallow read/write access to other users "
+      .desc     = N_("Allow/disallow read/write access to other users' "
                      "DVR entries."),
       .off      = offsetof(access_entry_t, ae_all_rw_dvr),
     },
@@ -1584,7 +1578,7 @@ const idclass_t access_entry_class = {
       .type     = PT_BOOL,
       .id       = "admin",
       .name     = N_("Admin"),
-      .desc     = N_("Allow/disallow access to the Configuration tab."),
+      .desc     = N_("Allow/disallow access to the 'Configuration' tab."),
       .off      = offsetof(access_entry_t, ae_admin),
     },
     {
@@ -1625,7 +1619,7 @@ const idclass_t access_entry_class = {
       .type     = PT_BOOL,
       .id       = "channel_tag_exclude",
       .name     = N_("Exclude channel tags"),
-      .desc     = N_("Enable excluding of user-config defined channel "
+      .desc     = N_("Enable exclusion of user-config defined channel "
                      "tags. This will prevent the user from accessing "
                      "channels associated with the tags selected (below)."),
       .off      = offsetof(access_entry_t, ae_chtags_exclude),
@@ -1767,6 +1761,8 @@ passwd_entry_destroy(passwd_entry_t *pw, int delconf)
   if (pw == NULL)
     return;
 
+  idnode_save_check(&pw->pw_id, delconf);
+
   if (delconf)
     hts_settings_remove("passwd/%s", idnode_uuid_as_str(&pw->pw_id, ubuf));
   TAILQ_REMOVE(&passwd_entries, pw, pw_link);
@@ -1778,20 +1774,15 @@ passwd_entry_destroy(passwd_entry_t *pw, int delconf)
   free(pw);
 }
 
-void
-passwd_entry_save(passwd_entry_t *pw)
+static htsmsg_t *
+passwd_entry_class_save(idnode_t *self, char *filename, size_t fsize)
 {
-  htsmsg_t *c = htsmsg_create_map();
+  passwd_entry_t *pw = (passwd_entry_t *)self;
   char ubuf[UUID_HEX_SIZE];
+  htsmsg_t *c = htsmsg_create_map();
   idnode_save(&pw->pw_id, c);
-  hts_settings_save(c, "passwd/%s", idnode_uuid_as_str(&pw->pw_id, ubuf));
-  htsmsg_destroy(c);
-}
-
-static void
-passwd_entry_class_save(idnode_t *self)
-{
-  passwd_entry_save((passwd_entry_t *)self);
+  snprintf(filename, fsize, "passwd/%s", idnode_uuid_as_str(&pw->pw_id, ubuf));
+  return c;
 }
 
 static void
@@ -1872,8 +1863,8 @@ const idclass_t passwd_entry_class = {
       .type     = PT_STR,
       .id       = "username",
       .name     = N_("Username"),
-      .desc     = N_("Username of the entry. (this should match "
-                     "a username from within the Access Entries tab."),
+      .desc     = N_("Username of the entry (this should match a "
+                     "username from within the \"Access Entries\" tab."),
       .off      = offsetof(passwd_entry_t, pw_username),
     },
     {
@@ -1944,30 +1935,26 @@ ipblock_entry_create(const char *uuid, htsmsg_t *conf)
 }
 
 static void
-ipblock_entry_destroy(ipblock_entry_t *ib)
+ipblock_entry_destroy(ipblock_entry_t *ib, int delconf)
 {
   if (ib == NULL)
     return;
+  idnode_save_check(&ib->ib_id, delconf);
   TAILQ_REMOVE(&ipblock_entries, ib, ib_link);
   idnode_unlink(&ib->ib_id);
   free(ib->ib_comment);
   free(ib);
 }
 
-void
-ipblock_entry_save(ipblock_entry_t *ib)
+static htsmsg_t *
+ipblock_entry_class_save(idnode_t *self, char *filename, size_t fsize)
 {
+  ipblock_entry_t *ib = (ipblock_entry_t *)self;
   htsmsg_t *c = htsmsg_create_map();
   char ubuf[UUID_HEX_SIZE];
   idnode_save(&ib->ib_id, c);
-  hts_settings_save(c, "ipblock/%s", idnode_uuid_as_str(&ib->ib_id, ubuf));
-  htsmsg_destroy(c);
-}
-
-static void
-ipblock_entry_class_save(idnode_t *self)
-{
-  ipblock_entry_save((ipblock_entry_t *)self);
+  snprintf(filename, fsize, "ipblock/%s", idnode_uuid_as_str(&ib->ib_id, ubuf));
+  return c;
 }
 
 static const char *
@@ -1987,7 +1974,7 @@ ipblock_entry_class_delete(idnode_t *self)
   char ubuf[UUID_HEX_SIZE];
 
   hts_settings_remove("ipblock/%s", idnode_uuid_as_str(&ib->ib_id, ubuf));
-  ipblock_entry_destroy(ib);
+  ipblock_entry_destroy(ib, 1);
 }
 
 static int
@@ -2026,7 +2013,7 @@ const idclass_t ipblock_entry_class = {
       .id       = "prefix",
       .name     = N_("Network prefix"),
       .desc     = N_("The network prefix(es) to block, "
-                     "e.g.192.168.2.0/24 (comma separated list)."),
+                     "e.g.192.168.2.0/24 (comma-separated list)."),
       .set      = ipblock_entry_class_prefix_set,
       .get      = ipblock_entry_class_prefix_get,
     },
@@ -2109,7 +2096,7 @@ access_init(int createdefault, int noacl)
     ae->ae_admin          = 1;
     access_entry_update_rights(ae);
 
-    access_entry_save(ae);
+    idnode_changed(&ae->ae_id);
 
     tvhlog(LOG_WARNING, "access",
 	   "Created default wide open access controle entry");
@@ -2145,7 +2132,7 @@ access_done(void)
   while ((pw = TAILQ_FIRST(&passwd_entries)) != NULL)
     passwd_entry_destroy(pw, 0);
   while ((ib = TAILQ_FIRST(&ipblock_entries)) != NULL)
-    ipblock_entry_destroy(ib);
+    ipblock_entry_destroy(ib, 0);
   free((void *)superuser_username);
   superuser_username = NULL;
   free((void *)superuser_password);

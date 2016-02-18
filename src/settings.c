@@ -28,6 +28,7 @@
 #include <dirent.h>
 
 #include "htsmsg.h"
+#include "htsmsg_binary.h"
 #include "htsmsg_json.h"
 #include "settings.h"
 #include "tvheadend.h"
@@ -133,7 +134,9 @@ hts_settings_save(htsmsg_t *record, const char *pathfmt, ...)
   va_list ap;
   htsbuf_queue_t hq;
   htsbuf_data_t *hd;
-  int ok;
+  int ok, r, pack;
+  void *msgdata;
+  size_t msglen;
 
   if(settingspath == NULL)
     return;
@@ -157,22 +160,50 @@ hts_settings_save(htsmsg_t *record, const char *pathfmt, ...)
   }
 
   /* Store data */
+#if ENABLE_ZLIB
+  pack = strstr(path, "/muxes/") != NULL && /* ugly, redesign API */
+         strstr(path, "/networks/") != NULL &&
+         strstr(path, "/input/") != NULL;
+#else
+  pack = 0;
+#endif
   ok = 1;
-  htsbuf_queue_init(&hq, 0);
-  htsmsg_json_serialize(record, &hq, 1);
-  TAILQ_FOREACH(hd, &hq.hq_q, hd_link)
-    if(tvh_write(fd, hd->hd_data + hd->hd_data_off, hd->hd_data_len)) {
-      tvhlog(LOG_ALERT, "settings", "Failed to write file \"%s\" - %s",
-	      tmppath, strerror(errno));
-      ok = 0;
-      break;
+
+  if (!pack) {
+    htsbuf_queue_init(&hq, 0);
+    htsmsg_json_serialize(record, &hq, 1);
+    TAILQ_FOREACH(hd, &hq.hq_q, hd_link)
+      if(tvh_write(fd, hd->hd_data + hd->hd_data_off, hd->hd_data_len)) {
+        tvhlog(LOG_ALERT, "settings", "Failed to write file \"%s\" - %s",
+                tmppath, strerror(errno));
+        ok = 0;
+        break;
+      }
+    htsbuf_queue_flush(&hq);
+  } else {
+#if ENABLE_ZLIB
+    msgdata = NULL;
+    r = htsmsg_binary_serialize(record, &msgdata, &msglen, 0x10000);
+    if (!r && msglen >= 4) {
+      r = tvh_gzip_deflate_fd_header(fd, msgdata + 4, msglen - 4, 3);
+      if (r)
+        ok = 0;
     }
+    free(msgdata);
+#endif
+  }
   close(fd);
-  htsbuf_queue_flush(&hq);
 
   /* Move */
   if(ok) {
-    rename(tmppath, path);
+    r = rename(tmppath, path);
+    if (r && errno == EISDIR) {
+      rmtree(path);
+      r = rename(tmppath, path);
+    }
+    if (r)
+      tvhlog(LOG_ALERT, "settings", "Unable to rename file \"%s\" to \"%s\" - %s",
+	     tmppath, path, strerror(errno));
   
   /* Delete tmp */
   } else
@@ -187,8 +218,10 @@ hts_settings_load_one(const char *filename)
 {
   ssize_t n, size;
   char *mem;
+  uint8_t *unpacked;
   fb_file *fp;
   htsmsg_t *r = NULL;
+  uint32_t orig;
 
   /* Open */
   if (!(fp = fb_open(filename, 1, 0))) return NULL;
@@ -200,8 +233,22 @@ hts_settings_load_one(const char *filename)
   if (n >= 0) mem[n] = 0;
 
   /* Decode */
-  if(n == size)
-    r = htsmsg_json_deserialize(mem);
+  if(n == size) {
+    if (size > 12 && memcmp(mem, "\xff\xffGZIP00", 8) == 0) {
+#if ENABLE_ZLIB
+      orig = (mem[8] << 24) | (mem[9] << 16) | (mem[10] << 8) | mem[11];
+      if (orig > 0) {
+        unpacked = tvh_gzip_inflate((uint8_t *)mem + 12, size - 12, orig);
+        if (unpacked) {
+          r = htsmsg_binary_deserialize(unpacked, orig, NULL);
+          free(unpacked);
+        }
+      }
+#endif
+    } else {
+      r = htsmsg_json_deserialize(mem);
+    }
+  }
 
   /* Close */
   fb_close(fp);

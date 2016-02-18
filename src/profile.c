@@ -41,8 +41,6 @@ static LIST_HEAD(,profile_chain) profile_chains;
 
 static profile_t *profile_default;
 
-static void profile_class_save ( idnode_t *in );
-
 /*
  *
  */
@@ -114,7 +112,7 @@ profile_create
   pro->pro_refcount = 1;
   TAILQ_INSERT_TAIL(&profiles, pro, pro_link);
   if (save)
-    profile_class_save((idnode_t *)pro);
+    idnode_changed(&pro->pro_id);
   if (pro->pro_conf_changed)
     pro->pro_conf_changed(pro);
   return pro;
@@ -134,6 +132,7 @@ static void
 profile_delete(profile_t *pro, int delconf)
 {
   char ubuf[UUID_HEX_SIZE];
+  idnode_save_check(&pro->pro_id, delconf);
   pro->pro_enabled = 0;
   if (pro->pro_conf_changed)
     pro->pro_conf_changed(pro);
@@ -146,8 +145,8 @@ profile_delete(profile_t *pro, int delconf)
   profile_release(pro);
 }
 
-static void
-profile_class_save ( idnode_t *in )
+static htsmsg_t *
+profile_class_save ( idnode_t *in, char *filename, size_t fsize )
 {
   profile_t *pro = (profile_t *)in;
   htsmsg_t *c = htsmsg_create_map();
@@ -157,10 +156,10 @@ profile_class_save ( idnode_t *in )
   idnode_save(in, c);
   if (pro->pro_shield)
     htsmsg_add_bool(c, "shield", 1);
-  hts_settings_save(c, "profile/%s", idnode_uuid_as_str(in, ubuf));
-  htsmsg_destroy(c);
+  snprintf(filename, fsize, "profile/%s", idnode_uuid_as_str(in, ubuf));
   if (pro->pro_conf_changed)
     pro->pro_conf_changed(pro);
+  return c;
 }
 
 static const char *
@@ -224,7 +223,7 @@ profile_class_default_set(void *o, const void *v)
     old = profile_default;
     profile_default = pro;
     if (old)
-      profile_class_save(&old->pro_id);
+      idnode_changed(&old->pro_id);
     return 1;
   }
   return 0;
@@ -1104,7 +1103,7 @@ const idclass_t profile_mpegts_pass_class =
       .id       = "rewrite_pmt",
       .name     = N_("Rewrite PMT"),
       .desc     = N_("Rewrite PMT (Program Map Table) packets to only "
-                     "include information about the currently streamed "
+                     "include information about the currently-streamed "
                      "service."),
       .off      = offsetof(profile_mpegts_t, pro_rewrite_pmt),
       .opts     = PO_ADVANCED,
@@ -1116,7 +1115,7 @@ const idclass_t profile_mpegts_pass_class =
       .id       = "rewrite_pat",
       .name     = N_("Rewrite PAT"),
       .desc     = N_("Rewrite PAT (Program Association Table) packets "
-                     "to only include information about the currently "
+                     "to only include information about the currently-"
                      "streamed service."),
       .off      = offsetof(profile_mpegts_t, pro_rewrite_pat),
       .opts     = PO_ADVANCED,
@@ -1128,7 +1127,7 @@ const idclass_t profile_mpegts_pass_class =
       .id       = "rewrite_sdt",
       .name     = N_("Rewrite SDT"),
       .desc     = N_("Rewrite SDT (Service Description Table) packets "
-                     "to only include information about the currently "
+                     "to only include information about the currently-"
                      "streamed service."),
       .off      = offsetof(profile_mpegts_t, pro_rewrite_sdt),
       .opts     = PO_ADVANCED,
@@ -1140,7 +1139,7 @@ const idclass_t profile_mpegts_pass_class =
       .id       = "rewrite_eit",
       .name     = N_("Rewrite EIT"),
       .desc     = N_("Rewrite EIT (Event Information Table) packets "
-                     "to only include information about the currently "
+                     "to only include information about the currently-"
                      "streamed service."),
       .off      = offsetof(profile_mpegts_t, pro_rewrite_eit),
       .opts     = PO_ADVANCED,
@@ -1822,7 +1821,7 @@ const idclass_t profile_transcode_class =
       .type     = PT_U32,
       .id       = "vbitrate",
       .name     = N_("Video bitrate (kb/s) (0=auto)"),
-      .desc     = N_("Bitrate to use for the transcode. See help for "
+      .desc     = N_("Bitrate to use for the transcode. See Help for "
                      "detailed information."),
       .off      = offsetof(profile_transcode_t, pro_vbitrate),
       .opts     = PO_ADVANCED,
@@ -1834,7 +1833,7 @@ const idclass_t profile_transcode_class =
       .id       = "acodec",
       .name     = N_("Audio codec"),
       .desc     = N_("Audio codec to use for the transcode. \"Do not "
-                     "use \" will disable audio output."),
+                     "use\" will disable audio output."),
       .off      = offsetof(profile_transcode_t, pro_acodec),
       .def.s    = "libvorbis",
       .list     = profile_class_acodec_list,

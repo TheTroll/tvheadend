@@ -278,8 +278,8 @@ const idclass_t mpegts_input_class =
       .id       = "initscan",
       .name     = N_("Initial scan"),
       .desc     = N_("Allow the initial scan tuning on this device "
-                     "(scan when Tvheadend starts). See Skip Initial "
-                     "Scan in the network settings for further details."),
+                     "(scan when Tvheadend starts). See 'Skip Initial "
+                     "Scan' in the network settings for further details."),
       .off      = offsetof(mpegts_input_t, mi_initscan),
       .def.i    = 1,
       .opts     = PO_ADVANCED,
@@ -323,7 +323,7 @@ const idclass_t mpegts_input_class =
       .id       = "linked",
       .name     = N_("Linked input"),
       .desc     = N_("Wake up the linked input whenever this adapter "
-                     "is used. The subscriptions are named as “keep”. "
+                     "is used. The subscriptions are named as \"keep\". "
                      "Note that this isn't normally needed, and is here "
                      "simply as a workaround to driver bugs in certain "
                      "dual tuner cards that otherwise lock the second tuner."),
@@ -1004,14 +1004,14 @@ get_pcr ( const uint8_t *tsb, int64_t *rpcr )
     return 0;
 
   if ((tsb[3] & 0x20) == 0 ||
-      tsb[4] <= 5 ||
+       tsb[4] <= 5 ||
       (tsb[5] & 0x10) == 0)
     return 0;
 
-  pcr  = (uint64_t)tsb[6] << 25;
-  pcr |= (uint64_t)tsb[7] << 17;
-  pcr |= (uint64_t)tsb[8] << 9;
-  pcr |= (uint64_t)tsb[9] << 1;
+  pcr  =  (uint64_t)tsb[6] << 25;
+  pcr |=  (uint64_t)tsb[7] << 17;
+  pcr |=  (uint64_t)tsb[8] << 9;
+  pcr |=  (uint64_t)tsb[9] << 1;
   pcr |= ((uint64_t)tsb[10] >> 7) & 0x01;
   *rpcr = pcr;
   return 1;
@@ -1828,6 +1828,8 @@ mpegts_input_delete ( mpegts_input_t *mi, int delconf )
 
   /* Early shutdown flag */
   mi->mi_running = 0;
+
+  idnode_save_check(&mi->ti_id, delconf);
 
   /* Remove networks */
   while ((mnl = LIST_FIRST(&mi->mi_networks)))
