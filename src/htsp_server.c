@@ -2398,7 +2398,7 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
   {
     tvhlog(LOG_ERR, "htsp", "Could not find a valid HTSP profile for this user");
     free(hs);
-    return htsp_error("Stream setup error");
+    return htsp_error(htsp, "Stream setup error");
   }
 
   if (pro->pro_prefersd)

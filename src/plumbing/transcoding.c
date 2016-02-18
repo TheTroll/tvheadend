@@ -1291,15 +1291,8 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
       octx->flags         |= CODEC_FLAG_GLOBAL_HEADER;
 
       // Default = "medium". We gain more encoding speed compared to the loss of quality when lowering it _slightly_.
-      if (!strcmp(ocodec->name, "nvenc"))
-         av_dict_set(&opts, "preset",  "hq", 0);
-      else if (!strcmp(ocodec->name, "h264_qsv"))
-         av_dict_set(&opts, "preset",  "medium", 0);
-      else
-      {
-         av_dict_set(&opts, "preset",  t->t_props.tp_vcodec_preset, 0);
-         tvhinfo("transcode", "%04X: Using preset %s", shortid(t), t->t_props.tp_vcodec_preset);
-      }
+      av_dict_set(&opts, "preset",  t->t_props.tp_vcodec_preset, 0);
+      tvhinfo("transcode", "%04X: Using preset %s", shortid(t), t->t_props.tp_vcodec_preset);
 
       // All modern devices should support "high" profile
       av_dict_set(&opts, "profile", "high", 0);
