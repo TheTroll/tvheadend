@@ -167,8 +167,10 @@ Welcome to Tvheadend, your TV streaming server and video recorder. This \
 wizard will help you get up and running fast. Let's start by configuring \
 the basic language settings. Please select the default user interface \
 and EPG language(s).\n\n\
-**This wizard should be run only on the initial setup. Please, cancel \
-it, if you are not willing to touch the current configuration.**\
+**This wizard should only be run on initial setup. Please cancel it if \
+you're not willing to touch the current configuration, as continuing in \
+such cases can lead to misconfiguration and not all changes made thru \
+this wizard will take effect.**\n\
 \
 \n\n**Notes**:\n \
 * If you cannot see your preferred language in the language list and would \
@@ -667,7 +669,7 @@ in the name.\n\n\
 **If you receive your channels through a satellite dish** then you would \
 select the network under the tuners with DVB-S/S2 in the name.\n\n\
 \
-**If you receive your channels via a cable** then you would select the \
+**If you receive your channels via cable** then you would select the \
 network under the tuners with DVB-C/ATSC-C/ISDB-C in the name.\n\n\
 \
 **Notes**:\n\
@@ -678,8 +680,6 @@ streams using codecs supported by Tvheadend.\n\
 be aware that many only allow you to use one tuner at a time. \
 Selecting more than one tuner per device can thus result in unexpected \
 behavior.\n\
-* If you've configured Tvheadend before running this wizard, changes \
-you make via this wizard may not be applied.\n\
 "))
 
 
@@ -841,6 +841,7 @@ static const void *muxes_progress_get(void *o)
   .type = PT_STR, \
   .id   = "network" STRINGIFY(num), \
   .name = N_("Network"), \
+  .desc = N_("Name of the network."), \
   .get  = muxes_get_nvalue##num, \
   .opts = PO_RDONLY, \
   .group = num, \
@@ -848,6 +849,7 @@ static const void *muxes_progress_get(void *o)
   .type = PT_STR, \
   .id   = "networkid" STRINGIFY(num), \
   .name = "Network", \
+  .desc = N_("ID of the network."), \
   .get  = muxes_get_idvalue##num, \
   .set  = muxes_set_idvalue##num, \
   .opts = PO_PERSIST | PO_NOUI, \
@@ -942,7 +944,21 @@ MUXES_IPTV_FCN(6)
 #endif
 
 DESCRIPTION_FCN(muxes, N_("\
-Assign predefined muxes to networks.\
+Assign predefined muxes to networks. To save you from manually entering \
+muxes, Tvheadend includes predefined mux lists. Please select a list \
+for each network below.\n\
+\n\
+**Notes**:\n\
+* Select the closest transmitter if using an antenna (T); if using \
+cable (C), select your provider; if using satellite (S), the orbital \
+position of the satellite your dish is pointing towards; or if using \
+IPTV, enter the URL to your playlist.\n\
+* If you're unsure as to which list(s) to select you may want to look \
+online for details about the various television reception choices \
+available in your area.\n\
+* Networks already configured will not be shown below.\n\
+* Selecting the wrong list may cause the scan (on the next page) to \
+fail.\n\
 "))
 
 wizard_page_t *wizard_muxes(const char *lang)
@@ -1027,8 +1043,21 @@ wizard_page_t *wizard_muxes(const char *lang)
  */
 
 DESCRIPTION_FCN(status, N_("\
-Show the scan status.\n\
-Please, wait until the scan finishes.\
+Tvheadend is now scanning for available services. Please wait until the \
+scan completes..\n\n\
+\
+**Notes**:\n\
+* During scanning, the number of muxes and services shown below should \
+increase. If this doesn't happen, check the connection(s) to your \
+device(s)..\n\
+* The status tab (behind this wizard) will display signal information. \
+If you notice a lot of errors or the signal strength appears low then \
+this usually indicates a physical issue with your antenna, satellite \
+dish or cable..\n\
+* If you don't see any signal information at all, but the number of \
+muxes or services is increasing anyway, the driver used by your device \
+isn't supplying signal information to Tvheadend. In most cases this \
+isn't an issue..\n\
 "))
 
 
@@ -1122,9 +1151,21 @@ MAPPING_FCN(provtags)
 MAPPING_FCN(nettags)
 
 DESCRIPTION_FCN(mapping, N_("\
-Map all discovered services to channels.\n\
-Note: You may ommit this step (do not check the map all services) and\
-do the service to channel mapping manually.\n\
+Map all discovered services to channels.\n\n\
+In order for your frontend client(s) (such as Kodi, Movian, and similar) \
+to see/play and channels, you must first map discovered services to \
+channels.\n\n\
+\
+If you would like Tvheadend to do this for you, check the \
+'Map all services' option below, but be aware that this will also map \
+encrypted services you may not have access to.\n\n\
+\
+**You may omit this step (do not check 'Map all services') and \
+map services to channels manually.**\n\n\
+\
+**Notes**:\n\
+* Many providers include undesirable services - Teleshopping, Adult \
+Entertainment, etc; using the 'Map all services' will include these. \n\
 "))
 
 
@@ -1135,6 +1176,8 @@ wizard_page_t *wizard_mapping(const char *lang)
       .type     = PT_BOOL,
       .id       = "mapall",
       .name     = N_("Map all services"),
+      .desc     = N_("Automatically map all available services to "
+                     "channels."),
       .get      = mapping_get_mapall,
       .set      = mapping_set_mapall,
     },
@@ -1142,6 +1185,8 @@ wizard_page_t *wizard_mapping(const char *lang)
       .type     = PT_BOOL,
       .id       = "provtags",
       .name     = N_("Create provider tags"),
+      .desc     = N_("Create and associate a provider tag to created "
+                     "channels."),
       .get      = mapping_get_provtags,
       .set      = mapping_set_provtags,
     },
@@ -1149,6 +1194,8 @@ wizard_page_t *wizard_mapping(const char *lang)
       .type     = PT_BOOL,
       .id       = "nettags",
       .name     = N_("Create network tags"),
+      .desc     = N_("Create and associate a network tag to created "
+                     "channels."),
       .get      = mapping_get_nettags,
       .set      = mapping_set_nettags,
     },
@@ -1194,14 +1241,28 @@ static void channels_changed(idnode_t *in)
 
 DESCRIPTION_FCN(channels, N_("\
 You are now finished.\n\
-You may further customize your settings by editing channel numbers, etc.\n\
-If you confirm this dialog, the default administrator account will be\
-removed. Please then use credentals you defined thru this wizard.\
+You may further customize your settings by editing channel numbers, etc. \n\
+If you confirm this dialog, the default administrator account will be \
+removed. Please then the use credentials you defined thru this wizard.\n\n\
+\
+If you require further help, check out \
+[Tvheadend.org](http://tvheadend.org) or chat to us on \
+[IRC](https://kiwiirc.com/client/chat.freenode.net/?nick=tvhhelp|?#hts).\n\n\n\
+\
+Thank you for using Tvheadend (and don't forget to \
+[donate](http://tvheadend.org/projects/tvheadend/wiki/Donate))! :)\
 "))
 
 DESCRIPTION_FCN(channels2, N_("\
 You are now finished.\n\
-You may further customize your settings by editing channel numbers, etc.\
+You may further customize your settings by editing channel numbers, etc.\n\n\
+\
+If you require further help, check out \
+[Tvheadend.org](http://tvheadend.org) or chat to us on \
+[IRC](https://kiwiirc.com/client/chat.freenode.net/?nick=tvhhelp|?#hts).\n\n\n\
+\
+Thank you for using Tvheadend (and don't forget to \
+[donate](http://tvheadend.org/projects/tvheadend/wiki/Donate))! :)\
 "))
 
 wizard_page_t *wizard_channels(const char *lang)
@@ -1220,7 +1281,7 @@ wizard_page_t *wizard_channels(const char *lang)
     LAST_BUTTON(),
     {}
   };
-  wizard_page_t *page = page_init("channels", "wizard_channels", N_("Channels"));
+  wizard_page_t *page = page_init("channels", "wizard_channels", N_("Finished"));
   idclass_t *ic = (idclass_t *)page->idnode.in_class;
   access_entry_t *ae;
 
