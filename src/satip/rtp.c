@@ -140,7 +140,7 @@ static void
 satip_rtp_header(satip_rtp_session_t *rtp, struct iovec *v, uint32_t off)
 {
   uint8_t *data = v->iov_base;
-  uint32_t tstamp = dispatch_clock + rtp->seq;
+  uint32_t tstamp = mono2sec(mclk()) + rtp->seq;
 
   rtp->seq++;
 
@@ -376,7 +376,7 @@ satip_rtp_thread(void *aux)
           continue;
         }
       }
-      pthread_cond_wait(&sq->sq_cond, &sq->sq_mutex);
+      tvh_cond_wait(&sq->sq_cond, &sq->sq_mutex);
       continue;
     }
     streaming_queue_remove(sq, sm);
@@ -566,7 +566,7 @@ void satip_rtp_close(void *id)
     sq = rtp->sq;
     pthread_mutex_lock(&sq->sq_mutex);
     rtp->sq = NULL;
-    pthread_cond_signal(&sq->sq_cond);
+    tvh_cond_signal(&sq->sq_cond, 0);
     pthread_mutex_unlock(&sq->sq_mutex);
     pthread_mutex_unlock(&satip_rtp_lock);
     if (rtp->port == RTSP_TCP_DATA)
@@ -861,20 +861,21 @@ static void *
 satip_rtcp_thread(void *aux)
 {
   satip_rtp_session_t *rtp;
-  struct timespec ts;
+  int64_t us;
   uint8_t msg[RTCP_PAYLOAD+1];
   char addrbuf[50];
   int r, len, err;
 
   tvhtrace("satips", "starting rtcp thread");
   while (satip_rtcp_run) {
-    ts.tv_sec  = 0;
-    ts.tv_nsec = 150000000;
+    us = 150000;
     do {
-      r = nanosleep(&ts, &ts);
+      us = tvh_usleep(us);
+      if (us < 0)
+        goto end;
       if (!satip_rtcp_run)
         goto end;
-    } while (r && ts.tv_nsec);
+    } while (us > 0);
     pthread_mutex_lock(&satip_rtp_lock);
     TAILQ_FOREACH(rtp, &satip_rtp_sessions, link) {
       if (rtp->sq == NULL) continue;

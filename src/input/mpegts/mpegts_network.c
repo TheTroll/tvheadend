@@ -150,7 +150,7 @@ const idclass_t mpegts_network_class =
       .type     = PT_STR,
       .id       = "pnetworkname",
       .name     = N_("Provider network name"),
-      .desc     = N_("Provider`s network name."),
+      .desc     = N_("Provider's network name."),
       .off      = offsetof(mpegts_network_t, mn_provider_network_name),
       .opts     = PO_ADVANCED | PO_HIDDEN,
     },
@@ -158,7 +158,7 @@ const idclass_t mpegts_network_class =
       .type     = PT_U16,
       .id       = "nid",
       .name     = N_("Network ID (limit scanning)"),
-      .desc     = N_("Limited/limit scanning to this network ID only."), 
+      .desc     = N_("Limited/limit scanning to this network ID only."),
       .opts     = PO_ADVANCED,
       .off      = offsetof(mpegts_network_t, mn_nid),
     },
@@ -215,7 +215,7 @@ const idclass_t mpegts_network_class =
       .type     = PT_BOOL,
       .id       = "ignore_chnum",
       .name     = N_("Ignore provider's channel numbers"),
-      .desc     = N_("Don`t use the provider`s channel numbers."),
+      .desc     = N_("Don't use the provider's channel numbers."),
       .off      = offsetof(mpegts_network_t, mn_ignore_chnum),
       .opts     = PO_ADVANCED,
       .def.i    = 0,
@@ -368,7 +368,7 @@ mpegts_network_delete
   }
 
   /* Disarm scanning */
-  gtimer_disarm(&mn->mn_scan_timer);
+  mtimer_disarm(&mn->mn_scan_timer);
 
   /* Remove from input */
   while ((mnl = LIST_FIRST(&mn->mn_inputs)))
@@ -418,7 +418,7 @@ mpegts_network_create0
   /* Initialise scanning */
   TAILQ_INIT(&mn->mn_scan_pend);
   TAILQ_INIT(&mn->mn_scan_active);
-  gtimer_arm(&mn->mn_scan_timer, mpegts_network_scan_timer_cb, mn, 0);
+  mtimer_arm_rel(&mn->mn_scan_timer, mpegts_network_scan_timer_cb, mn, 0);
 
   /* Defaults */
   mn->mn_satpos = INT_MAX;

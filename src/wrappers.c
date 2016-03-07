@@ -18,32 +18,9 @@
 #include <pthread_np.h>
 #endif
 
-#if ENABLE_ANDROID
-int
-pthread_mutex_timedlock
-  ( pthread_mutex_t *mutex, struct timespec *timeout )
-{
-  struct timeval timenow;
-  struct timespec sleepytime;
-  int retcode;
-
-  /* This is just to avoid a completely busy wait */
-  sleepytime.tv_sec = 0;
-  sleepytime.tv_nsec = 10000000; /* 10ms */
-
-  while ((retcode = pthread_mutex_trylock (mutex)) == EBUSY) {
-    gettimeofday (&timenow, NULL);
-
-    if (timenow.tv_sec >= timeout->tv_sec &&
-       (timenow.tv_usec * 1000) >= timeout->tv_nsec)
-      return ETIMEDOUT;
-
-    nanosleep (&sleepytime, NULL);
-  }
-
-  return retcode;
-}
-#endif
+/*
+ * filedescriptor routines
+ */
 
 int
 tvh_open(const char *pathname, int flags, mode_t mode)
@@ -101,17 +78,16 @@ tvh_pipe_close(th_pipe_t *p)
 int
 tvh_write(int fd, const void *buf, size_t len)
 {
-  time_t next = dispatch_clock + 25;
+  int64_t limit = mclk() + sec2mono(25);
   ssize_t c;
 
   while (len) {
     c = write(fd, buf, len);
     if (c < 0) {
       if (ERRNO_AGAIN(errno)) {
-        if (dispatch_clock > next)
+        if (mclk() > limit)
           break;
-        usleep(100);
-        dispatch_clock_update(NULL);
+        tvh_safe_usleep(100);
         continue;
       }
       break;
@@ -137,6 +113,10 @@ tvh_fopen(const char *filename, const char *mode)
   pthread_mutex_unlock(&fork_lock);
   return f;
 }
+
+/*
+ * thread routines
+ */
 
 static void doquit(int sig)
 {
@@ -216,6 +196,137 @@ tvhtread_renice(int value)
 #endif
   return ret;
 }
+
+int
+tvh_mutex_timedlock
+  ( pthread_mutex_t *mutex, int64_t usec )
+{
+  int64_t finish = getfastmonoclock() + usec;
+  int retcode;
+
+  while ((retcode = pthread_mutex_trylock (mutex)) == EBUSY) {
+    if (getfastmonoclock() >= finish)
+      return ETIMEDOUT;
+
+    tvh_safe_usleep(10000);
+  }
+
+  return retcode;
+}
+
+/*
+ * thread condition variables - monotonic clocks
+ */
+
+int
+tvh_cond_init
+  ( tvh_cond_t *cond )
+{
+  int r;
+
+  pthread_condattr_t attr;
+  pthread_condattr_init(&attr);
+  r = pthread_condattr_setclock(&attr, CLOCK_MONOTONIC);
+  if (r) {
+    fprintf(stderr, "Unable to set monotonic clocks for conditions! (%d)", r);
+    abort();
+  }
+  return pthread_cond_init(&cond->cond, &attr);
+}
+
+int
+tvh_cond_destroy
+  ( tvh_cond_t *cond )
+{
+  return pthread_cond_destroy(&cond->cond);
+}
+
+int
+tvh_cond_signal
+  ( tvh_cond_t *cond, int broadcast )
+{
+  if (broadcast)
+    return pthread_cond_broadcast(&cond->cond);
+  else
+    return pthread_cond_signal(&cond->cond);
+}
+
+int
+tvh_cond_wait
+  ( tvh_cond_t *cond, pthread_mutex_t *mutex)
+{
+  return pthread_cond_wait(&cond->cond, mutex);
+}
+
+int
+tvh_cond_timedwait
+  ( tvh_cond_t *cond, pthread_mutex_t *mutex, int64_t monoclock )
+{
+  struct timespec ts;
+  ts.tv_sec = monoclock / MONOCLOCK_RESOLUTION;
+  ts.tv_nsec = (monoclock % MONOCLOCK_RESOLUTION) *
+               (1000000000ULL/MONOCLOCK_RESOLUTION);
+  return pthread_cond_timedwait(&cond->cond, mutex, &ts);
+}
+
+/*
+ * clocks
+ */
+
+void
+tvh_safe_usleep(int64_t us)
+{
+  int64_t r;
+  if (us <= 0)
+    return;
+  do {
+    r = tvh_usleep(us);
+    if (r < 0) {
+      if (ERRNO_AGAIN(r))
+        continue;
+      break;
+    }
+    us = r;
+  } while (r > 0);
+}
+
+int64_t
+tvh_usleep(int64_t us)
+{
+  struct timespec ts;
+  int64_t val;
+  int r;
+  if (us <= 0)
+    return 0;
+  ts.tv_sec = us / 1000000LL;
+  ts.tv_nsec = (us % 1000000LL) * 1000LL;
+  r = clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, &ts);
+  val = (ts.tv_sec * 1000000LL) + ((ts.tv_nsec + 500LL) / 1000LL);
+  if (ERRNO_AGAIN(r))
+    return val;
+  return r ? -r : 0;
+}
+
+int64_t
+tvh_usleep_abs(int64_t us)
+{
+  struct timespec ts;
+  int64_t val;
+  int r;
+  if (us <= 0)
+    return 0;
+  ts.tv_sec = us / 1000000LL;
+  ts.tv_nsec = (us % 1000000LL) * 1000LL;
+  r = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, &ts);
+  val = (ts.tv_sec * 1000000LL) + ((ts.tv_nsec + 500LL) / 1000LL);
+  if (ERRNO_AGAIN(r))
+    return val;
+  return r ? -r : 0;
+}
+
+/*
+ * qsort
+ */
 
 #if ! ENABLE_QSORT_R
 /*

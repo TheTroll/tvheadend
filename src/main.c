@@ -83,6 +83,9 @@
 
 pthread_t main_tid;
 
+int64_t   __mdispatch_clock;
+time_t    __gdispatch_clock;
+
 /* Command line option struct */
 typedef struct {
   const char  sopt;
@@ -173,10 +176,15 @@ pthread_mutex_t atomic_lock;
 /*
  * Locals
  */
+static LIST_HEAD(, mtimer) mtimers;
+static tvh_cond_t mtimer_cond;
+static int64_t mtimer_periodic;
+static pthread_t mtimer_tid;
+static pthread_t mtimer_tick_tid;
 static LIST_HEAD(, gtimer) gtimers;
 static pthread_cond_t gtimer_cond;
 static TAILQ_HEAD(, tasklet) tasklets;
-static pthread_cond_t tasklet_cond;
+static tvh_cond_t tasklet_cond;
 static pthread_t tasklet_tid;
 
 static void
@@ -226,26 +234,82 @@ get_user_groups (const struct passwd *pw, gid_t* glist, size_t gmax)
 /**
  *
  */
+
+#define safecmp(a, b) ((a) > (b) ? 1 : ((a) < (b) ? -1 : 0))
+
 static int
-gtimercmp(gtimer_t *a, gtimer_t *b)
+mtimercmp(mtimer_t *a, mtimer_t *b)
 {
-  if(a->gti_expire.tv_sec  < b->gti_expire.tv_sec)
-    return -1;
-  if(a->gti_expire.tv_sec  > b->gti_expire.tv_sec)
-    return 1;
-  if(a->gti_expire.tv_nsec < b->gti_expire.tv_nsec)
-    return -1;
-  if(a->gti_expire.tv_nsec > b->gti_expire.tv_nsec)
-    return 1;
- return 0;
+  return safecmp(a->mti_expire, b->mti_expire);
 }
 
 /**
  *
  */
 void
-GTIMER_FCN(gtimer_arm_abs2)
-  (GTIMER_TRACEID_ gtimer_t *gti, gti_callback_t *callback, void *opaque, struct timespec *when)
+GTIMER_FCN(mtimer_arm_abs)
+  (GTIMER_TRACEID_ mtimer_t *mti, mti_callback_t *callback, void *opaque, int64_t when)
+{
+  lock_assert(&global_lock);
+
+  if (mti->mti_callback != NULL)
+    LIST_REMOVE(mti, mti_link);
+
+  mti->mti_callback = callback;
+  mti->mti_opaque   = opaque;
+  mti->mti_expire   = when;
+#if ENABLE_GTIMER_CHECK
+  mti->mti_id       = id;
+  mti->mti_fcn      = fcn;
+#endif
+
+  LIST_INSERT_SORTED(&mtimers, mti, mti_link, mtimercmp);
+
+  if (LIST_FIRST(&mtimers) == mti)
+    tvh_cond_signal(&mtimer_cond, 0); // force timer re-check
+}
+
+/**
+ *
+ */
+void
+GTIMER_FCN(mtimer_arm_rel)
+  (GTIMER_TRACEID_ mtimer_t *gti, mti_callback_t *callback, void *opaque, int64_t delta)
+{
+#if ENABLE_GTIMER_CHECK
+  GTIMER_FCN(mtimer_arm_abs)(id, fcn, gti, callback, opaque, mclk() + delta);
+#else
+  mtimer_arm_abs(gti, callback, opaque, mclk() + delta);
+#endif
+}
+
+/**
+ *
+ */
+void
+mtimer_disarm(mtimer_t *mti)
+{
+  if(mti->mti_callback) {
+    LIST_REMOVE(mti, mti_link);
+    mti->mti_callback = NULL;
+  }
+}
+
+/**
+ *
+ */
+static int
+gtimercmp(gtimer_t *a, gtimer_t *b)
+{
+  return safecmp(a->gti_expire, b->gti_expire);
+}
+
+/**
+ *
+ */
+void
+GTIMER_FCN(gtimer_arm_absn)
+  (GTIMER_TRACEID_ gtimer_t *gti, gti_callback_t *callback, void *opaque, time_t when)
 {
   lock_assert(&global_lock);
 
@@ -254,7 +318,7 @@ GTIMER_FCN(gtimer_arm_abs2)
 
   gti->gti_callback = callback;
   gti->gti_opaque   = opaque;
-  gti->gti_expire   = *when;
+  gti->gti_expire   = when;
 #if ENABLE_GTIMER_CHECK
   gti->gti_id       = id;
   gti->gti_fcn      = fcn;
@@ -270,49 +334,13 @@ GTIMER_FCN(gtimer_arm_abs2)
  *
  */
 void
-GTIMER_FCN(gtimer_arm_abs)
-  (GTIMER_TRACEID_ gtimer_t *gti, gti_callback_t *callback, void *opaque, time_t when)
-{
-  struct timespec ts;
-  ts.tv_nsec = 0;
-  ts.tv_sec  = when;
-#if ENABLE_GTIMER_CHECK
-  GTIMER_FCN(gtimer_arm_abs2)(id, fcn, gti, callback, opaque, &ts);
-#else
-  gtimer_arm_abs2(gti, callback, opaque, &ts);
-#endif
-}
-
-/**
- *
- */
-void
-GTIMER_FCN(gtimer_arm)
-  (GTIMER_TRACEID_ gtimer_t *gti, gti_callback_t *callback, void *opaque, int delta)
+GTIMER_FCN(gtimer_arm_rel)
+  (GTIMER_TRACEID_ gtimer_t *gti, gti_callback_t *callback, void *opaque, time_t delta)
 {
 #if ENABLE_GTIMER_CHECK
-  GTIMER_FCN(gtimer_arm_abs)(id, fcn, gti, callback, opaque, dispatch_clock + delta);
+  GTIMER_FCN(gtimer_arm_absn)(id, fcn, gti, callback, opaque, gclk() + delta);
 #else
-  gtimer_arm_abs(gti, callback, opaque, dispatch_clock + delta);
-#endif
-}
-
-/**
- *
- */
-void
-GTIMER_FCN(gtimer_arm_ms)
-  (GTIMER_TRACEID_ gtimer_t *gti, gti_callback_t *callback, void *opaque, long delta_ms )
-{
-  struct timespec ts;
-  clock_gettime(CLOCK_REALTIME, &ts);
-  ts.tv_nsec += (1000000 * delta_ms);
-  ts.tv_sec  += (ts.tv_nsec / 1000000000);
-  ts.tv_nsec %= 1000000000;
-#if ENABLE_GTIMER_CHECK
-  GTIMER_FCN(gtimer_arm_abs2)(id, fcn, gti, callback, opaque, &ts);
-#else
-  gtimer_arm_abs2(gti, callback, opaque, &ts);
+  gtimer_arm_absn(gti, callback, opaque, gclk() + delta);
 #endif
 }
 
@@ -359,7 +387,7 @@ tasklet_arm(tasklet_t *tsk, tsk_callback_t *callback, void *opaque)
   TAILQ_INSERT_TAIL(&tasklets, tsk, tsk_link);
 
   if (TAILQ_FIRST(&tasklets) == tsk)
-    pthread_cond_signal(&tasklet_cond);
+    tvh_cond_signal(&tasklet_cond, 0);
 
   pthread_mutex_unlock(&tasklet_lock);
 }
@@ -415,7 +443,7 @@ tasklet_thread ( void *aux )
   while (tvheadend_running) {
     tsk = TAILQ_FIRST(&tasklets);
     if (tsk == NULL) {
-      pthread_cond_wait(&tasklet_cond, &tasklet_lock);
+      tvh_cond_wait(&tasklet_cond, &tasklet_lock);
       continue;
     }
     if (tsk->tsk_callback) {
@@ -490,20 +518,104 @@ show_usage
 /**
  *
  */
-time_t
-dispatch_clock_update(struct timespec *ts)
+static int64_t
+mdispatch_clock_update(void)
 {
-  struct timespec ts1;
-  if (ts == NULL)
-    ts = &ts1;
-  clock_gettime(CLOCK_REALTIME, ts);
+  int64_t mono = getmonoclock();
 
-  /* 1sec stuff */
-  if (ts->tv_sec > dispatch_clock) {
-    dispatch_clock = ts->tv_sec;
+  if (mono > atomic_add_s64(&mtimer_periodic, 0)) {
+    atomic_exchange_s64(&mtimer_periodic, mono + MONOCLOCK_RESOLUTION);
     comet_flush(); /* Flush idle comet mailboxes */
   }
-  return dispatch_clock;
+
+  atomic_exchange_s64(&__mdispatch_clock, mono);
+  return mono;
+}
+
+/**
+ *
+ */
+static void *
+mtimer_tick_thread(void *aux)
+{
+  while (tvheadend_running) {
+    /* update clocks each 10x in one second */
+    atomic_exchange_s64(&__mdispatch_clock, getmonoclock());
+    tvh_safe_usleep(100000);
+  }
+  return NULL;
+}
+
+/**
+ *
+ */
+static void *
+mtimer_thread(void *aux)
+{
+  mtimer_t *mti;
+  mti_callback_t *cb;
+  int64_t now, next;
+#if ENABLE_GTIMER_CHECK
+  int64_t mtm;
+  const char *id;
+  const char *fcn;
+#endif
+
+  while (tvheadend_running) {
+    now = mdispatch_clock_update();
+
+    /* Global monoclock timers */
+    pthread_mutex_lock(&global_lock);
+
+    next = now + sec2mono(3600);
+
+    while((mti = LIST_FIRST(&mtimers)) != NULL) {
+      
+      if (mti->mti_expire > now) {
+        next = mti->mti_expire;
+        break;
+      }
+
+#if ENABLE_GTIMER_CHECK
+      mtm = getmonoclock();
+      id = mti->mti_id;
+      fcn = mti->mti_fcn;
+#endif
+      cb = mti->mti_callback;
+
+      LIST_REMOVE(mti, mti_link);
+      mti->mti_callback = NULL;
+
+      cb(mti->mti_opaque);
+
+#if ENABLE_GTIMER_CHECK
+      mtm = getmonoclock() - mtm;
+      if (mtm > 10000)
+        tvhtrace("mtimer", "%s:%s duration %"PRId64"us", id, fcn, mtm);
+#endif
+    }
+
+    /* Periodic updates */
+    if (next > mtimer_periodic)
+      next = mtimer_periodic;
+
+    /* Wait */
+    tvh_cond_timedwait(&mtimer_cond, &global_lock, next);
+    pthread_mutex_unlock(&global_lock);
+  }
+  
+  return NULL;
+}
+
+/**
+ *
+ */
+static inline time_t
+gdispatch_clock_update(void)
+{
+  time_t now = time(NULL);
+  atomic_exchange_time_t(&__gdispatch_clock, now);
+  return now;
 }
 
 /**
@@ -514,6 +626,7 @@ mainloop(void)
 {
   gtimer_t *gti;
   gti_callback_t *cb;
+  time_t now;
   struct timespec ts;
 #if ENABLE_GTIMER_CHECK
   int64_t mtm;
@@ -521,8 +634,8 @@ mainloop(void)
   const char *fcn;
 #endif
 
-  while(tvheadend_running) {
-    dispatch_clock_update(&ts);
+  while (tvheadend_running) {
+    now = gdispatch_clock_update();
 
     /* Global timers */
     pthread_mutex_lock(&global_lock);
@@ -531,18 +644,18 @@ mainloop(void)
     //       the top of the list with a 0 offset we could loop indefinitely
     
 #if 0
-    tvhdebug("gtimer", "now %ld.%09ld", ts.tv_sec, ts.tv_nsec);
+    tvhdebug("gtimer", "now %"PRItime_t, ts.tv_sec);
     LIST_FOREACH(gti, &gtimers, gti_link)
-      tvhdebug("gtimer", "  gti %p expire %ld.%08ld",
-               gti, gti->gti_expire.tv_sec, gti->gti_expire.tv_nsec);
+      tvhdebug("gtimer", "  gti %p expire %"PRItimet, gti, gti->gti_expire.tv_sec);
 #endif
+
+    ts.tv_sec += 3600;
+    ts.tv_nsec = 0;
 
     while((gti = LIST_FIRST(&gtimers)) != NULL) {
       
-      if ((gti->gti_expire.tv_sec > ts.tv_sec) ||
-          ((gti->gti_expire.tv_sec == ts.tv_sec) &&
-           (gti->gti_expire.tv_nsec > ts.tv_nsec))) {
-        ts = gti->gti_expire;
+      if (gti->gti_expire > now) {
+        ts.tv_sec = gti->gti_expire;
         break;
       }
 
@@ -559,14 +672,10 @@ mainloop(void)
       cb(gti->gti_opaque);
 
 #if ENABLE_GTIMER_CHECK
-      tvhtrace("gtimer", "%s:%s duration %"PRId64"ns", id, fcn, getmonoclock() - mtm);
+      mtm = getmonoclock() - mtm;
+      if (mtm > 10000)
+        tvhtrace("gtimer", "%s:%s duration %"PRId64"us", id, fcn, mtm);
 #endif
-    }
-
-    /* Bound wait */
-    if ((LIST_FIRST(&gtimers) == NULL) || (ts.tv_sec > (dispatch_clock + 1))) {
-      ts.tv_sec  = dispatch_clock + 1;
-      ts.tv_nsec = 0;
     }
 
     /* Wait */
@@ -608,8 +717,9 @@ main(int argc, char **argv)
   pthread_mutex_init(&global_lock, NULL);
   pthread_mutex_init(&tasklet_lock, NULL);
   pthread_mutex_init(&atomic_lock, NULL);
+  tvh_cond_init(&mtimer_cond);
   pthread_cond_init(&gtimer_cond, NULL);
-  pthread_cond_init(&tasklet_cond, NULL);
+  tvh_cond_init(&tasklet_cond);
   TAILQ_INIT(&tasklets);
 
   /* Defaults */
@@ -617,7 +727,8 @@ main(int argc, char **argv)
   tvheadend_webroot         = NULL;
   tvheadend_htsp_port       = 9982;
   tvheadend_htsp_port_extra = 0;
-  time(&dispatch_clock);
+  __mdispatch_clock = getmonoclock();
+  __gdispatch_clock = time(NULL);
 
   /* Command line options */
   int         opt_help         = 0,
@@ -982,7 +1093,8 @@ main(int argc, char **argv)
   
   /* Initialise clock */
   pthread_mutex_lock(&global_lock);
-  time(&dispatch_clock);
+  __mdispatch_clock = getmonoclock();
+  __gdispatch_clock = time(NULL);
 
   /* Signal handling */
   sigfillset(&set);
@@ -1011,6 +1123,7 @@ main(int argc, char **argv)
 
   epg_in_load = 1;
 
+  tvhthread_create(&mtimer_tick_tid, NULL, mtimer_tick_thread, NULL, "mtick");
   tvhthread_create(&tasklet_tid, NULL, tasklet_thread, NULL, "tasklet");
 
   dbus_server_init(opt_dbus, opt_dbus_session);
@@ -1111,7 +1224,12 @@ main(int argc, char **argv)
   if(opt_abort)
     abort();
 
+  tvhthread_create(&mtimer_tid, NULL, mtimer_thread, NULL, "mtimer");
   mainloop();
+  pthread_mutex_lock(&global_lock);
+  tvh_cond_signal(&mtimer_cond, 0);
+  pthread_mutex_unlock(&global_lock);
+  pthread_join(mtimer_tid, NULL);
 
 #if ENABLE_DBUS_1
   tvhftrace("main", dbus_server_done);
@@ -1157,11 +1275,14 @@ main(int argc, char **argv)
   tvhftrace("main", api_done);
 
   tvhtrace("main", "tasklet enter");
-  pthread_cond_signal(&tasklet_cond);
+  tvh_cond_signal(&tasklet_cond, 0);
   pthread_join(tasklet_tid, NULL);
   tvhtrace("main", "tasklet thread end");
   tasklet_flush();
   tvhtrace("main", "tasklet leave");
+  tvhtrace("main", "mtimer tick thread join enter");
+  pthread_join(tasklet_tid, NULL);
+  tvhtrace("main", "mtimer tick thread join leave");
 
   tvhftrace("main", dvb_done);
   tvhftrace("main", lang_str_done);
@@ -1259,4 +1380,13 @@ htsmsg_t *tvheadend_capabilities_list(int check)
     tc++;
   }
   return r;
+}
+
+/**
+ *
+ */
+void time_t_out_of_range_notify(int64_t val)
+{
+  tvherror("main", "time value of of range (%"PRId64") of time_t", val);
+  abort();
 }

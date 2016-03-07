@@ -47,7 +47,6 @@
 #endif
 #endif
 #include "queue.h"
-#include "avg.h"
 #include "hts_strtab.h"
 #include "htsmsg.h"
 #include "tvhlog.h"
@@ -112,6 +111,14 @@ lock_assert0(pthread_mutex_t *l, const char *file, int line)
 
 #define lock_assert(l) lock_assert0(l, __FILE__, __LINE__)
 
+/*
+ *
+ */
+
+typedef struct {
+  pthread_cond_t cond;
+} tvh_cond_t;
+
 
 /*
  * Commercial status
@@ -145,21 +152,8 @@ typedef enum {
 #define PICON_ISVCTYPE   1
 
 /*
- * global timer
+ * timer support functions
  */
-
-typedef void (gti_callback_t)(void *opaque);
-
-typedef struct gtimer {
-  LIST_ENTRY(gtimer) gti_link;
-  gti_callback_t *gti_callback;
-  void *gti_opaque;
-  struct timespec gti_expire;
-#if ENABLE_GTIMER_CHECK
-  const char *gti_id;
-  const char *gti_fcn;
-#endif
-} gtimer_t;
 
 #if ENABLE_GTIMER_CHECK
 #define GTIMER_TRACEID_ const char *id, const char *fcn,
@@ -169,20 +163,62 @@ typedef struct gtimer {
 #define GTIMER_FCN(n) n
 #endif
 
-void GTIMER_FCN(gtimer_arm)
-  (GTIMER_TRACEID_ gtimer_t *gti, gti_callback_t *callback, void *opaque, int delta);
-void GTIMER_FCN(gtimer_arm_ms)
-  (GTIMER_TRACEID_ gtimer_t *gti, gti_callback_t *callback, void *opaque, long delta_ms);
-void GTIMER_FCN(gtimer_arm_abs)
-  (GTIMER_TRACEID_ gtimer_t *gti, gti_callback_t *callback, void *opaque, time_t when);
-void GTIMER_FCN(gtimer_arm_abs2)
-  (GTIMER_TRACEID_ gtimer_t *gti, gti_callback_t *callback, void *opaque, struct timespec *when);
+/*
+ * global timer - monotonic
+ */
+
+typedef void (mti_callback_t)(void *opaque);
+
+typedef struct mtimer {
+  LIST_ENTRY(mtimer) mti_link;
+  mti_callback_t *mti_callback;
+  void *mti_opaque;
+  int64_t mti_expire;
+#if ENABLE_GTIMER_CHECK
+  const char *mti_id;
+  const char *mti_fcn;
+#endif
+} mtimer_t;
+
+void GTIMER_FCN(mtimer_arm_rel)
+  (GTIMER_TRACEID_ mtimer_t *mti, mti_callback_t *callback, void *opaque, int64_t delta);
+void GTIMER_FCN(mtimer_arm_abs)
+  (GTIMER_TRACEID_ mtimer_t *mti, mti_callback_t *callback, void *opaque, int64_t when);
 
 #if ENABLE_GTIMER_CHECK
-#define gtimer_arm(a, b, c, d) GTIMER_FCN(gtimer_arm)(SRCLINEID(), __func__, a, b, c, d)
-#define gtimer_arm_ms(a, b, c, d) GTIMER_FCN(gtimer_arm_ms)(SRCLINEID(), __func__, a, b, c, d)
-#define gtimer_arm_abs(a, b, c, d) GTIMER_FCN(gtimer_arm_abs)(SRCLINEID(), __func__, a, b, c, d)
-#define gtimer_arm_abs2(a, b, c, d) GTIMER_FCN(gtimer_arm_abs2)(SRCLINEID(), __func__, a, b, c, d)
+#define mtimer_arm_rel(a, b, c, d) GTIMER_FCN(mtimer_arm_rel)(SRCLINEID(), __func__, a, b, c, d)
+#define mtimer_arm_abs(a, b, c, d) GTIMER_FCN(mtimer_arm_abs)(SRCLINEID(), __func__, a, b, c, d)
+#endif
+
+void mtimer_disarm(mtimer_t *mti);
+
+
+
+/*
+ * global timer (based on the current system time - time())
+ */
+
+typedef void (gti_callback_t)(void *opaque);
+
+typedef struct gtimer {
+  LIST_ENTRY(gtimer) gti_link;
+  gti_callback_t *gti_callback;
+  void *gti_opaque;
+  time_t gti_expire;
+#if ENABLE_GTIMER_CHECK
+  const char *gti_id;
+  const char *gti_fcn;
+#endif
+} gtimer_t;
+
+void GTIMER_FCN(gtimer_arm_rel)
+  (GTIMER_TRACEID_ gtimer_t *gti, gti_callback_t *callback, void *opaque, time_t delta);
+void GTIMER_FCN(gtimer_arm_absn)
+  (GTIMER_TRACEID_ gtimer_t *gti, gti_callback_t *callback, void *opaque, time_t when);
+
+#if ENABLE_GTIMER_CHECK
+#define gtimer_arm_rel(a, b, c, d) GTIMER_FCN(gtimer_arm_rel)(SRCLINEID(), __func__, a, b, c, d)
+#define gtimer_arm_absn(a, b, c, d) GTIMER_FCN(gtimer_arm_absn)(SRCLINEID(), __func__, a, b, c, d)
 #endif
 
 void gtimer_disarm(gtimer_t *gti);
@@ -563,7 +599,7 @@ typedef struct streaming_queue {
   streaming_target_t sq_st;
 
   pthread_mutex_t sq_mutex;    /* Protects sp_queue */
-  pthread_cond_t  sq_cond;     /* Condvar for signalling new packets */
+  tvh_cond_t  sq_cond;         /* Condvar for signalling new packets */
 
   size_t          sq_maxsize;  /* Max queue size (bytes) */
   size_t          sq_size;     /* Actual queue size (bytes) - only data */
@@ -606,37 +642,8 @@ static inline unsigned int tvh_strhash(const char *s, unsigned int mod)
 void tvh_str_set(char **strp, const char *src);
 int tvh_str_update(char **strp, const char *src);
 
-#ifndef CLOCK_MONOTONIC_COARSE
-#define CLOCK_MONOTONIC_COARSE CLOCK_MONOTONIC
-#endif
-
-#ifdef PLATFORM_DARWIN
-#define CLOCK_MONOTONIC 0 
-#define CLOCK_REALTIME 0
-
-static inline int clock_gettime(int clk_id, struct timespec* t) {
-    struct timeval now;
-    int rv = gettimeofday(&now, NULL);
-    if (rv) return rv;
-    t->tv_sec  = now.tv_sec;
-    t->tv_nsec = now.tv_usec * 1000;
-    return 0;
-}
-#endif
-
-static inline int64_t 
-getmonoclock(void)
-{
-  struct timespec tp;
-
-  clock_gettime(CLOCK_MONOTONIC_COARSE, &tp);
-
-  return tp.tv_sec * 1000000ULL + (tp.tv_nsec / 1000);
-}
-
 int sri_to_rate(int sri);
 int rate_to_sri(int rate);
-
 
 extern struct service_list all_transports;
 
@@ -686,6 +693,18 @@ int tvhthread_create
    const char *name);
 
 int tvhtread_renice(int value);
+
+int tvh_mutex_timedlock(pthread_mutex_t *mutex, int64_t usec);
+
+int tvh_cond_init(tvh_cond_t *cond);
+
+int tvh_cond_destroy(tvh_cond_t *cond);
+
+int tvh_cond_signal(tvh_cond_t *cond, int broadcast);
+
+int tvh_cond_wait(tvh_cond_t *cond, pthread_mutex_t *mutex);
+
+int tvh_cond_timedwait(tvh_cond_t *cond, pthread_mutex_t *mutex, int64_t monoclock);
 
 int tvh_open(const char *pathname, int flags, mode_t mode);
 

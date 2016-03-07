@@ -147,7 +147,7 @@ typedef struct htsp_connection {
 
   int64_t  htsp_epg_window;      // only send async epg updates within this window (seconds)
   int64_t  htsp_epg_lastupdate;  // last update time for async epg events
-  gtimer_t htsp_epg_timer;       // timer for async epg updates
+  mtimer_t htsp_epg_timer;       // timer for async epg updates
 
   /**
    * Async mode
@@ -165,7 +165,7 @@ typedef struct htsp_connection {
   struct htsp_msg_q_queue htsp_active_output_queues;
 
   pthread_mutex_t htsp_out_mutex;
-  pthread_cond_t htsp_out_cond;
+  tvh_cond_t htsp_out_cond;
 
   htsp_msg_q_t htsp_hmq_ctrl;
   htsp_msg_q_t htsp_hmq_epg;
@@ -195,14 +195,14 @@ typedef struct htsp_subscription {
 
   th_subscription_t *hs_s; // Temporary
   int                hs_s_bytes_out;
-  gtimer_t           hs_s_bytes_out_timer;
+  mtimer_t           hs_s_bytes_out_timer;
 
   streaming_target_t hs_input;
   profile_chain_t    hs_prch;
 
   htsp_msg_q_t hs_q;
 
-  time_t hs_last_report; /* Last queue status report sent */
+  int64_t hs_last_report; /* Last queue status report sent */
 
   int hs_dropstats[PKT_NTYPES];
 
@@ -359,7 +359,7 @@ htsp_subscription_destroy(htsp_connection_t *htsp, htsp_subscription_t *hs)
   th_subscription_t *ts = hs->hs_s;
 
   hs->hs_s = NULL;
-  gtimer_disarm(&hs->hs_s_bytes_out_timer);
+  mtimer_disarm(&hs->hs_s_bytes_out_timer);
 
   LIST_REMOVE(hs, hs_link);
   LIST_INSERT_HEAD(&htsp->htsp_dead_subscriptions, hs, hs_link);
@@ -416,7 +416,7 @@ htsp_send(htsp_connection_t *htsp, htsmsg_t *m, pktbuf_t *pb,
 
   hmq->hmq_length++;
   hmq->hmq_payload += payloadsize;
-  pthread_cond_signal(&htsp->htsp_out_cond);
+  tvh_cond_signal(&htsp->htsp_out_cond, 0);
   pthread_mutex_unlock(&htsp->htsp_out_mutex);
 }
 
@@ -906,8 +906,8 @@ htsp_build_dvrentry(htsp_connection_t *htsp, dvr_entry_t *de, const char *method
 
   htsmsg_add_s64(out, "start",       de->de_start);
   htsmsg_add_s64(out, "stop",        de->de_stop);
-  htsmsg_add_s64(out, "startExtra",  dvr_entry_get_extra_time_pre(de));
-  htsmsg_add_s64(out, "stopExtra",   dvr_entry_get_extra_time_post(de));
+  htsmsg_add_s64(out, "startExtra",  dvr_entry_get_extra_time_pre(de)/60);
+  htsmsg_add_s64(out, "stopExtra",   dvr_entry_get_extra_time_post(de)/60);
 
   if (htsp->htsp_version > 24)
     htsmsg_add_u32(out, "retention",   dvr_entry_get_retention_days(de));
@@ -1408,9 +1408,9 @@ htsp_method_async(htsp_connection_t *htsp, htsmsg_t *in)
     if (htsp->htsp_async_mode & HTSP_ASYNC_EPG) {
       /* Only allow to change the window in the correct range */
       if (htsp->htsp_epg_window && epgMaxTime > htsp->htsp_epg_lastupdate)
-        htsp->htsp_epg_window = epgMaxTime-dispatch_clock;
-    } else if (epgMaxTime > dispatch_clock) {
-      htsp->htsp_epg_window = epgMaxTime-dispatch_clock;
+        htsp->htsp_epg_window = epgMaxTime-gclk();
+    } else if (epgMaxTime > gclk()) {
+      htsp->htsp_epg_window = epgMaxTime-gclk();
     } else {
       htsp->htsp_epg_window = 0;
     }
@@ -2332,7 +2332,7 @@ static void _bytes_out_cb(void *aux)
   htsp_subscription_t *hs = aux;
   if (hs->hs_s) {
     subscription_add_bytes_out(hs->hs_s, atomic_exchange(&hs->hs_s_bytes_out, 0));
-    gtimer_arm_ms(&hs->hs_s_bytes_out_timer, _bytes_out_cb, hs, 200);
+    mtimer_arm_rel(&hs->hs_s_bytes_out_timer, _bytes_out_cb, hs, ms2mono(200));
   }
 }
 
@@ -2458,7 +2458,7 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
 					      htsp->htsp_clientname,
 					      NULL);
   if (hs->hs_s)
-    gtimer_arm_ms(&hs->hs_s_bytes_out_timer, _bytes_out_cb, hs, 200);
+    mtimer_arm_rel(&hs->hs_s_bytes_out_timer, _bytes_out_cb, hs, ms2mono(200));
   return NULL;
 }
 
@@ -3105,7 +3105,7 @@ readmsg:
 
       	    pthread_mutex_unlock(&global_lock);
             /* Classic authentication failed delay */
-            usleep(250000);
+            tvh_safe_usleep(250000);
 
             reply = htsmsg_create_map();
             htsmsg_add_u32(reply, "noaccess", 1);
@@ -3162,7 +3162,7 @@ htsp_write_scheduler(void *aux)
 
     if((hmq = TAILQ_FIRST(&htsp->htsp_active_output_queues)) == NULL) {
       /* Nothing to be done, go to sleep */
-      pthread_cond_wait(&htsp->htsp_out_cond, &htsp->htsp_out_mutex);
+      tvh_cond_wait(&htsp->htsp_out_cond, &htsp->htsp_out_mutex);
       continue;
     }
 
@@ -3267,7 +3267,7 @@ htsp_serve(int fd, void **opaque, struct sockaddr_storage *source,
   if(htsp.htsp_async_mode)
     LIST_REMOVE(&htsp, htsp_async_link);
 
-  gtimer_disarm(&htsp.htsp_epg_timer);
+  mtimer_disarm(&htsp.htsp_epg_timer);
 
   /* deregister this client */
   LIST_REMOVE(&htsp, htsp_link);
@@ -3282,7 +3282,7 @@ htsp_serve(int fd, void **opaque, struct sockaddr_storage *source,
 
   pthread_mutex_lock(&htsp.htsp_out_mutex);
   htsp.htsp_writer_run = 0;
-  pthread_cond_signal(&htsp.htsp_out_cond);
+  tvh_cond_signal(&htsp.htsp_out_cond, 0);
   pthread_mutex_unlock(&htsp.htsp_out_mutex);
 
   pthread_join(htsp.htsp_writer_thread, NULL);
@@ -3677,7 +3677,7 @@ htsp_epg_send_waiting(htsp_connection_t *htsp, int64_t mintime)
   channel_t *ch;
   int64_t maxtime;
 
-  maxtime = dispatch_clock + htsp->htsp_epg_window;
+  maxtime = gclk() + htsp->htsp_epg_window;
   htsp->htsp_epg_lastupdate = maxtime;
 
   /* Push new events */
@@ -3693,7 +3693,8 @@ htsp_epg_send_waiting(htsp_connection_t *htsp, int64_t mintime)
 
   /* Keep the epg window up to date */
   if (htsp->htsp_epg_window)
-    gtimer_arm(&htsp->htsp_epg_timer, htsp_epg_window_cb, htsp, HTSP_ASYNC_EPG_INTERVAL);
+    mtimer_arm_rel(&htsp->htsp_epg_timer, htsp_epg_window_cb,
+                   htsp, sec2mono(HTSP_ASYNC_EPG_INTERVAL));
 }
 
 /**
@@ -3822,11 +3823,11 @@ htsp_stream_deliver(htsp_subscription_t *hs, th_pkt_t *pkt)
   htsp_send_subscription(htsp, m, pkt->pkt_payload, hs, payloadlen);
   atomic_add(&hs->hs_s_bytes_out, payloadlen);
 
-  if(hs->hs_last_report != dispatch_clock) {
+  if(mono2sec(hs->hs_last_report) != mono2sec(mclk())) {
 
     /* Send a queue and signal status report every second */
 
-    hs->hs_last_report = dispatch_clock;
+    hs->hs_last_report = mclk();
 
     m = htsmsg_create_map();
     htsmsg_add_str(m, "method", "queueStatus");

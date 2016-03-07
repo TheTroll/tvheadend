@@ -1413,6 +1413,7 @@ dobackup(const char *oldver)
   const char *argv[] = {
     "/usr/bin/tar", "cjf", outfile,
     "--exclude", "backup", "--exclude", "epggrab/*.sock",
+    "--exclude", "timeshift/buffer",
     ".", NULL
   };
   const char *root = hts_settings_get_root();
@@ -1458,7 +1459,7 @@ dobackup(const char *oldver)
     code = -ENOENT;
   } else {
     while ((code = spawn_reap(pid, errtxt, sizeof(errtxt))) == -EAGAIN)
-      usleep(20000);
+      tvh_safe_usleep(20000);
     if (code == -ECHILD)
       code = 0;
     tvhinfo("config", "backup: completed");

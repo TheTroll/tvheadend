@@ -30,7 +30,7 @@ struct access;
 typedef struct idnode idnode_t;
 typedef struct idnode_save idnode_save_t;
 
-#define IDNODE_SAVE_DELAY 3
+#define IDNODE_SAVE_DELAY (3 * MONOCLOCK_RESOLUTION)
 
 #define SAVEPTR_OUTOFSERVICE ((void *)((intptr_t)-1LL))
 
@@ -107,8 +107,17 @@ struct idnode {
 struct idnode_save {
   TAILQ_ENTRY(idnode_save)  ise_link;       ///< List chain
   idnode_t                 *ise_node;       ///< Node owning this
-  time_t                    ise_reqtime;    ///< First request
+  int64_t                   ise_reqtime;    ///< First request
 };
+
+/*
+ * Simple list
+ */
+typedef struct idnode_slist {
+  const char       *id;
+  const char       *name;
+  size_t            off;
+} idnode_slist_t;
 
 /*
  * Node list mapping definition
@@ -234,6 +243,11 @@ static inline void idnode_perm_unset(idnode_t *self) { self->in_access = NULL; }
 #define idnode_lang_ui(self) \
   (((idnode_t *)self)->in_access ? \
    ((idnode_t *)self)->in_access->aa_lang_ui : NULL)
+
+htsmsg_t * idnode_slist_enum ( idnode_t *in, idnode_slist_t *options, const char *lang );
+htsmsg_t * idnode_slist_get ( idnode_t *in, idnode_slist_t *options );
+int idnode_slist_set ( idnode_t *in, idnode_slist_t *options, const htsmsg_t *vals );
+char * idnode_slist_rend ( idnode_t *in, idnode_slist_t *options, const char *lang );
 
 idnode_list_mapping_t * idnode_list_link
                        ( idnode_t *in1, idnode_list_head_t *in1_list,

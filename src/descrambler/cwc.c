@@ -198,11 +198,11 @@ typedef struct cwc {
 
   pthread_t cwc_tid;
 
-  pthread_cond_t cwc_cond;
+  tvh_cond_t cwc_cond;
 
   pthread_mutex_t cwc_mutex;
   pthread_mutex_t cwc_writer_mutex; 
-  pthread_cond_t cwc_writer_cond; 
+  tvh_cond_t cwc_writer_cond;
   int cwc_writer_running;
   struct cwc_message_queue cwc_writeq;
 
@@ -443,7 +443,7 @@ cwc_send_msg(cwc_t *cwc, const uint8_t *msg, size_t len, int sid, int enq, uint1
     cm->cm_len = len;
     pthread_mutex_lock(&cwc->cwc_writer_mutex);
     TAILQ_INSERT_TAIL(&cwc->cwc_writeq, cm, cm_link);
-    pthread_cond_signal(&cwc->cwc_writer_cond);
+    tvh_cond_signal(&cwc->cwc_writer_cond, 0);
     pthread_mutex_unlock(&cwc->cwc_writer_mutex);
   } else {
     if (tvh_write(cwc->cwc_fd, buf, len))
@@ -707,10 +707,11 @@ handle_ecm_reply(cwc_service_t *ct, ecm_section_t *es, uint8_t *msg,
   mpegts_service_t *t = (mpegts_service_t *)ct->td_service;
   cwc_t *cwc = ct->cs_cwc;
   ecm_pid_t *ep;
-  ecm_section_t *es2;
+  ecm_section_t *es2, es3;
   char chaninfo[128];
   int i;
-  int64_t delay = (getmonoclock() - es->es_time) / 1000LL; // in ms
+  uint32_t off;
+  int64_t delay = (getfastmonoclock() - es->es_time) / 1000LL; // in ms
 
   es->es_pending = 0;
 
@@ -817,10 +818,7 @@ forbid:
                t->s_dvb_svcname, delay, ct->td_nicename);
       es->es_keystate = ES_RESOLVED;
       es->es_resolved = 1;
-
-      pthread_mutex_unlock(&cwc->cwc_mutex);
-      descrambler_keys((th_descrambler_t *)ct, DESCRAMBLER_DES, msg + 3, msg + 3 + 8);
-      pthread_mutex_lock(&cwc->cwc_mutex);
+      off = 8;
     } else {
       tvhlog(LOG_DEBUG, "cwc",
            "Received ECM reply%s for service \"%s\" "
@@ -832,10 +830,10 @@ forbid:
            msg[3 + 0], msg[3 + 1], msg[3 + 2], msg[3 + 3], msg[3 + 4],
            msg[3 + 5], msg[3 + 6], msg[3 + 7], msg[3 + 8], msg[3 + 9],
            msg[3 + 10],msg[3 + 11],msg[3 + 12],msg[3 + 13],msg[3 + 14],
-           msg[3 + 15], msg[3 + 16], msg[3 + 17], msg[3 + 18], msg[3 + 19],
-           msg[3 + 20], msg[3 + 21], msg[3 + 22], msg[3 + 23], msg[3 + 24],
+           msg[3 + 15],msg[3 + 16],msg[3 + 17],msg[3 + 18],msg[3 + 19],
+           msg[3 + 20],msg[3 + 21],msg[3 + 22],msg[3 + 23],msg[3 + 24],
            msg[3 + 25],msg[3 + 26],msg[3 + 27],msg[3 + 28],msg[3 + 29],
-           msg[3 + 30], msg[3 + 31], seq, delay);
+           msg[3 + 30],msg[3 + 31], seq, delay);
 
       if(es->es_keystate != ES_RESOLVED)
         tvhlog(LOG_DEBUG, "cwc",
@@ -843,18 +841,21 @@ forbid:
                t->s_dvb_svcname, delay, ct->td_nicename);
       es->es_keystate = ES_RESOLVED;
       es->es_resolved = 1;
-
-      pthread_mutex_unlock(&cwc->cwc_mutex);
-      descrambler_keys((th_descrambler_t *)ct, DESCRAMBLER_AES, msg + 3, msg + 3 + 16);
-      pthread_mutex_lock(&cwc->cwc_mutex);
+      off = 16;
     }
 
+    es3 = *es;
+    pthread_mutex_unlock(&cwc->cwc_mutex);
+    descrambler_keys((th_descrambler_t *)ct,
+                     off == 16 ? DESCRAMBLER_AES : DESCRAMBLER_DES,
+                     msg + 3, msg + 3 + off);
     snprintf(chaninfo, sizeof(chaninfo), "%s:%i", cwc->cwc_hostname, cwc->cwc_port);
     descrambler_notify((th_descrambler_t *)ct,
-                       es->es_caid, es->es_provid,
-                       caid2name(es->es_caid),
-                       es->es_channel, delay,
+                       es3.es_caid, es3.es_provid,
+                       caid2name(es3.es_caid),
+                       es3.es_channel, delay,
                        1, "", chaninfo, "newcamd");
+    pthread_mutex_lock(&cwc->cwc_mutex);
   }
 }
 
@@ -1045,7 +1046,7 @@ cwc_writer_thread(void *aux)
 {
   cwc_t *cwc = aux;
   cwc_message_t *cm;
-  struct timespec ts;
+  int64_t mono;
   int r;
 
   pthread_mutex_lock(&cwc->cwc_writer_mutex);
@@ -1055,10 +1056,10 @@ cwc_writer_thread(void *aux)
     if((cm = TAILQ_FIRST(&cwc->cwc_writeq)) != NULL) {
       TAILQ_REMOVE(&cwc->cwc_writeq, cm, cm_link);
       pthread_mutex_unlock(&cwc->cwc_writer_mutex);
-      //      int64_t ts = getmonoclock();
+      //      int64_t ts = getfastmonoclock();
       if (tvh_write(cwc->cwc_fd, cm->cm_data, cm->cm_len))
         tvhlog(LOG_INFO, "cwc", "write error %s", strerror(errno));
-      //      printf("Write took %lld usec\n", getmonoclock() - ts);
+      //      printf("Write took %lld usec\n", getfastmonoclock() - ts);
       free(cm);
       pthread_mutex_lock(&cwc->cwc_writer_mutex);
       continue;
@@ -1067,12 +1068,14 @@ cwc_writer_thread(void *aux)
 
     /* If nothing is to be sent in CWC_KEEPALIVE_INTERVAL seconds we
        need to send a keepalive */
-    ts.tv_sec  = time(NULL) + CWC_KEEPALIVE_INTERVAL;
-    ts.tv_nsec = 0;
-    r = pthread_cond_timedwait(&cwc->cwc_writer_cond, 
-                               &cwc->cwc_writer_mutex, &ts);
-    if(r == ETIMEDOUT)
-      cwc_send_ka(cwc);
+    mono = mclk() + sec2mono(CWC_KEEPALIVE_INTERVAL);
+    do {
+      r = tvh_cond_timedwait(&cwc->cwc_writer_cond, &cwc->cwc_writer_mutex, mono);
+      if(r == ETIMEDOUT) {
+        cwc_send_ka(cwc);
+        break;
+      }
+    } while (ERRNO_AGAIN(r));
   }
 
   pthread_mutex_unlock(&cwc->cwc_writer_mutex);
@@ -1145,7 +1148,7 @@ cwc_session(cwc_t *cwc)
    * We do all requests from now on in a separate thread
    */
   cwc->cwc_writer_running = 1;
-  pthread_cond_init(&cwc->cwc_writer_cond, NULL);
+  tvh_cond_init(&cwc->cwc_writer_cond);
   pthread_mutex_init(&cwc->cwc_writer_mutex, NULL);
   TAILQ_INIT(&cwc->cwc_writeq);
   tvhthread_create(&writer_thread_id, NULL, cwc_writer_thread, cwc, "cwc-writer");
@@ -1167,7 +1170,7 @@ cwc_session(cwc_t *cwc)
    */
   shutdown(cwc->cwc_fd, SHUT_RDWR);
   cwc->cwc_writer_running = 0;
-  pthread_cond_signal(&cwc->cwc_writer_cond);
+  tvh_cond_signal(&cwc->cwc_writer_cond, 0);
   pthread_join(writer_thread_id, NULL);
   tvhlog(LOG_DEBUG, "cwc", "Write thread joined");
 }
@@ -1179,12 +1182,12 @@ static void *
 cwc_thread(void *aux)
 {
   cwc_t *cwc = aux;
-  int fd, d;
+  int fd, d, r;
   char errbuf[100];
   char hostname[256];
   int port;
-  struct timespec ts;
   int attempts = 0;
+  int64_t mono;
 
   pthread_mutex_lock(&cwc->cwc_mutex);
 
@@ -1239,14 +1242,17 @@ cwc_thread(void *aux)
     caclient_set_status((caclient_t *)cwc, CACLIENT_STATUS_DISCONNECTED);
 
     d = 3;
-    ts.tv_sec = time(NULL) + d;
-    ts.tv_nsec = 0;
 
     tvhlog(LOG_INFO, "cwc", 
            "%s:%i: Automatic connection attempt in %d seconds",
            cwc->cwc_hostname, cwc->cwc_port, d-1);
 
-    pthread_cond_timedwait(&cwc->cwc_cond, &cwc->cwc_mutex, &ts);
+    mono = mclk() + sec2mono(d);
+    do {
+      r = tvh_cond_timedwait(&cwc->cwc_cond, &cwc->cwc_mutex, mono);
+      if (r == ETIMEDOUT)
+        break;
+    } while (ERRNO_AGAIN(r));
   }
 
   tvhlog(LOG_INFO, "cwc", "%s:%i inactive",
@@ -1310,11 +1316,10 @@ cwc_emm(void *opaque, int pid, const uint8_t *data, int len, int emm)
   if (pcard->running && cwc->cwc_forward_emm && cwc->cwc_writer_running) {
     if (cwc->cwc_emmex) {
       if (cwc->cwc_mux != mux) {
-        int64_t delta = getmonoclock() - cwc->cwc_update_time;
-        if (delta < 25000000UL)  /* 25 seconds */
+        if (cwc->cwc_update_time + sec2mono(25) < mclk())
           goto end_of_job;
       }
-      cwc->cwc_update_time = getmonoclock();
+      cwc->cwc_update_time = mclk();
     }
     cwc->cwc_mux = mux;
     emm_filter(&pcard->cs_ra, data, len, mux, cwc_emm_send, pcard);
@@ -1472,7 +1477,7 @@ found:
       tvhlog(LOG_DEBUG, "cwc",
              "Sending ECM%s section=%d/%d, for service \"%s\" (seqno: %d)",
              chaninfo, section, ep->ep_last_section, t->s_dvb_svcname, es->es_seq);
-      es->es_time = getmonoclock();
+      es->es_time = getfastmonoclock();
       break;
 
     default:
@@ -1736,14 +1741,14 @@ cwc_conf_changed(caclient_t *cac)
     cwc->cwc_reconfigure = 1;
     if(cwc->cwc_fd >= 0)
       shutdown(cwc->cwc_fd, SHUT_RDWR);
-    pthread_cond_signal(&cwc->cwc_cond);
+    tvh_cond_signal(&cwc->cwc_cond, 0);
     pthread_mutex_unlock(&cwc->cwc_mutex);
   } else {
     if (!cwc->cwc_running)
       return;
     pthread_mutex_lock(&cwc->cwc_mutex);
     cwc->cwc_running = 0;
-    pthread_cond_signal(&cwc->cwc_cond);
+    tvh_cond_signal(&cwc->cwc_cond, 0);
     tid = cwc->cwc_tid;
     if (cwc->cwc_fd >= 0)
       shutdown(cwc->cwc_fd, SHUT_RDWR);
@@ -1871,7 +1876,7 @@ caclient_t *cwc_create(void)
   cwc_t *cwc = calloc(1, sizeof(*cwc));
 
   pthread_mutex_init(&cwc->cwc_mutex, NULL);
-  pthread_cond_init(&cwc->cwc_cond, NULL);
+  tvh_cond_init(&cwc->cwc_cond);
   cwc->cac_free         = cwc_free;
   cwc->cac_start        = cwc_service_start;
   cwc->cac_conf_changed = cwc_conf_changed;

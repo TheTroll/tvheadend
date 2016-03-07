@@ -558,7 +558,7 @@ tcp_connection_launch
 {
   tcp_server_launch_t *tsl, *res;
   uint32_t used = 0, used2;
-  time_t started = dispatch_clock;
+  int64_t started = mclk();
   int c1, c2;
 
   lock_assert(&global_lock);
@@ -590,7 +590,7 @@ try_again:
     c2 = aa->aa_conn_limit_streaming ? used >= aa->aa_conn_limit_streaming : -1;
 
     if (c1 && c2) {
-      if (started + 3 < dispatch_clock) {
+      if (started + sec2mono(3) < mclk()) {
         tvherror("tcp", "multiple connections are not allowed for user '%s' from '%s' "
                         "(limit %u, streaming limit %u, active streaming %u, DVR %u)",
                  aa->aa_username ?: "", aa->aa_representative ?: "",
@@ -599,7 +599,7 @@ try_again:
         return NULL;
       }
       pthread_mutex_unlock(&global_lock);
-      usleep(250000);
+      tvh_safe_usleep(250000);
       pthread_mutex_lock(&global_lock);
       if (tvheadend_running)
         goto try_again;
@@ -720,8 +720,10 @@ tcp_server_loop(void *aux)
 
   while(tcp_server_running) {
     r = tvhpoll_wait(tcp_server_poll, &ev, 1, -1);
-    if(r == -1) {
-      perror("tcp_server: tvhpoll_wait");
+    if(r < 0) {
+      if (ERRNO_AGAIN(r))
+        continue;
+      tvherror("tcp", "tcp_server_loop: tvhpoll_wait: %s", strerror(errno));
       continue;
     }
 
@@ -1163,11 +1165,11 @@ tcp_server_done(void)
   tvh_pipe_close(&tcp_server_pipe);
   tvhpoll_destroy(tcp_server_poll);
   
-  t = getmonoclock();
+  t = mclk();
   while (LIST_FIRST(&tcp_server_active) != NULL) {
-    if (getmonoclock() - t > 5000000)
+    if (t + sec2mono(5) < mclk())
       tvhtrace("tcp", "tcp server %p active too long", LIST_FIRST(&tcp_server_active));
-    usleep(20000);
+    tvh_safe_usleep(20000);
   }
 
   pthread_mutex_lock(&global_lock);

@@ -311,16 +311,13 @@ http_stream_run(http_connection_t *hc, profile_chain_t *prch,
 		const char *name, th_subscription_t *s)
 {
   streaming_message_t *sm;
-  int run = 1;
-  int started = 0;
+  int run = 1, started = 0;
   streaming_queue_t *sq = &prch->prch_sq;
   muxer_t *mux = prch->prch_muxer;
-  time_t lastpkt;
-  int ptimeout, grace = 20;
-  struct timespec ts;
-  struct timeval  tp;
+  int ptimeout, grace = 20, r;
+  struct timeval tp;
   streaming_start_t *ss_copy;
-  int64_t mono;
+  int64_t lastpkt, mono;
 
   if(muxer_open_stream(mux, hc->hc_fd))
     run = 0;
@@ -332,7 +329,7 @@ http_stream_run(http_connection_t *hc, profile_chain_t *prch,
   if (config.dscp >= 0)
     socket_set_dscp(hc->hc_fd, config.dscp, NULL, 0);
 
-  lastpkt = dispatch_clock;
+  lastpkt = mclk();
   ptimeout = prch->prch_pro ? prch->prch_pro->pro_timeout : 5;
 
   if (hc->hc_no_output) {
@@ -345,22 +342,22 @@ http_stream_run(http_connection_t *hc, profile_chain_t *prch,
     pthread_mutex_lock(&sq->sq_mutex);
     sm = TAILQ_FIRST(&sq->sq_queue);
     if(sm == NULL) {
-      gettimeofday(&tp, NULL);
-      ts.tv_sec  = tp.tv_sec + 1;
-      ts.tv_nsec = tp.tv_usec * 1000;
-
-      if(pthread_cond_timedwait(&sq->sq_cond, &sq->sq_mutex, &ts) == ETIMEDOUT) {
-
-        /* Check socket status */
-        if (tcp_socket_dead(hc->hc_fd)) {
-          tvhlog(LOG_DEBUG, "webui",  "Stop streaming %s, client hung up", hc->hc_url_orig);
-          run = 0;
-        } else if((!started && dispatch_clock - lastpkt > grace) ||
-                   (started && ptimeout > 0 && dispatch_clock - lastpkt > ptimeout)) {
-          tvhlog(LOG_WARNING, "webui",  "Stop streaming %s, timeout waiting for packets", hc->hc_url_orig);
-          run = 0;
+      mono = mclk() + sec2mono(1);
+      do {
+        r = tvh_cond_timedwait(&sq->sq_cond, &sq->sq_mutex, mono);
+        if (r == ETIMEDOUT) {
+          /* Check socket status */
+          if (tcp_socket_dead(hc->hc_fd)) {
+            tvhlog(LOG_DEBUG, "webui",  "Stop streaming %s, client hung up", hc->hc_url_orig);
+            run = 0;
+          } else if((!started && mclk() - lastpkt > sec2mono(grace)) ||
+                     (started && ptimeout > 0 && mclk() - lastpkt > sec2mono(ptimeout))) {
+            tvhlog(LOG_WARNING, "webui",  "Stop streaming %s, timeout waiting for packets", hc->hc_url_orig);
+            run = 0;
+          }
+          break;
         }
-      }
+      } while (ERRNO_AGAIN(r));
       pthread_mutex_unlock(&sq->sq_mutex);
       continue;
     }
@@ -380,7 +377,7 @@ http_stream_run(http_connection_t *hc, profile_chain_t *prch,
           pb = sm->sm_data;
         subscription_add_bytes_out(s, len = pktbuf_len(pb));
         if (len > 0)
-          lastpkt = dispatch_clock;
+          lastpkt = mclk();
         muxer_write_pkt(mux, sm->sm_type, sm->sm_data);
         sm->sm_data = NULL;
       }
@@ -399,11 +396,11 @@ http_stream_run(http_connection_t *hc, profile_chain_t *prch,
 
         if (hc->hc_no_output) {
           streaming_msg_free(sm);
-          mono = getmonoclock() + 2000000;
-          while (getmonoclock() < mono) {
+          mono = mclk() + sec2mono(2);
+          while (mclk() < mono) {
             if (tcp_socket_dead(hc->hc_fd))
               break;
-            usleep(50000);
+            tvh_safe_usleep(50000);
           }
           return;
         }
@@ -432,8 +429,8 @@ http_stream_run(http_connection_t *hc, profile_chain_t *prch,
         tvhlog(LOG_DEBUG, "webui",  "Stop streaming %s, client hung up",
                hc->hc_url_orig);
         run = 0;
-      } else if((!started && dispatch_clock - lastpkt > grace) ||
-                 (started && ptimeout > 0 && dispatch_clock - lastpkt > ptimeout)) {
+      } else if((!started && mclk() - lastpkt > sec2mono(grace)) ||
+                 (started && ptimeout > 0 && mclk() - lastpkt > sec2mono(ptimeout))) {
         tvhlog(LOG_WARNING, "webui",  "Stop streaming %s, timeout waiting for packets", hc->hc_url_orig);
         run = 0;
       }

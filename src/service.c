@@ -57,7 +57,7 @@ struct service_queue service_all;
 struct service_queue service_raw_all;
 struct service_queue service_raw_remove;
 
-static gtimer_t service_raw_remove_timer;
+static mtimer_t service_raw_remove_timer;
 
 static void
 service_class_notify_enabled ( void *obj, const char *lang )
@@ -146,6 +146,19 @@ service_class_auto_list ( void *o, const char *lang )
   return strtab2htsmsg(tab, 1, lang);
 }
 
+static htsmsg_t *
+service_type_auto_list ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("Override disabled"), ST_UNSET },
+    { N_("None"),              ST_NONE  },
+    { N_("Radio"),             ST_RADIO },
+    { N_("SD TV"),             ST_SDTV  },
+    { N_("HD TV"),             ST_HDTV  }
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
 const idclass_t service_class = {
   .ic_class      = "service",
   .ic_caption    = N_("Service"),
@@ -190,7 +203,7 @@ const idclass_t service_class = {
       .id       = "priority",
       .name     = N_("Priority (-10..10)"),
       .desc     = N_("Service priority. Enter a value between -10 and "
-                     "10. A higher value indicates a higher preference. " 
+                     "10. A higher value indicates a higher preference. "
                      "See Help for more info."),
       .off      = offsetof(service_t, s_prio),
       .opts     = PO_ADVANCED
@@ -199,7 +212,7 @@ const idclass_t service_class = {
       .type     = PT_BOOL,
       .id       = "encrypted",
       .name     = N_("Encrypted"),
-      .desc     = N_("The service`s encryption status."),
+      .desc     = N_("The service's encryption status."),
       .get      = service_class_encrypted_get,
       .opts     = PO_NOSAVE | PO_RDONLY
     },
@@ -210,6 +223,16 @@ const idclass_t service_class = {
       .desc     = N_("The Conditional Access ID used for the service."),
       .get      = service_class_caid_get,
       .opts     = PO_NOSAVE | PO_RDONLY | PO_HIDDEN | PO_EXPERT,
+    },
+    {
+      .type     = PT_INT,
+      .id       = "s_type_user",
+      .name     = N_("Type override"),
+      .desc     = N_("Service type override. This value will override the "
+                     "service type provided by the stream."),
+      .list     = service_type_auto_list,
+      .off      = offsetof(service_t, s_type_user),
+      .opts     = PO_ADVANCED
     },
     {}
   }
@@ -262,7 +285,7 @@ stream_clean(elementary_stream_t *st)
   streaming_queue_clear(&st->es_backlog);
 
   st->es_startcode = 0;
-  
+
   sbuf_free(&st->es_buf);
   sbuf_free(&st->es_buf_a);
 
@@ -293,9 +316,6 @@ service_stream_destroy(service_t *t, elementary_stream_t *es)
   if(t->s_status == SERVICE_RUNNING)
     stream_clean(es);
 
-  avgstat_flush(&es->es_rate);
-  avgstat_flush(&es->es_cc_errors);
-
   if (t->s_last_es == es) {
     t->s_last_pid = -1;
     t->s_last_es = NULL;
@@ -321,7 +341,7 @@ service_stop(service_t *t)
 {
   elementary_stream_t *st;
 
-  gtimer_disarm(&t->s_receive_timer);
+  mtimer_disarm(&t->s_receive_timer);
 
   t->s_stop_feed(t);
 
@@ -330,7 +350,7 @@ service_stop(service_t *t)
   descrambler_service_stop(t);
 
   t->s_tt_commercial_advice = COMMERCIAL_UNKNOWN;
- 
+
   assert(LIST_FIRST(&t->s_streaming_pad.sp_targets) == NULL);
   assert(LIST_FIRST(&t->s_subscriptions) == NULL);
 
@@ -625,7 +645,7 @@ service_start(service_t *t, int instance, int weight, int flags,
   t->s_streaming_live   = 0;
   t->s_scrambled_seen   = 0;
   t->s_scrambled_pass   = !!(flags & SUBSCRIPTION_NODESCR);
-  t->s_start_time       = dispatch_clock;
+  t->s_start_time       = mclk();
 
   pthread_mutex_lock(&t->s_stream_mutex);
   service_build_filter(t);
@@ -657,7 +677,8 @@ service_start(service_t *t, int instance, int weight, int flags,
   t->s_timeout = timeout;
   t->s_grace_delay = stimeout;
   if (stimeout > 0)
-    gtimer_arm(&t->s_receive_timer, service_data_timeout, t, stimeout);
+    mtimer_arm_rel(&t->s_receive_timer, service_data_timeout, t,
+                   sec2mono(stimeout));
   return 0;
 }
 
@@ -674,7 +695,7 @@ service_find_instance
   idnode_list_mapping_t *ilm;
   service_instance_t *si, *next;
   profile_t *pro = prch ? prch->prch_pro : NULL;
-  int enlisted, weight2;
+  int enlisted;
 
   lock_assert(&global_lock);
 
@@ -717,7 +738,7 @@ service_find_instance
     if(si->si_mark)
       service_instance_destroy(sil, si);
   }
-  
+
   if (TAILQ_EMPTY(sil)) {
     if (*error < SM_CODE_NO_ADAPTERS)
       *error = SM_CODE_NO_ADAPTERS;
@@ -752,15 +773,20 @@ service_find_instance
         break;
   }
 
-  /* Bump the one with lowest weight */
+  /* Bump the one with lowest weight or bigger priority */
   if (!si) {
     next = NULL;
-    weight2 = weight;
-    TAILQ_FOREACH(si, sil, si_link)
-      if (weight2 > si->si_weight && si->si_error == 0) {
-        weight2 = si->si_weight;
-        next = si;
+    TAILQ_FOREACH(si, sil, si_link) {
+      if (si->si_error) continue;
+      if (next == NULL) {
+        if (si->si_weight < weight)
+          next = si;
+      } else {
+        if ((si->si_weight < next->si_weight) ||
+            (si->si_weight == next->si_weight && si->si_prio > next->si_prio))
+          next = si;
       }
+    }
     si = next;
   }
 
@@ -847,8 +873,6 @@ service_destroy(service_t *t, int delconf)
   while((st = TAILQ_FIRST(&t->s_components)) != NULL)
     service_stream_destroy(t, st);
 
-  avgstat_flush(&t->s_rate);
-
   switch (t->s_type) {
   case STYPE_RAW:
     TAILQ_REMOVE(&service_raw_all, t, s_all_link);
@@ -879,7 +903,7 @@ service_remove_raw(service_t *t)
   t->s_type = STYPE_RAW_REMOVED;
   TAILQ_REMOVE(&service_raw_all, t, s_all_link);
   TAILQ_INSERT_TAIL(&service_raw_remove, t, s_all_link);
-  gtimer_arm(&service_raw_remove_timer, service_remove_raw_timer_cb, NULL, 0);
+  mtimer_arm_rel(&service_raw_remove_timer, service_remove_raw_timer_cb, NULL, 0);
 }
 
 void
@@ -929,15 +953,15 @@ service_create0
   }
 
   lock_assert(&global_lock);
-  
+
   if (service_type == STYPE_RAW)
     TAILQ_INSERT_TAIL(&service_raw_all, t, s_all_link);
   else
     TAILQ_INSERT_TAIL(&service_all, t, s_all_link);
 
   pthread_mutex_init(&t->s_stream_mutex, NULL);
-  pthread_cond_init(&t->s_tss_cond, NULL);
   t->s_type = service_type;
+  t->s_type_user = ST_UNSET;
   t->s_source_type = source_type;
   t->s_refcount = 1;
   t->s_enabled = 1;
@@ -949,7 +973,7 @@ service_create0
   t->s_last_pid = -1;
 
   streaming_pad_init(&t->s_streaming_pad);
-  
+
   /* Load config */
   if (conf)
     service_load(t, conf);
@@ -961,16 +985,16 @@ service_create0
 /**
  *
  */
-static void 
+static void
 service_stream_make_nicename(service_t *t, elementary_stream_t *st)
 {
   char buf[200];
   if(st->es_pid != -1)
-    snprintf(buf, sizeof(buf), "%s: %s @ #%d", 
+    snprintf(buf, sizeof(buf), "%s: %s @ #%d",
 	     service_nicename(t),
 	     streaming_component_type2txt(st->es_type), st->es_pid);
   else
-    snprintf(buf, sizeof(buf), "%s: %s", 
+    snprintf(buf, sizeof(buf), "%s: %s",
 	     service_nicename(t),
 	     streaming_component_type2txt(st->es_type));
 
@@ -982,7 +1006,7 @@ service_stream_make_nicename(service_t *t, elementary_stream_t *st)
 /**
  *
  */
-void 
+void
 service_make_nicename(service_t *t)
 {
   char buf[256], buf2[16];
@@ -1001,7 +1025,7 @@ service_make_nicename(service_t *t)
     service_name = buf2;
   }
 
-  snprintf(buf, sizeof(buf), 
+  snprintf(buf, sizeof(buf),
 	   "%s%s%s%s%s%s%s",
 	   si.si_adapter ?: "", si.si_adapter && si.si_network ? "/" : "",
 	   si.si_network ?: "", si.si_network && si.si_mux     ? "/" : "",
@@ -1054,9 +1078,6 @@ service_stream_create(service_t *t, int pid,
 
   st->es_pid = pid;
 
-  avgstat_init(&st->es_rate, 10);
-  avgstat_init(&st->es_cc_errors, 10);
-
   service_stream_make_nicename(t, st);
 
   if(t->s_status == SERVICE_RUNNING) {
@@ -1080,7 +1101,7 @@ elementary_stream_t *
 service_stream_find_(service_t *t, int pid)
 {
   elementary_stream_t *st;
- 
+
   lock_assert(&t->s_stream_mutex);
 
   TAILQ_FOREACH(st, &t->s_components, es_link) {
@@ -1115,7 +1136,8 @@ service_data_timeout(void *aux)
   pthread_mutex_unlock(&t->s_stream_mutex);
 
   if (t->s_timeout > 0)
-    gtimer_arm(&t->s_receive_timer, service_data_timeout, t, t->s_timeout);
+    mtimer_arm_rel(&t->s_receive_timer, service_data_timeout, t,
+                   sec2mono(t->s_timeout));
 }
 
 /**
@@ -1134,9 +1156,14 @@ service_has_audio_or_video(service_t *t)
 int
 service_is_sdtv(service_t *t)
 {
-  if (t->s_servicetype == ST_SDTV)
+  char s_type;
+  if(t->s_type_user == ST_UNSET)
+    s_type = t->s_servicetype;
+  else
+    s_type = t->s_type_user;
+  if (s_type == ST_SDTV)
     return 1;
-  else if (t->s_servicetype == ST_NONE) {
+  else if (s_type == ST_NONE) {
     elementary_stream_t *st;
     TAILQ_FOREACH(st, &t->s_components, es_link)
       if (SCT_ISVIDEO(st->es_type) && st->es_height < 720)
@@ -1148,9 +1175,14 @@ service_is_sdtv(service_t *t)
 int
 service_is_hdtv(service_t *t)
 {
-  if (t->s_servicetype == ST_HDTV)
+  char s_type;
+  if(t->s_type_user == ST_UNSET)
+    s_type = t->s_servicetype;
+  else
+    s_type = t->s_type_user;
+  if (s_type == ST_HDTV)
     return 1;
-  else if (t->s_servicetype == ST_NONE) {
+  else if (s_type == ST_NONE) {
     elementary_stream_t *st;
     TAILQ_FOREACH(st, &t->s_components, es_link)
       if (SCT_ISVIDEO(st->es_type) && st->es_height >= 720)
@@ -1166,9 +1198,14 @@ int
 service_is_radio(service_t *t)
 {
   int ret = 0;
-  if (t->s_servicetype == ST_RADIO)
+  char s_type;
+  if(t->s_type_user == ST_UNSET)
+    s_type = t->s_servicetype;
+  else
+    s_type = t->s_type_user;
+  if (s_type == ST_RADIO)
     return 1;
-  else if (t->s_servicetype == ST_NONE) {
+  else if (s_type == ST_NONE) {
     elementary_stream_t *st;
     TAILQ_FOREACH(st, &t->s_components, es_link) {
       if (SCT_ISVIDEO(st->es_type))
@@ -1220,8 +1257,6 @@ service_send_streaming_status(service_t *t)
   streaming_pad_deliver(&t->s_streaming_pad,
                         streaming_msg_create_code(SMT_SERVICE_STATUS,
                                                   t->s_streaming_status));
-
-  pthread_cond_broadcast(&t->s_tss_cond);
 }
 
 /**
@@ -1254,7 +1289,7 @@ service_set_streaming_status_flags_(service_t *t, int set)
 
 /**
  * Restart output on a service.
- * Happens if the stream composition changes. 
+ * Happens if the stream composition changes.
  * (i.e. an AC3 stream disappears, etc)
  */
 void
@@ -1277,7 +1312,7 @@ service_restart(service_t *t)
       streaming_pad_deliver(&t->s_streaming_pad,
                             streaming_msg_create_code(SMT_STOP,
                                                       SM_CODE_SOURCE_RECONFIGURED));
-      
+
     streaming_pad_deliver(&t->s_streaming_pad,
                           streaming_msg_create_data(SMT_START,
                                                     service_build_stream_start(t)));
@@ -1311,15 +1346,15 @@ service_build_stream_start(service_t *t)
   streaming_start_t *ss;
 
   lock_assert(&t->s_stream_mutex);
-  
+
   TAILQ_FOREACH(st, &t->s_filt_components, es_filt_link)
     n++;
 
-  ss = calloc(1, sizeof(streaming_start_t) + 
+  ss = calloc(1, sizeof(streaming_start_t) +
 	      sizeof(streaming_start_component_t) * n);
 
   ss->ss_num_components = n;
-  
+
   n = 0;
   TAILQ_FOREACH(st, &t->s_filt_components, es_filt_link) {
     streaming_start_component_t *ssc = &ss->ss_components[n++];
@@ -1354,7 +1389,7 @@ service_build_stream_start(service_t *t)
  */
 
 static pthread_mutex_t pending_save_mutex;
-static pthread_cond_t pending_save_cond;
+static tvh_cond_t pending_save_cond;
 static struct service_queue pending_save_queue;
 
 /**
@@ -1372,7 +1407,7 @@ service_request_save(service_t *t, int restart)
     t->s_ps_onqueue = 1 + !!restart;
     TAILQ_INSERT_TAIL(&pending_save_queue, t, s_ps_link);
     service_ref(t);
-    pthread_cond_signal(&pending_save_cond);
+    tvh_cond_signal(&pending_save_cond, 0);
   } else if (restart) {
     t->s_ps_onqueue = 2; // upgrade to restart too
   }
@@ -1416,7 +1451,7 @@ service_saver(void *aux)
   while(tvheadend_running) {
 
     if((t = TAILQ_FIRST(&pending_save_queue)) == NULL) {
-      pthread_cond_wait(&pending_save_cond, &pending_save_mutex);
+      tvh_cond_wait(&pending_save_cond, &pending_save_mutex);
       continue;
     }
     assert(t->s_ps_onqueue != 0);
@@ -1456,7 +1491,7 @@ service_init(void)
   TAILQ_INIT(&service_raw_all);
   TAILQ_INIT(&service_raw_remove);
   pthread_mutex_init(&pending_save_mutex, NULL);
-  pthread_cond_init(&pending_save_cond, NULL);
+  tvh_cond_init(&pending_save_cond);
   tvhthread_create(&service_saver_tid, NULL, service_saver, NULL, "service");
 }
 
@@ -1465,7 +1500,9 @@ service_done(void)
 {
   service_t *t;
 
-  pthread_cond_signal(&pending_save_cond);
+  pthread_mutex_lock(&pending_save_mutex);
+  tvh_cond_signal(&pending_save_cond, 0);
+  pthread_mutex_unlock(&pending_save_mutex);
   pthread_join(service_saver_tid, NULL);
 
   pthread_mutex_lock(&global_lock);
@@ -1826,7 +1863,7 @@ void service_save ( service_t *t, htsmsg_t *m )
       if(st->es_frame_duration)
         htsmsg_add_u32(sub, "duration", st->es_frame_duration);
     }
-    
+
     htsmsg_add_msg(list, NULL, sub);
   }
   pthread_mutex_unlock(&t->s_stream_mutex);
@@ -1910,7 +1947,7 @@ load_legacy_caid(htsmsg_t *c, elementary_stream_t *st)
 /**
  *
  */
-static void 
+static void
 load_caid(htsmsg_t *m, elementary_stream_t *st)
 {
   htsmsg_field_t *f;
@@ -1923,7 +1960,7 @@ load_caid(htsmsg_t *m, elementary_stream_t *st)
   HTSMSG_FOREACH(f, v) {
     if((c = htsmsg_get_map_by_field(f)) == NULL)
       continue;
-    
+
     if(htsmsg_get_u32(c, "caid", &a))
       continue;
 
@@ -1968,7 +2005,7 @@ void service_load ( service_t *t, htsmsg_t *c )
         continue;
 
       st = service_stream_create(t, pid, type);
-    
+
       if((v = htsmsg_get_str(c, "language")) != NULL)
         strncpy(st->es_lang, lang_code_get(v), 3);
 
@@ -1979,7 +2016,7 @@ void service_load ( service_t *t, htsmsg_t *c )
 
       if(!htsmsg_get_u32(c, "position", &u32))
         st->es_position = u32;
-   
+
       load_legacy_caid(c, st);
       load_caid(c, st);
 

@@ -31,7 +31,7 @@ typedef struct file_priv {
   int fd;
   int shutdown;
   pthread_t tid;
-  pthread_cond_t cond;
+  tvh_cond_t cond;
 } file_priv_t;
 
 /*
@@ -42,11 +42,12 @@ iptv_file_thread ( void *aux )
 {
   iptv_mux_t *im = aux;
   file_priv_t *fp = im->im_data;
-  struct timespec ts;
   ssize_t r;
   int fd = fp->fd, pause = 0;
   char buf[32*1024];
   off_t off = 0;
+  int64_t mono;
+  int e;
 
 #if defined(PLATFORM_DARWIN)
   fcntl(fd, F_NOCACHE, 1);
@@ -54,10 +55,12 @@ iptv_file_thread ( void *aux )
   pthread_mutex_lock(&iptv_lock);
   while (!fp->shutdown && fd > 0) {
     while (!fp->shutdown && pause) {
-      clock_gettime(CLOCK_REALTIME, &ts);
-      ts.tv_sec += 1;
-      if (pthread_cond_timedwait(&fp->cond, &iptv_lock, &ts) == ETIMEDOUT)
-        break;
+      mono = mclk() + sec2mono(1);
+      do {
+        e = tvh_cond_timedwait(&fp->cond, &iptv_lock, mono);
+        if (e == ETIMEDOUT)
+          break;
+      } while (ERRNO_AGAIN(e));
     }
     if (fp->shutdown)
       break;
@@ -102,7 +105,7 @@ iptv_file_start ( iptv_mux_t *im, const char *raw, const url_t *url )
 
   fp = calloc(1, sizeof(*fp));
   fp->fd = fd;
-  pthread_cond_init(&fp->cond, NULL);
+  tvh_cond_init(&fp->cond);
   im->im_data = fp;
   iptv_input_mux_started(im);
   tvhthread_create(&fp->tid, NULL, iptv_file_thread, im, "iptvfile");
@@ -118,10 +121,10 @@ iptv_file_stop
   if (rd > 0)
     close(rd);
   fp->shutdown = 1;
-  pthread_cond_signal(&fp->cond);
+  tvh_cond_signal(&fp->cond, 0);
   pthread_mutex_unlock(&iptv_lock);
   pthread_join(fp->tid, NULL);
-  pthread_cond_destroy(&fp->cond);
+  tvh_cond_destroy(&fp->cond);
   pthread_mutex_lock(&iptv_lock);
   free(im->im_data);
   im->im_data = NULL;

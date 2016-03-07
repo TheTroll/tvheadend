@@ -164,7 +164,7 @@ typedef struct dvr_entry {
   char *de_channel_name;
 
   gtimer_t de_timer;
-  gtimer_t de_deferred_timer;
+  mtimer_t de_deferred_timer;
 
   /**
    * These meta fields will stay valid as long as reference count > 0
@@ -269,7 +269,7 @@ typedef struct dvr_entry {
   /**
    * Entry change notification timer
    */
-  time_t de_last_notify;
+  int64_t de_last_notify;
 
   /**
    * Update notification limit
@@ -444,7 +444,7 @@ void dvr_config_destroy_by_profile(profile_t *pro, int delconf);
 
 static inline uint32_t dvr_retention_cleanup(uint32_t val)
 {
-  return (val > 0xffffffff - 86400) ? (0xffffffff - 86400) : val;
+  return val > DVR_RET_FOREVER ? DVR_RET_FOREVER : val;
 }
 
 /*

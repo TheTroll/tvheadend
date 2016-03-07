@@ -82,9 +82,6 @@ typedef struct elementary_stream {
 
   int8_t es_cc;             /* Last CC */
 
-  avgstat_t es_cc_errors;
-  avgstat_t es_rate;
-
   int es_peak_presentation_delay; /* Max seen diff. of DTS and PTS */
 
   /* For service stream packet reassembly */
@@ -274,7 +271,8 @@ typedef struct service {
    * Service type
    */
   enum {
-    ST_NONE,
+    ST_UNSET = -1,
+    ST_NONE = 0,
     ST_OTHER,
     ST_SDTV,
     ST_HDTV,
@@ -303,6 +301,7 @@ typedef struct service {
   int s_enabled;
   int s_auto;
   int s_prio;
+  int s_type_user;
 
   LIST_ENTRY(service) s_active_link;
 
@@ -381,13 +380,13 @@ typedef struct service {
    * it will check if any packets has been parsed. If not the status
    * will be set to TRANSPORT_STATUS_NO_INPUT
    */
-  gtimer_t s_receive_timer;
+  mtimer_t s_receive_timer;
   /**
    * Stream start time
    */
-  int    s_timeout;
-  int    s_grace_delay;
-  time_t s_start_time;
+  int     s_timeout;
+  int     s_grace_delay;
+  int64_t s_start_time;
 
 
   /*********************************************************
@@ -409,12 +408,6 @@ typedef struct service {
    */
   pthread_mutex_t s_stream_mutex;
 
-
-  /**
-   * Condition variable to singal when streaming_status changes
-   * interlocked with s_stream_mutex
-   */
-  pthread_cond_t s_tss_cond;
   /**
    *
    */			   
@@ -455,11 +448,6 @@ typedef struct service {
   elementary_stream_t *s_audio;
 #endif
  
-  /**
-   * Average bitrate
-   */
-  avgstat_t s_rate;
-
   /**
    * Descrambling support
    */
