@@ -435,6 +435,8 @@ ssize_t fb_read ( fb_file *fp, void *buf, size_t count )
     fp->pos += count;
   } else if (fp->type == FB_DIRECT) {
     count = fread(buf, 1, count, fp->d.cur);
+    if (count <= 0)
+      return -1;
     fp->pos += count;
   } else {
     count = MIN(count, fp->b.root->f.size - fp->pos);
@@ -448,7 +450,7 @@ ssize_t fb_read ( fb_file *fp, void *buf, size_t count )
 char *fb_gets ( fb_file *fp, void *buf, size_t count )
 {
   ssize_t c = 0, err;
-  while ((err = fb_read(fp, buf+c, 1)) && c < (count-1)) {
+  while ((err = fb_read(fp, buf+c, 1)) > 0 && c < (count-1)) {
     char b = ((char*)buf)[c];
     c++;
     if (b == '\n' || b == '\0') break;

@@ -473,12 +473,12 @@ subscription_input_direct(void *opauqe, streaming_message_t *sm)
   /* Log data and errors */
   if(sm->sm_type == SMT_PACKET) {
     th_pkt_t *pkt = sm->sm_data;
-    s->ths_total_err += pkt->pkt_err;
+    atomic_add(&s->ths_total_err, pkt->pkt_err);
     if (pkt->pkt_payload)
       subscription_add_bytes_in(s, pkt->pkt_payload->pb_size);
   } else if(sm->sm_type == SMT_MPEGTS) {
     pktbuf_t *pb = sm->sm_data;
-    s->ths_total_err += pb->pb_err;
+    atomic_add(&s->ths_total_err, pb->pb_err);
     subscription_add_bytes_in(s, pb->pb_size);
   }
 
@@ -706,12 +706,12 @@ subscription_create
   s->ths_port              = port;
   s->ths_username          = username ? strdup(username) : NULL;
   s->ths_client            = client   ? strdup(client)   : NULL;
-  s->ths_total_err         = 0;
   s->ths_output            = st;
   s->ths_flags             = flags;
   s->ths_timeout           = pro ? pro->pro_timeout : 0;
   s->ths_postpone          = subscription_postpone;
   s->ths_postpone_end      = mclk() + sec2mono(s->ths_postpone);
+  atomic_set(&s->ths_total_err, 0);
 
   if (s->ths_prch)
     s->ths_weight = profile_chain_weight(s->ths_prch, weight);
@@ -895,7 +895,7 @@ subscription_create_msg(th_subscription_t *s, const char *lang)
 
   htsmsg_add_u32(m, "id", s->ths_id);
   htsmsg_add_u32(m, "start", s->ths_start);
-  htsmsg_add_u32(m, "errors", s->ths_total_err);
+  htsmsg_add_u32(m, "errors", atomic_get(&s->ths_total_err));
 
   const char *state;
   switch(s->ths_state) {
@@ -956,10 +956,10 @@ subscription_create_msg(th_subscription_t *s, const char *lang)
   } else if(s->ths_dvrfile != NULL)
     htsmsg_add_str(m, "service", s->ths_dvrfile ?: "");
 
-  htsmsg_add_u32(m, "in", s->ths_bytes_in_avg);
-  htsmsg_add_u32(m, "out", s->ths_bytes_out_avg);
-  htsmsg_add_s64(m, "total_in", s->ths_total_bytes_in);
-  htsmsg_add_s64(m, "total_out", s->ths_total_bytes_out);
+  htsmsg_add_u32(m, "in", atomic_get(&s->ths_bytes_in_avg));
+  htsmsg_add_u32(m, "out", atomic_get(&s->ths_bytes_out_avg));
+  htsmsg_add_s64(m, "total_in", atomic_get_u64(&s->ths_total_bytes_in));
+  htsmsg_add_s64(m, "total_out", atomic_get_u64(&s->ths_total_bytes_out));
 
   return m;
 }
@@ -979,15 +979,15 @@ subscription_status_callback ( void *p )
 
   LIST_FOREACH(s, &subscriptions, ths_global_link) {
     /* Store the difference between total bytes from the last round */
-    uint64_t in_prev = s->ths_total_bytes_in_prev;
-    uint64_t in_curr = atomic_add_u64(&s->ths_total_bytes_in, 0);
-    uint64_t out_prev = s->ths_total_bytes_out_prev;
-    uint64_t out_curr = atomic_add_u64(&s->ths_total_bytes_out, 0);
+    uint64_t in_prev = atomic_get_u64(&s->ths_total_bytes_in_prev);
+    uint64_t in_curr = atomic_get_u64(&s->ths_total_bytes_in);
+    uint64_t out_prev = atomic_get_u64(&s->ths_total_bytes_out_prev);
+    uint64_t out_curr = atomic_get_u64(&s->ths_total_bytes_out);
 
-    s->ths_bytes_in_avg = (int)(in_curr - in_prev);
-    s->ths_total_bytes_in_prev = s->ths_total_bytes_in;
-    s->ths_bytes_out_avg = (int)(out_curr - out_prev);
-    s->ths_total_bytes_out_prev = s->ths_total_bytes_out;
+    atomic_set(&s->ths_bytes_in_avg, (int)(in_curr - in_prev));
+    atomic_set_u64(&s->ths_total_bytes_in_prev, s->ths_total_bytes_in);
+    atomic_set(&s->ths_bytes_out_avg, (int)(out_curr - out_prev));
+    atomic_set_u64(&s->ths_total_bytes_out_prev, s->ths_total_bytes_out);
 
     htsmsg_t *m = subscription_create_msg(s, NULL);
     htsmsg_add_u32(m, "updateEntry", 1);

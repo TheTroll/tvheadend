@@ -491,7 +491,7 @@ capmt_connect(capmt_t *capmt, int i)
 
     fd = tcp_connect(capmt->capmt_sockfile, capmt->capmt_port, NULL,
                      errbuf, sizeof(errbuf), 2);
-    if (fd < 0 && tvheadend_running) {
+    if (fd < 0 && tvheadend_is_running()) {
       tvhlog(LOG_ERR, "capmt",
              "%s: Cannot connect to %s:%i (%s); Do you have OSCam running?",
              capmt_name(capmt), capmt->capmt_sockfile, capmt->capmt_port, errbuf);
@@ -512,7 +512,7 @@ capmt_connect(capmt_t *capmt, int i)
     if (fd < 0 ||
         connect(fd, (const struct sockaddr*)&serv_addr_un,
                 sizeof(serv_addr_un)) != 0) {
-      if (tvheadend_running)
+      if (tvheadend_is_running())
         tvhlog(LOG_ERR, "capmt",
                "%s: Cannot connect to %s (%s); Do you have OSCam running?",
                capmt_name(capmt), capmt->capmt_sockfile, strerror(errno));
@@ -2098,8 +2098,8 @@ capmt_service_start(caclient_t *cac, service_t *s)
     tuner = lfe->lfe_adapter->la_dvb_number;
 #endif
 
-  pthread_mutex_lock(&t->s_stream_mutex);
   pthread_mutex_lock(&capmt->capmt_mutex);
+  pthread_mutex_lock(&t->s_stream_mutex);
 
   LIST_FOREACH(ct, &capmt->capmt_services, ct_link)
     /* skip, if we already have this service */
@@ -2199,8 +2199,8 @@ capmt_service_start(caclient_t *cac, service_t *s)
   tvh_cond_signal(&capmt->capmt_cond, 0);
 
 fin:
-  pthread_mutex_unlock(&capmt->capmt_mutex);
   pthread_mutex_unlock(&t->s_stream_mutex);
+  pthread_mutex_unlock(&capmt->capmt_mutex);
 
   if (change)
     capmt_notify_server(capmt, NULL, 0);

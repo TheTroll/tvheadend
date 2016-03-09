@@ -393,7 +393,7 @@ const idclass_t satip_device_class =
       .type     = PT_STR,
       .id       = "manufacturer",
       .name     = N_("Manufacturer"),
-      .name     = N_("The manufacturer of the SAT>IP server."),
+      .desc     = N_("The manufacturer of the SAT>IP server."),
       .opts     = PO_RDONLY | PO_NOSAVE,
       .off      = offsetof(satip_device_t, sd_info.manufacturer),
     },
@@ -803,7 +803,7 @@ satip_discovery_destroy(satip_discovery_t *d, int unlink)
   if (d == NULL)
     return;
   if (unlink) {
-    satip_discoveries_count--;
+    atomic_dec(&satip_discoveries_count, 1);
     TAILQ_REMOVE(&satip_discoveries, d, disc_link);
   }
   if (d->http_client)
@@ -1046,7 +1046,7 @@ satip_discovery_service_received
   satip_discovery_t *d;
   int n, i;
 
-  if (len > 8191 || satip_discoveries_count > 100)
+  if (len > 8191 || atomic_get(&satip_discoveries_count) > 100)
     return;
   buf = alloca(len+1);
   memcpy(buf, data, len);
@@ -1133,7 +1133,7 @@ satip_discovery_service_received
   i = 1;
   if (!satip_discovery_find(d) && !satip_device_find(d->uuid)) {
     TAILQ_INSERT_TAIL(&satip_discoveries, d, disc_link);
-    satip_discoveries_count++;
+    atomic_add(&satip_discoveries_count, 1);
     mtimer_arm_rel(&satip_discovery_timerq, satip_discovery_timerq_cb, NULL, ms2mono(250));
     i = 0;
   }
@@ -1175,7 +1175,7 @@ satip_discovery_static(const char *descurl)
   d->configid = strdup("");
   d->deviceid = strdup("");
   TAILQ_INSERT_TAIL(&satip_discoveries, d, disc_link);
-  satip_discoveries_count++;
+  atomic_add(&satip_discoveries_count, 1);
   satip_discovery_timerq_cb(NULL);
 }
 
@@ -1220,7 +1220,7 @@ satip_discovery_static_timer_cb(void *aux)
 {
   int i;
 
-  if (!tvheadend_running)
+  if (!tvheadend_is_running())
     return;
   for (i = 0; i < satip_static_clients->num; i++)
     satip_discovery_static(satip_static_clients->str[i]);
@@ -1230,9 +1230,9 @@ satip_discovery_static_timer_cb(void *aux)
 static void
 satip_discovery_timer_cb(void *aux)
 {
-  if (!tvheadend_running)
+  if (!tvheadend_is_running())
     return;
-  if (!upnp_running) {
+  if (!atomic_get(&upnp_running)) {
     mtimer_arm_rel(&satip_discovery_timer, satip_discovery_timer_cb,
                    NULL, sec2mono(1));
     return;

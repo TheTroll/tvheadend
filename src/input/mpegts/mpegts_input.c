@@ -1447,11 +1447,12 @@ mpegts_input_thread ( void * p )
   mpegts_packet_t *mp;
   mpegts_input_t  *mi = p;
   size_t bytes = 0;
+  int update_pids;
   char buf[256];
 
   mi->mi_display_name(mi, buf, sizeof(buf));
   pthread_mutex_lock(&mi->mi_input_lock);
-  while (mi->mi_running) {
+  while (atomic_get(&mi->mi_running)) {
 
     /* Wait for a packet */
     if (!(mp = TAILQ_FIRST(&mi->mi_input_queue))) {
@@ -1476,8 +1477,9 @@ mpegts_input_thread ( void * p )
       pthread_mutex_lock(&mi->mi_output_lock);
     }
     bytes += mpegts_input_process(mi, mp);
+    update_pids = mp->mp_mux && mp->mp_mux->mm_update_pids_flag;
     pthread_mutex_unlock(&mi->mi_output_lock);
-    if (mp->mp_mux && mp->mp_mux->mm_update_pids_flag) {
+    if (update_pids) {
       pthread_mutex_lock(&global_lock);
       mpegts_mux_update_pids(mp->mp_mux);
       pthread_mutex_unlock(&global_lock);
@@ -1517,7 +1519,7 @@ mpegts_input_table_thread ( void *aux )
   char                   muxname[256];
 
   pthread_mutex_lock(&mi->mi_output_lock);
-  while (mi->mi_running) {
+  while (atomic_get(&mi->mi_running)) {
 
     /* Wait for data */
     if (!(mtf = TAILQ_FIRST(&mi->mi_table_queue))) {
@@ -1529,7 +1531,7 @@ mpegts_input_table_thread ( void *aux )
     
     /* Process */
     pthread_mutex_lock(&global_lock);
-    if (mi->mi_running) {
+    if (atomic_get(&mi->mi_running)) {
       if (mm != mtf->mtf_mux) {
         mm = mtf->mtf_mux;
         if (mm)
@@ -1681,9 +1683,10 @@ mpegts_input_clear_stats ( tvh_input_t *i )
 }
 
 static void
-mpegts_input_thread_start ( mpegts_input_t *mi )
+mpegts_input_thread_start ( void *aux )
 {
-  mi->mi_running = 1;
+  mpegts_input_t *mi = aux;
+  atomic_set(&mi->mi_running, 1);
   
   tvhthread_create(&mi->mi_table_tid, NULL,
                    mpegts_input_table_thread, mi, "mi-table");
@@ -1694,7 +1697,8 @@ mpegts_input_thread_start ( mpegts_input_t *mi )
 static void
 mpegts_input_thread_stop ( mpegts_input_t *mi )
 {
-  mi->mi_running = 0;
+  atomic_set(&mi->mi_running, 0);
+  mtimer_disarm(&mi->mi_input_thread_start);
 
   /* Stop input thread */
   pthread_mutex_lock(&mi->mi_input_lock);
@@ -1806,7 +1810,7 @@ mpegts_input_create0
     idnode_load(&mi->ti_id, c);
 
   /* Start threads */
-  mpegts_input_thread_start(mi);
+  mtimer_arm_rel(&mi->mi_input_thread_start, mpegts_input_thread_start, mi, 0);
 
   return mi;
 }
@@ -1826,7 +1830,7 @@ mpegts_input_delete ( mpegts_input_t *mi, int delconf )
   tvh_input_instance_t *tii, *tii_next;
 
   /* Early shutdown flag */
-  mi->mi_running = 0;
+  atomic_set(&mi->mi_running, 0);
 
   idnode_save_check(&mi->ti_id, delconf);
 

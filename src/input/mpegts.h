@@ -671,12 +671,13 @@ struct mpegts_input
    * Input processing
    */
 
-  uint8_t mi_running;            /* threads running */
+  int mi_running;            /* threads running */
   time_t mi_last_dispatch;
 
   /* Data input */
   // Note: this section is protected by mi_input_lock
   pthread_t                       mi_input_tid;
+  mtimer_t                        mi_input_thread_start;
   pthread_mutex_t                 mi_input_lock;
   tvh_cond_t                      mi_input_cond;
   TAILQ_HEAD(,mpegts_packet)      mi_input_queue;

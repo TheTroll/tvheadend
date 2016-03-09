@@ -209,7 +209,7 @@ doexit(int x)
   if (pthread_self() != main_tid)
     pthread_kill(main_tid, SIGTERM);
   pthread_cond_signal(&gtimer_cond);
-  tvheadend_running = 0;
+  atomic_set(&tvheadend_running, 0);
   signal(x, doexit);
 }
 
@@ -436,23 +436,31 @@ static void *
 tasklet_thread ( void *aux )
 {
   tasklet_t *tsk;
+  tsk_callback_t *tsk_cb;
+  void *opaque;
 
   tvhtread_renice(20);
 
   pthread_mutex_lock(&tasklet_lock);
-  while (tvheadend_running) {
+  while (tvheadend_is_running()) {
     tsk = TAILQ_FIRST(&tasklets);
     if (tsk == NULL) {
       tvh_cond_wait(&tasklet_cond, &tasklet_lock);
       continue;
     }
-    if (tsk->tsk_callback) {
-      tsk->tsk_callback(tsk->tsk_opaque, 0);
-      tsk->tsk_callback = NULL;
-    }
+    /* the callback might re-initialize tasklet, save everythin */
     TAILQ_REMOVE(&tasklets, tsk, tsk_link);
+    tsk_cb = tsk->tsk_callback;
+    opaque = tsk->tsk_opaque;
+    tsk->tsk_callback = NULL;
     if (tsk->tsk_allocated)
       free(tsk);
+    /* now, the callback can be safely called */
+    if (tsk_cb) {
+      pthread_mutex_unlock(&tasklet_lock);
+      tsk_cb(opaque, 0);
+      pthread_mutex_lock(&tasklet_lock);
+    }
   }
   pthread_mutex_unlock(&tasklet_lock);
 
@@ -523,12 +531,12 @@ mdispatch_clock_update(void)
 {
   int64_t mono = getmonoclock();
 
-  if (mono > atomic_add_s64(&mtimer_periodic, 0)) {
-    atomic_exchange_s64(&mtimer_periodic, mono + MONOCLOCK_RESOLUTION);
+  if (mono > atomic_get_s64(&mtimer_periodic)) {
+    atomic_set_s64(&mtimer_periodic, mono + MONOCLOCK_RESOLUTION);
     comet_flush(); /* Flush idle comet mailboxes */
   }
 
-  atomic_exchange_s64(&__mdispatch_clock, mono);
+  atomic_set_s64(&__mdispatch_clock, mono);
   return mono;
 }
 
@@ -538,9 +546,9 @@ mdispatch_clock_update(void)
 static void *
 mtimer_tick_thread(void *aux)
 {
-  while (tvheadend_running) {
+  while (tvheadend_is_running()) {
     /* update clocks each 10x in one second */
-    atomic_exchange_s64(&__mdispatch_clock, getmonoclock());
+    atomic_set_s64(&__mdispatch_clock, getmonoclock());
     tvh_safe_usleep(100000);
   }
   return NULL;
@@ -561,7 +569,7 @@ mtimer_thread(void *aux)
   const char *fcn;
 #endif
 
-  while (tvheadend_running) {
+  while (tvheadend_is_running()) {
     now = mdispatch_clock_update();
 
     /* Global monoclock timers */
@@ -614,7 +622,7 @@ static inline time_t
 gdispatch_clock_update(void)
 {
   time_t now = time(NULL);
-  atomic_exchange_time_t(&__gdispatch_clock, now);
+  atomic_set_time_t(&__gdispatch_clock, now);
   return now;
 }
 
@@ -634,7 +642,7 @@ mainloop(void)
   const char *fcn;
 #endif
 
-  while (tvheadend_running) {
+  while (tvheadend_is_running()) {
     now = gdispatch_clock_update();
 
     /* Global timers */
@@ -1080,7 +1088,7 @@ main(int argc, char **argv)
     umask(0);
   }
 
-  tvheadend_running = 1;
+  atomic_set(&tvheadend_running, 1);
 
   /* Start log thread (must be done post fork) */
   tvhlog_start();
@@ -1281,7 +1289,7 @@ main(int argc, char **argv)
   tasklet_flush();
   tvhtrace("main", "tasklet leave");
   tvhtrace("main", "mtimer tick thread join enter");
-  pthread_join(tasklet_tid, NULL);
+  pthread_join(mtimer_tick_tid, NULL);
   tvhtrace("main", "mtimer tick thread join leave");
 
   tvhftrace("main", dvb_done);
