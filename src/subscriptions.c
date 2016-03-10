@@ -63,6 +63,18 @@ shortid(th_subscription_t *s)
   return s->ths_id & 0xffff;
 }
 
+static inline void
+subsetstate(th_subscription_t *s, ths_state_t state)
+{
+  atomic_set(&s->ths_state, state);
+}
+
+static inline ths_state_t
+subgetstate(th_subscription_t *s)
+{
+  return atomic_get(&s->ths_state);
+}
+
 /* **************************************************************************
  * Subscription linking
  * *************************************************************************/
@@ -74,7 +86,7 @@ static void
 subscription_link_service(th_subscription_t *s, service_t *t)
 {
   streaming_message_t *sm;
-  s->ths_state = SUBSCRIPTION_TESTING_SERVICE;
+  subsetstate(s, SUBSCRIPTION_TESTING_SERVICE);
  
   s->ths_service = t;
   LIST_INSERT_HEAD(&t->s_subscriptions, s, ths_service_link);
@@ -103,7 +115,7 @@ subscription_link_service(th_subscription_t *s, service_t *t)
 
   if(s->ths_start_message != NULL && t->s_streaming_status & TSS_PACKETS) {
 
-    s->ths_state = SUBSCRIPTION_GOT_SERVICE;
+    subsetstate(s, SUBSCRIPTION_GOT_SERVICE);
 
     // Send a START message to the subscription client
     streaming_target_deliver(s->ths_output, s->ths_start_message);
@@ -328,7 +340,7 @@ subscription_reschedule(void)
     if(t != NULL && s->ths_current_instance != NULL) {
       /* Already got a service */
 
-      if(s->ths_state != SUBSCRIPTION_BAD_SERVICE)
+      if(subgetstate(s) != SUBSCRIPTION_BAD_SERVICE)
 	continue; /* And it not bad, so we're happy */
 
       tvhwarn("subscription", "%04X: service instance is bad, reason: %s",
@@ -453,7 +465,7 @@ static void
 subscription_input_null(void *opaque, streaming_message_t *sm)
 {
   th_subscription_t *s = opaque;
-  if (sm->sm_type == SMT_STOP && s->ths_state != SUBSCRIPTION_ZOMBIE) {
+  if (sm->sm_type == SMT_STOP && subgetstate(s) != SUBSCRIPTION_ZOMBIE) {
     LIST_INSERT_HEAD(&subscriptions_remove, s, ths_remove_link);
     mtimer_arm_rel(&subscription_reschedule_timer,
   	           subscription_reschedule_cb, NULL, 0);
@@ -496,7 +508,7 @@ subscription_input(void *opauqe, streaming_message_t *sm)
   int error;
   th_subscription_t *s = opauqe;
 
-  if(s->ths_state == SUBSCRIPTION_TESTING_SERVICE) {
+  if(subgetstate(s) == SUBSCRIPTION_TESTING_SERVICE) {
     // We are just testing if this service is good
 
     if(sm->sm_type == SMT_GRACE) {
@@ -519,7 +531,7 @@ subscription_input(void *opauqe, streaming_message_t *sm)
           (s->ths_flags & SUBSCRIPTION_CONTACCESS) == 0) {
         if (error > s->ths_testing_error)
           s->ths_testing_error = error;
-        s->ths_state = SUBSCRIPTION_BAD_SERVICE;
+        subsetstate(s, SUBSCRIPTION_BAD_SERVICE);
         streaming_msg_free(sm);
       }
       return;
@@ -533,11 +545,11 @@ subscription_input(void *opauqe, streaming_message_t *sm)
         if (s->ths_service)
           s->ths_service->s_running = 1;
       }
-      s->ths_state = SUBSCRIPTION_GOT_SERVICE;
+      subsetstate(s, SUBSCRIPTION_GOT_SERVICE);
     }
   }
 
-  if(s->ths_state != SUBSCRIPTION_GOT_SERVICE) {
+  if(subgetstate(s) != SUBSCRIPTION_GOT_SERVICE) {
     streaming_msg_free(sm);
     return;
   }
@@ -603,14 +615,14 @@ subscription_unsubscribe(th_subscription_t *s, int flags)
   t   = s->ths_service;
   raw = s->ths_raw_service;
 
-  if (s->ths_state == SUBSCRIPTION_ZOMBIE) {
+  if (subgetstate(s) == SUBSCRIPTION_ZOMBIE) {
     if ((flags & UNSUBSCRIBE_FINAL) != 0) {
       subscription_destroy(s);
       return;
     }
     abort();
   }
-  s->ths_state = SUBSCRIPTION_ZOMBIE;
+  subsetstate(s, SUBSCRIPTION_ZOMBIE);
 
   LIST_REMOVE(s, ths_global_link);
   LIST_SAFE_REMOVE(s, ths_remove_link);
@@ -898,7 +910,7 @@ subscription_create_msg(th_subscription_t *s, const char *lang)
   htsmsg_add_u32(m, "errors", atomic_get(&s->ths_total_err));
 
   const char *state;
-  switch(s->ths_state) {
+  switch(subgetstate(s)) {
   default:
     state = N_("Idle");
     break;

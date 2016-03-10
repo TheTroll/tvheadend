@@ -481,7 +481,7 @@ capmt_connect(capmt_t *capmt, int i)
 
   capmt->capmt_sock[i] = -1;
 
-  if (!capmt->capmt_running)
+  if (!atomic_get(&capmt->capmt_running))
     return -1;
 
   if (capmt->capmt_oscam == CAPMT_OSCAM_TCP ||
@@ -809,7 +809,6 @@ capmt_send_stop_descrambling(capmt_t *capmt)
 
 /**
  * global_lock is held
- * s_stream_mutex is held
  */
 static void 
 capmt_service_destroy(th_descrambler_t *td)
@@ -988,12 +987,12 @@ capmt_stop_filter(capmt_t *capmt, int adapter, sbuf_t *sb, int offset)
       demux_index >= MAX_INDEX ||
       filter_index >= MAX_FILTER)
     return;
+  pthread_mutex_lock(&capmt->capmt_mutex);
   cf = &capmt->capmt_demuxes.filters[demux_index];
   filter = &cf->dmx[filter_index];
   if (filter->pid != pid)
-    return;
+    goto end;
   flags = filter->flags;
-  pthread_mutex_lock(&capmt->capmt_mutex);
   memset(filter, 0, sizeof(*filter));
   capmt_pid_remove(capmt, adapter, pid, flags);
   /* short the max values */
@@ -1005,6 +1004,7 @@ capmt_stop_filter(capmt_t *capmt, int adapter, sbuf_t *sb, int offset)
   while (demux_index != 255 && capmt->capmt_demuxes.filters[demux_index].max == 0)
     demux_index--;
   capmt->capmt_demuxes.max = demux_index == 255 ? 0 : demux_index + 1;
+end:
   pthread_mutex_unlock(&capmt->capmt_mutex);
 }
 
@@ -1392,7 +1392,7 @@ handle_ca0(capmt_t *capmt) {
   i = 0;
   adapter = -1;
 
-  while (capmt->capmt_running) {
+  while (atomic_get(&capmt->capmt_running)) {
 
     nfds = tvhpoll_wait(capmt->capmt_poll, ev, MAX_CA + 1, 500);
 
@@ -1409,7 +1409,7 @@ handle_ca0(capmt_t *capmt) {
         }
 
         tvhtrace("capmt", "%s: thread received shutdown", capmt_name(capmt));
-        capmt->capmt_running = 0;
+        atomic_set(&capmt->capmt_running, 0);
         continue;
       }
 
@@ -1487,7 +1487,7 @@ handle_single(capmt_t *capmt)
   capmt_poll_add(capmt, capmt->capmt_pipe.rd, 0);
   capmt_poll_add(capmt, capmt->capmt_sock[0], 1);
 
-  while (capmt->capmt_running) {
+  while (atomic_get(&capmt->capmt_running)) {
 
     nfds = tvhpoll_wait(capmt->capmt_poll, &ev, 1, 500);
 
@@ -1502,7 +1502,7 @@ handle_single(capmt_t *capmt)
       }
       
       tvhtrace("capmt", "%s: thread received shutdown", capmt_name(capmt));
-      capmt->capmt_running = 0;
+      atomic_set(&capmt->capmt_running, 0);
       continue;
     }
     
@@ -1573,7 +1573,7 @@ handle_ca0_wrapper(capmt_t *capmt)
 
   capmt_notify_server(capmt, NULL, 1);
 
-  while (capmt->capmt_running) {
+  while (atomic_get(&capmt->capmt_running)) {
 
     if (capmt->capmt_sock[0] < 0)
       break;
@@ -1645,7 +1645,7 @@ capmt_thread(void *aux)
 
   tvhlog(LOG_INFO, "capmt", "%s active", capmt_name(capmt));
 
-  while (capmt->capmt_running) {
+  while (atomic_get(&capmt->capmt_running)) {
     fatal = 0;
     for (i = 0; i < MAX_CA; i++) {
       ca = &capmt->capmt_adapters[i];
@@ -1675,12 +1675,12 @@ capmt_thread(void *aux)
     
     pthread_mutex_lock(&capmt->capmt_mutex);
 
-    while(capmt->capmt_running && capmt->cac_enabled == 0)
+    while(atomic_get(&capmt->capmt_running) && capmt->cac_enabled == 0)
       tvh_cond_wait(&capmt->capmt_cond, &capmt->capmt_mutex);
 
     pthread_mutex_unlock(&capmt->capmt_mutex);
 
-    if (!capmt->capmt_running) continue;
+    if (!atomic_get(&capmt->capmt_running)) continue;
 
     /* open connection to camd.socket */
     capmt_connect(capmt, 0);
@@ -1750,14 +1750,14 @@ capmt_thread(void *aux)
         close(capmt->capmt_adapters[i].ca_sock);
     }
 
-    if (capmt->capmt_reconfigure) {
-      capmt->capmt_reconfigure = 0;
-      capmt->capmt_running = 1;
+    if (atomic_get(&capmt->capmt_reconfigure)) {
+      atomic_set(&capmt->capmt_reconfigure, 0);
+      atomic_set(&capmt->capmt_running, 1);
       pthread_mutex_unlock(&capmt->capmt_mutex);
       continue;
     }
 
-    if (!capmt->capmt_running) {
+    if (!atomic_get(&capmt->capmt_running)) {
       pthread_mutex_unlock(&capmt->capmt_mutex);
       continue;
     }
@@ -2238,23 +2238,23 @@ capmt_conf_changed(caclient_t *cac)
       caclient_set_status(cac, CACLIENT_STATUS_NONE);
       return;
     }
-    if (!capmt->capmt_running) {
-      capmt->capmt_running = 1;
-      capmt->capmt_reconfigure = 0;
+    if (!atomic_get(&capmt->capmt_running)) {
+      atomic_set(&capmt->capmt_running, 1);
+      atomic_set(&capmt->capmt_reconfigure, 0);
       tvhthread_create(&capmt->capmt_tid, NULL, capmt_thread, capmt, "capmt");
       return;
     }
     pthread_mutex_lock(&capmt->capmt_mutex);
-    capmt->capmt_reconfigure = 1;
+    atomic_set(&capmt->capmt_reconfigure, 1);
     tvh_cond_signal(&capmt->capmt_cond, 0);
     pthread_mutex_unlock(&capmt->capmt_mutex);
     tvh_write(capmt->capmt_pipe.wr, "", 1);
   } else {
-    if (!capmt->capmt_running)
+    if (!atomic_get(&capmt->capmt_running))
       return;
     pthread_mutex_lock(&capmt->capmt_mutex);
-    capmt->capmt_running = 0;
-    capmt->capmt_reconfigure = 0;
+    atomic_set(&capmt->capmt_running, 0);
+    atomic_set(&capmt->capmt_reconfigure, 0);
     tvh_cond_signal(&capmt->capmt_cond, 0);
     tid = capmt->capmt_tid;
     pthread_mutex_unlock(&capmt->capmt_mutex);
