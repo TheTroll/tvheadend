@@ -813,7 +813,7 @@ capmt_send_stop_descrambling(capmt_t *capmt)
 static void 
 capmt_service_destroy(th_descrambler_t *td)
 {
-  capmt_service_t *ct = (capmt_service_t *)td;
+  capmt_service_t *ct = (capmt_service_t *)td, *ct2;
   mpegts_service_t *s = (mpegts_service_t *)ct->td_service;
   int oscam_new = capmt_oscam_new(ct->ct_capmt);
   capmt_caid_ecm_t *cce;
@@ -843,11 +843,16 @@ capmt_service_destroy(th_descrambler_t *td)
   if (oscam_new)
     capmt_enumerate_services(capmt, 1);
 
-  if (LIST_EMPTY(&capmt->capmt_services)) {
+  LIST_FOREACH(ct2, &capmt->capmt_services, ct_link)
+    if (ct2->ct_adapter == ct->ct_adapter)
+      break;
+  if (ct2 == NULL) {
     capmt_pid_flush_adapter(capmt, ct->ct_adapter);
     capmt->capmt_adapters[ct->ct_adapter].ca_tuner = NULL;
-    memset(&capmt->capmt_demuxes, 0, sizeof(capmt->capmt_demuxes));
   }
+
+  if (LIST_EMPTY(&capmt->capmt_services))
+    memset(&capmt->capmt_demuxes, 0, sizeof(capmt->capmt_demuxes));
 
   pthread_mutex_unlock(&capmt->capmt_mutex);
 
@@ -1859,17 +1864,14 @@ capmt_caid_change(th_descrambler_t *td)
 {
   capmt_service_t *ct = (capmt_service_t *)td;
   capmt_t *capmt = ct->ct_capmt;
-  mpegts_service_t *t;
+  mpegts_service_t *t = (mpegts_service_t*)td->td_service;
   elementary_stream_t *st;
   capmt_caid_ecm_t *cce;
   caid_t *c;
   int change = 0;
 
   pthread_mutex_lock(&capmt->capmt_mutex);
-
-  t = (mpegts_service_t*)td->td_service;
-
-  lock_assert(&t->s_stream_mutex);
+  pthread_mutex_lock(&t->s_stream_mutex);
 
   TAILQ_FOREACH(st, &t->s_filt_components, es_filt_link) {
     if (t->s_dvb_prefcapid_lock == PREFCAPID_FORCE &&
@@ -1888,6 +1890,7 @@ capmt_caid_change(th_descrambler_t *td)
     }
   }
 
+  pthread_mutex_unlock(&t->s_stream_mutex);
   pthread_mutex_unlock(&capmt->capmt_mutex);
 
   if (change)

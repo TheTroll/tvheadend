@@ -104,9 +104,10 @@ descrambler_data_cut(th_descrambler_runtime_t *dr, int len)
   th_descrambler_data_t *dd;
 
   while (len > 0 && (dd = TAILQ_FIRST(&dr->dr_queue)) != NULL) {
+    if (dr->dr_skip)
+      ts_skip_packet2((mpegts_service_t *)dr->dr_service,
+                      dd->dd_sbuf.sb_data, MIN(len, dd->dd_sbuf.sb_ptr));
     if (len < dd->dd_sbuf.sb_ptr) {
-      if (dr->dr_skip)
-        ts_skip_packet2((mpegts_service_t *)dr->dr_service, dd->dd_sbuf.sb_data, len);
       sbuf_cut(&dd->dd_sbuf, len);
       dr->dr_queue_total -= len;
       break;
@@ -284,6 +285,7 @@ descrambler_service_start ( service_t *t )
     if (constcw)
       tvhtrace("descrambler", "using constcw for \"%s\"", t->s_nicename);
     dr->dr_skip = 0;
+    dr->dr_force_skip = 0;
     tvhcsa_init(&dr->dr_csa);
   }
   caclient_start(t);
@@ -335,10 +337,14 @@ static void
 descrambler_notify_deliver( mpegts_service_t *t, descramble_info_t *di, int locked )
 {
   streaming_message_t *sm;
+  int r;
 
+  pthread_mutex_lock(&t->s_stream_mutex);
   if (!t->s_descramble_info)
     t->s_descramble_info = calloc(1, sizeof(*di));
-  if (memcmp(t->s_descramble_info, di, sizeof(*di)) == 0) {
+  r = memcmp(t->s_descramble_info, di, sizeof(*di));
+  pthread_mutex_unlock(&t->s_stream_mutex);
+  if (r == 0) { /* identical */
     free(di);
     return;
   }
@@ -429,10 +435,10 @@ descrambler_keys ( th_descrambler_t *td, int type,
     return;
   }
 
-  if (tvhcsa_set_type(&dr->dr_csa, type) < 0)
-    return;
-
   pthread_mutex_lock(&t->s_stream_mutex);
+
+  if (tvhcsa_set_type(&dr->dr_csa, type) < 0)
+    goto fin;
 
   LIST_FOREACH(td2, &t->s_descramblers, td_service_link)
     if (td2 != td && td2->td_keystate == DS_RESOLVED) {
@@ -771,6 +777,12 @@ descrambler_descramble ( service_t *t,
     return 1;
   }
 next:
+  if (!dr->dr_skip) {
+    if (!dr->dr_force_skip)
+      dr->dr_force_skip = mclk() + sec2mono(30);
+    else if (dr->dr_force_skip < mclk())
+      dr->dr_skip = 1;
+  }
   if (dr->dr_ecm_start[0] || dr->dr_ecm_start[1]) { /* ECM sent */
     ki = tsb[3];
     if ((ki & 0x80) != 0x00) {
@@ -816,6 +828,8 @@ next:
       service_set_streaming_status_flags(t, TSS_NO_ACCESS);
     }
   } else {
+    if (dr->dr_skip || count == 0)
+      ts_skip_packet2((mpegts_service_t *)dr->dr_service, tsb, len);
     service_set_streaming_status_flags(t, TSS_NO_ACCESS);
   }
   if (flush_data)
