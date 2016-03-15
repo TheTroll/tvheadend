@@ -429,7 +429,7 @@ api_mpegts_init ( void )
     { "mpegts/network/scan",       ACCESS_ADMIN, api_mpegts_network_scan, NULL },
     { "mpegts/mux/grid",           ACCESS_ADMIN, api_idnode_grid,  api_mpegts_mux_grid },
     { "mpegts/mux/class",          ACCESS_ADMIN, api_idnode_class, (void*)&mpegts_mux_class },
-    { "mpegts/service/grid",       ACCESS_ADMIN, api_idnode_grid,  api_mpegts_service_grid },
+    { "mpegts/service/grid",       ACCESS_ADVANCED_STREAMING, api_idnode_grid,  api_mpegts_service_grid },
     { "mpegts/service/class",      ACCESS_ADMIN, api_idnode_class, (void*)&mpegts_service_class },
     { "mpegts/mux_sched/class",    ACCESS_ADMIN, api_idnode_class, (void*)&mpegts_mux_sched_class },
     { "mpegts/mux_sched/grid",     ACCESS_ADMIN, api_idnode_grid, api_mpegts_mux_sched_grid },
