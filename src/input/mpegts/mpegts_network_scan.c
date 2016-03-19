@@ -34,7 +34,25 @@ mpegts_network_scan_notify ( mpegts_mux_t *mm )
 static int
 mm_cmp ( mpegts_mux_t *a, mpegts_mux_t *b )
 {
-  return b->mm_scan_weight - a->mm_scan_weight;
+  int r = b->mm_scan_weight - a->mm_scan_weight;
+  if (r == 0) {
+    r = uuid_cmp(&a->mm_network->mn_id.in_uuid,
+                 &b->mm_network->mn_id.in_uuid);
+    if (r)
+      return r;
+    if (idnode_is_instance(&a->mm_id, &dvb_mux_dvbs_class) &&
+        idnode_is_instance(&b->mm_id, &dvb_mux_dvbs_class)) {
+      dvb_mux_conf_t *mc1 = &((dvb_mux_t *)a)->lm_tuning;
+      dvb_mux_conf_t *mc2 = &((dvb_mux_t *)b)->lm_tuning;
+      assert(mc1->dmc_fe_type == DVB_TYPE_S);
+      assert(mc2->dmc_fe_type == DVB_TYPE_S);
+      r = (int)mc1->u.dmc_fe_qpsk.polarisation -
+          (int)mc2->u.dmc_fe_qpsk.polarisation;
+      if (r == 0)
+        r = mc1->dmc_fe_freq - mc2->dmc_fe_freq;
+    }
+  }
+  return r;
 }
 
 void
@@ -102,9 +120,15 @@ mpegts_network_scan_mux_done0
   ( mpegts_mux_t *mm, mpegts_mux_scan_result_t result, int weight )
 {
   mpegts_network_t *mn = mm->mm_network;
+  mpegts_mux_scan_state_t state = mm->mm_scan_state;
 
+  /* prevent double del: */
+  /*   mpegts_mux_stop -> mpegts_network_scan_mux_cancel */
+  mm->mm_scan_state = MM_SCAN_STATE_IDLE;
   mpegts_mux_unsubscribe_by_name(mm, "scan");
-  if (mm->mm_scan_state == MM_SCAN_STATE_PEND) {
+  mm->mm_scan_state = state;
+
+  if (state == MM_SCAN_STATE_PEND) {
     if (weight || mn->mn_idlescan) {
       if (!weight)
         mm->mm_scan_weight = SUBSCRIPTION_PRIO_SCAN_IDLE;

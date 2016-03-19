@@ -485,6 +485,8 @@ linuxdvb_frontend_is_enabled ( mpegts_input_t *mi, mpegts_mux_t *mm, int flags )
       if (lfe->lfe_master && !strcmp(lfe->lfe_master, idnode_uuid_as_str(&lfe2->ti_id, ubuf))) {
         if (lfe2->lfe_satconf == NULL)
           return 0; /* invalid master */
+        if (lfe2->lfe_refcount <= 0)
+          return 0; /* prefer master */
         return linuxdvb_satconf_match_mux(lfe2->lfe_satconf, mm);
       }
       if (lfe2->lfe_master &&
@@ -577,7 +579,7 @@ linuxdvb_frontend_start_mux
   if (lfe->lfe_master) {
     assert(lfe->lfe_type == DVB_TYPE_S);
     lfe2 = (linuxdvb_frontend_t *)idnode_find(lfe->lfe_master, &linuxdvb_frontend_class, NULL);
-    if (lfe2->lfe_type != lfe->lfe_type)
+    if (lfe2 && lfe2->lfe_type != lfe->lfe_type)
       lfe2 = NULL;
     res = SM_CODE_TUNING_FAILED;
     if (lfe2) {

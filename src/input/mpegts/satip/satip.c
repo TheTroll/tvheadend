@@ -328,8 +328,16 @@ const idclass_t satip_device_class =
       .id       = "skip_ts",
       .name     = N_("Skip TS packets (0-200)"),
       .desc     = N_("Skip x number of transport packets."),
-      .opts     = PO_ADVANCED,
+      .opts     = PO_EXPERT,
       .off      = offsetof(satip_device_t, sd_skip_ts),
+    },
+    {
+      .type     = PT_BOOL,
+      .id       = "all_tuners",
+      .name     = N_("All tuners (limited networks)"),
+      .desc     = N_("Try to use all tuners for the limited networks mode."),
+      .opts     = PO_EXPERT,
+      .off      = offsetof(satip_device_t, sd_all_tuners),
     },
     {
       .type     = PT_BOOL,

@@ -65,13 +65,47 @@ satip_satconf_get_grace
   return sfc ? sfc->sfc_grace : 0;
 }
 
+static int
+satip_satconf_check_network_limit
+  ( satip_frontend_t *lfe, satip_satconf_t *sfc, idnode_t *mn )
+{
+  satip_frontend_t *lfe2;
+  satip_satconf_t *sfc2;
+  int count;
+
+  count = 0;
+  TAILQ_FOREACH(lfe2, &lfe->sf_device->sd_frontends, sf_link)
+    TAILQ_FOREACH(sfc2, &lfe2->sf_satconf, sfc_link) {
+      if (!lfe2->sf_running) continue;
+      if (sfc->sfc_network_group > 0 &&
+          sfc2->sfc_network_group > 0 &&
+          sfc2->sfc_network_group == sfc->sfc_network_group)
+        count++;
+      else if (idnode_set_exists(sfc2->sfc_networks, mn))
+        count++;
+    }
+
+  return count <= sfc->sfc_network_limit;
+}
+
 int
 satip_satconf_get_position
-  ( satip_frontend_t *lfe, mpegts_mux_t *mm )
+  ( satip_frontend_t *lfe, mpegts_mux_t *mm, int *netlimit, int check )
 {
   satip_satconf_t *sfc;
   sfc = satip_satconf_find_ele(lfe, mm);
-  return sfc && sfc->sfc_enabled ? sfc->sfc_position : 0;
+  if (sfc && sfc->sfc_enabled) {
+    if (netlimit)
+      *netlimit = sfc->sfc_network_limit;
+    if (!check || sfc->sfc_network_limit <= 0)
+      return sfc->sfc_position;
+    if (satip_satconf_check_network_limit(lfe, sfc, &mm->mm_network->mn_id))
+      return sfc->sfc_position;
+  } else {
+    if (netlimit)
+      *netlimit = 0;
+  }
+  return 0;
 }
 
 /* **************************************************************************
@@ -223,6 +257,25 @@ const idclass_t satip_satconf_class =
       .off      = offsetof(satip_satconf_t, sfc_position),
       .def.i    = 1,
       .opts     = PO_RDONLY | PO_ADVANCED,
+    },
+    {
+      .type     = PT_INT,
+      .id       = "network_limit",
+      .name     = N_("Network limit per position"),
+      .desc     = N_("Concurrent limit per network position (src=) "
+                     "for satellite SAT>IP tuners. "
+                     "The first limit number is for src=1 (AA), second "
+                     "for src=2 (AB) etc."),
+      .opts     = PO_EXPERT,
+      .off      = offsetof(satip_satconf_t, sfc_network_limit),
+    },
+    {
+      .type     = PT_INT,
+      .id       = "network_group",
+      .name     = N_("Network group"),
+      .desc     = N_("Define network group to limit network usage."),
+      .opts     = PO_EXPERT,
+      .off      = offsetof(satip_satconf_t, sfc_network_group),
     },
     {
       .type     = PT_STR,
