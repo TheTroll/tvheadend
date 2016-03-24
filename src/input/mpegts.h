@@ -917,6 +917,8 @@ mpegts_mux_find_pid(mpegts_mux_t *mm, int pid, int create)
 
 void mpegts_mux_update_pids ( mpegts_mux_t *mm );
 
+int mpegts_mux_compare ( mpegts_mux_t *a, mpegts_mux_t *b );
+
 void mpegts_input_recv_packets
   (mpegts_input_t *mi, mpegts_mux_instance_t *mmi, sbuf_t *sb,
    int flags, mpegts_pcr_t *pcr);
@@ -924,6 +926,7 @@ void mpegts_input_recv_packets
 int mpegts_input_get_weight ( mpegts_input_t *mi, mpegts_mux_t *mm, int flags );
 int mpegts_input_get_priority ( mpegts_input_t *mi, mpegts_mux_t *mm, int flags );
 int mpegts_input_get_grace ( mpegts_input_t *mi, mpegts_mux_t *mm );
+int mpegts_input_warm_mux ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi );
 
 void mpegts_input_save ( mpegts_input_t *mi, htsmsg_t *c );
 
