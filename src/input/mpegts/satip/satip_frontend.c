@@ -783,14 +783,14 @@ satip_frontend_decode_rtcp( satip_frontend_t *lfe, const char *name,
   pthread_mutex_lock(&mmi->tii_stats_mutex);
   while (len >= 12) {
     if ((rtcp[0] & 0xc0) != 0x80)	        /* protocol version: v2 */
-      goto fail;
+      return;
     l = (((rtcp[2] << 8) | rtcp[3]) + 1) * 4;   /* length of payload */
     if (rtcp[1]  ==  204 && l > 20 &&           /* packet type */
         rtcp[8]  == 'S'  && rtcp[9]  == 'E' &&
         rtcp[10] == 'S'  && rtcp[11] == '1') {
       /* workaround for broken minisatip */
       if (l > len && l - 4 != len)
-        goto fail;
+        return;
       sl = (rtcp[14] << 8) | rtcp[15];
       if (sl > 0 && l - 16 >= sl) {
         rtcp[sl + 16] = '\0';
