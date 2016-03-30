@@ -1764,7 +1764,7 @@ static int http_file_test(const char *path)
 static int
 http_redir(http_connection_t *hc, const char *remain, void *opaque)
 {
-  const char *lang;
+  const char *lang, *theme;
   char *components[3];
   char buf[256];
   int nc;
@@ -1792,6 +1792,30 @@ http_redir(http_connection_t *hc, const char *remain, void *opaque)
       tvh_write(hc->hc_fd, buf, strlen(buf));
       pthread_mutex_unlock(&hc->hc_fd_lock);
       return 0;
+    }
+    if (!strcmp(components[0], "theme.css")) {
+      theme = access_get_theme(hc->hc_access);
+      if (theme) {
+        snprintf(buf, sizeof(buf), "src/webui/static/tvh.%s.css.gz", theme);
+        if (!http_file_test(buf)) {
+          snprintf(buf, sizeof(buf), "/static/tvh.%s.css.gz", theme);
+          http_redirect(hc, buf, NULL, 0);
+          return 0;
+        }
+      }
+      return HTTP_STATUS_BAD_REQUEST;
+    }
+    if (!strcmp(components[0], "theme.debug.css")) {
+      theme = access_get_theme(hc->hc_access);
+      if (theme) {
+        snprintf(buf, sizeof(buf), "src/webui/static/extjs/resources/css/xtheme-%s.css", theme);
+        if (!http_file_test(buf)) {
+          snprintf(buf, sizeof(buf), "/static/extjs/resources/css/xtheme-%s.css", theme);
+          http_redirect(hc, buf, NULL, 0);
+          return 0;
+        }
+      }
+      return HTTP_STATUS_BAD_REQUEST;
     }
   }
 
@@ -1845,6 +1869,7 @@ webui_init(int xspf)
   http_path_add("/favicon.ico", NULL, favicon, ACCESS_WEB_INTERFACE);
   http_path_add("/playlist", NULL, page_http_playlist, ACCESS_ANONYMOUS);
   http_path_add("/xmltv", NULL, page_xmltv, ACCESS_ANONYMOUS);
+  http_path_add("/markdown", NULL, page_markdown, ACCESS_ANONYMOUS);
 
   http_path_add("/state", NULL, page_statedump, ACCESS_ADMIN);
 

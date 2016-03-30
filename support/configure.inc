@@ -11,9 +11,15 @@
 
 CONFIGURE_ARGS="$*"
 
+# Compiler
+[ -z "$CC"       ] && CC=cc
+[ -z "$CFLAGS"   ] && CFLAGS=
+[ -z "$LDFLAGS"  ] && LDFLAGS=
+
 # System setup
 [ -z "$PLATFORM" ] && PLATFORM=$(uname -s | tr "[:upper:]" "[:lower:]")
 [ -z "$CPU"      ] && CPU=generic
+[ -z "$ARCH"     ] && ARCH=$($CC -dumpmachine | cut -d '-' -f 1)
 [ -z "$ARCH"     ] && ARCH=$(uname -m)
 [ -z "$OSENV"    ] && OSENV=posix
 [ -z "$PYTHON"   ] && PYTHON=python
@@ -28,11 +34,6 @@ CONFIGURE_ARGS="$*"
 [ -z "$libdir"   ] && libdir=\${prefix}/lib
 [ -z "$datadir"  ] && datadir=\${prefix}/share
 [ -z "$mandir"   ] && mandir=\${datadir}/man
-
-# Compiler
-[ -z "$CC"       ] && CC=cc
-[ -z "$CFLAGS"   ] && CFLAGS=
-[ -z "$LDFLAGS"  ] && LDFLAGS=
 
 # Environment
 [ -z "$ROOTDIR"  ] && ROOTDIR=$(cd "$(dirname "$0")"; pwd)

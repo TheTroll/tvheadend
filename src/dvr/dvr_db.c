@@ -1572,7 +1572,7 @@ static dvr_entry_t *_dvr_entry_update
     save |= lang_str_set(&de->de_title, title, lang) ? DVR_UPDATED_TITLE : 0;
   }
 
-  /* Subtitle*/
+  /* Subtitle */
   if (e && e->episode && e->episode->subtitle) {
     save |= lang_str_set2(&de->de_subtitle, e->episode->subtitle) ? DVR_UPDATED_SUBTITLE : 0;
   } else if (subtitle) {
@@ -1614,12 +1614,12 @@ static dvr_entry_t *_dvr_entry_update
   }
 
   /* Episode */
-  if (dvr_entry_get_episode(de->de_bcast, buf, sizeof(buf))) {
-    if (strcmp(de->de_episode ?: "", buf)) {
-      free(de->de_episode);
-      de->de_episode = strdup(buf);
-      save |= DVR_UPDATED_EPISODE;
-    }
+  if (!dvr_entry_get_episode(de->de_bcast, buf, sizeof(buf)))
+    buf[0] = '\0';
+  if (strcmp(de->de_episode ?: "", buf)) {
+    free(de->de_episode);
+    de->de_episode = strdup(buf);
+    save |= DVR_UPDATED_EPISODE;
   }
 
   /* Save changes */
@@ -3514,6 +3514,7 @@ dvr_entry_init(void)
   dvr_entry_t *de1, *de2;
 
   dvr_in_init = 1;
+  idclass_register(&dvr_entry_class);
   rere = htsmsg_create_map();
   /* load config, but remove parent/child fields */
   if((l = hts_settings_load("dvr/log")) != NULL) {

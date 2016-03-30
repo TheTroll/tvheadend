@@ -588,6 +588,7 @@ satip_device_create( satip_device_info_t *info )
   pthread_mutex_init(&sd->sd_tune_mutex, NULL);
 
   TAILQ_INIT(&sd->sd_frontends);
+  TAILQ_INIT(&sd->sd_serialize_queue);
 
   /* we may check if uuid matches, but the SHA hash should be enough */
   if (sd->sd_info.uuid)
@@ -1272,6 +1273,17 @@ satip_device_discovery_start( void )
 
 void satip_init ( int nosatip, str_list_t *clients )
 {
+  idclass_register(&satip_device_class);
+
+  idclass_register(&satip_frontend_class);
+  idclass_register(&satip_frontend_dvbt_class);
+  idclass_register(&satip_frontend_dvbs_class);
+  idclass_register(&satip_frontend_dvbs_slave_class);
+  idclass_register(&satip_frontend_atsc_t_class);
+  idclass_register(&satip_frontend_atsc_c_class);
+
+  idclass_register(&satip_satconf_class);
+
   satip_enabled = !nosatip;
   TAILQ_INIT(&satip_discoveries);
   satip_static_clients = clients;

@@ -62,55 +62,89 @@ CFLAGS  += -Wno-unused-value -Wno-tautological-constant-out-of-range-compare
 CFLAGS  += -Wno-parentheses-equality -Wno-incompatible-pointer-types
 endif
 
-ifeq ($(CONFIG_LIBFFMPEG_STATIC),yes)
 
-CFLAGS  += -I${BUILDDIR}/ffmpeg/build/ffmpeg/include
-LDFLAGS_FFDIR = ${BUILDDIR}/ffmpeg/build/ffmpeg/lib
-LDFLAGS += ${LDFLAGS_FFDIR}/libavresample.a
-LDFLAGS += ${LDFLAGS_FFDIR}/libswresample.a
-LDFLAGS += ${LDFLAGS_FFDIR}/libswscale.a
-LDFLAGS += ${LDFLAGS_FFDIR}/libavutil.a
-LDFLAGS += ${LDFLAGS_FFDIR}/libavformat.a
-LDFLAGS += ${LDFLAGS_FFDIR}/libavcodec.a
-LDFLAGS += ${LDFLAGS_FFDIR}/libavutil.a
-LDFLAGS += ${LDFLAGS_FFDIR}/libvorbisenc.a
-LDFLAGS += ${LDFLAGS_FFDIR}/libvorbis.a
-LDFLAGS += ${LDFLAGS_FFDIR}/libogg.a
+# LIBAV ########################################################################
+
+ifeq ($(CONFIG_LIBAV),yes)
+
+FFMPEG_LIBS := \
+    libavfilter \
+    libswresample \
+    libavresample \
+    libswscale \
+    libavformat \
+    libavcodec \
+    libavutil
+
+# FFMPEG_STATIC
+ifeq ($(CONFIG_FFMPEG_STATIC),yes)
+
+ifeq (,$(wildcard ${BUILDDIR}/libffmpeg_stamp))
+# build static FFMPEG as first for pkgconfig
+ffmpeg_all: ${BUILDDIR}/libffmpeg_stamp
+	$(MAKE) all
+endif
+
+FFMPEG_PREFIX := $(BUILDDIR)/ffmpeg/build/ffmpeg
+FFMPEG_LIBDIR := $(FFMPEG_PREFIX)/lib
+FFMPEG_CONFIG := \
+    PKG_CONFIG_LIBDIR=$(FFMPEG_LIBDIR)/pkgconfig $(PKG_CONFIG) \
+    --define-variable=prefix=$(FFMPEG_PREFIX) --static
+
 ifeq ($(CONFIG_LIBX264_STATIC),yes)
-LDFLAGS += ${LDFLAGS_FFDIR}/libx264.a -ldl
-else
-LDFLAGS += -lx264 -ldl
+FFMPEG_DEPS += libx264
 endif
-ifeq ($(CONFIG_LIBX265),yes)
+
 ifeq ($(CONFIG_LIBX265_STATIC),yes)
-LDFLAGS += ${LDFLAGS_FFDIR}/libx265.a -lstdc++
-else
-LDFLAGS += -lx265
+FFMPEG_DEPS += libx265
 endif
+
+ifeq ($(CONFIG_LIBVPX_STATIC),yes)
+FFMPEG_DEPS += libvpx
 endif
-LDFLAGS += ${LDFLAGS_FFDIR}/libvpx.a
-CONFIG_LIBMFX_VA_LIBS =
-ifeq ($(CONFIG_LIBMFX),yes)
-CONFIG_LIBMFX_VA_LIBS += -lva
-ifeq ($(CONFIG_VA_DRM),yes)
-CONFIG_LIBMFX_VA_LIBS += -lva-drm
+
+ifeq ($(CONFIG_LIBOGG_STATIC),yes)
+FFMPEG_DEPS += libogg
 endif
-ifeq ($(CONFIG_VA_X11),yes)
-CONFIG_LIBMFX_VA_LIBS += -lva-x11
+
+ifeq ($(CONFIG_LIBTHEORA_STATIC),yes)
+FFMPEG_DEPS += libtheoraenc libtheoradec libtheora
 endif
+
+ifeq ($(CONFIG_LIBVORBIS_STATIC),yes)
+FFMPEG_DEPS += libvorbisfile libvorbisenc libvorbis
+endif
+
+ifeq ($(CONFIG_LIBFDKAAC_STATIC),yes)
+FFMPEG_DEPS += libfdk-aac
+endif
+
 ifeq ($(CONFIG_LIBMFX_STATIC),yes)
-LDFLAGS += ${LDFLAGS_FFDIR}/libmfx.a -lstdc++
-else
-LDFLAGS += -lmfx
+FFMPEG_DEPS += libmfx
 endif
-LDFLAGS += ${CONFIG_LIBMFX_VA_LIBS}
+
+LDFLAGS += $(foreach lib,$(FFMPEG_LIBS),$(FFMPEG_LIBDIR)/$(lib).a)
+LDFLAGS += $(foreach lib,$(FFMPEG_DEPS),$(FFMPEG_LIBDIR)/$(lib).a)
+
+else # !FFMPEG_STATIC
+
+FFMPEG_CONFIG := $(PKG_CONFIG)
+
+endif # FFMPEG_STATIC
+
+CFLAGS  += `$(FFMPEG_CONFIG) --cflags $(FFMPEG_LIBS)`
+LDFLAGS += `$(FFMPEG_CONFIG) --libs $(FFMPEG_LIBS)`
+
 endif
-endif
+
+# LIBAV ########################################################################
+
 
 ifeq ($(CONFIG_HDHOMERUN_STATIC),yes)
 CFLAGS  += -I$(BUILDDIR)/hdhomerun
-LDFLAGS += $(BUILDDIR)/hdhomerun/libhdhomerun/libhdhomerun.a \
-           -Wl,-Bstatic -Wl,-Bdynamic
+LDFLAGS += \
+    $(BUILDDIR)/hdhomerun/libhdhomerun/libhdhomerun.a \
+    -L$(BUILDDIR)/hdhomerun/libhdhomerun
 endif
 
 vpath %.c $(ROOTDIR)
@@ -259,13 +293,13 @@ SRCS-2 += \
 	src/parsers/parser_hevc.c \
 	src/parsers/parser_latm.c \
 	src/parsers/parser_avc.c \
-	src/parsers/parser_teletext.c \
+	src/parsers/parser_teletext.c
 
 SRCS-2 += \
-	src/epggrab/module.c\
-	src/epggrab/channel.c\
-	src/epggrab/module/pyepg.c\
-	src/epggrab/module/xmltv.c\
+	src/epggrab/module.c \
+	src/epggrab/channel.c \
+	src/epggrab/module/pyepg.c \
+	src/epggrab/module/xmltv.c
 
 SRCS-2 += \
 	src/plumbing/tsfix.c \
@@ -286,9 +320,10 @@ SRCS-2 += \
 	src/webui/extjs.c \
 	src/webui/simpleui.c \
 	src/webui/statedump.c \
-	src/webui/html.c\
-	src/webui/webui_api.c\
-	src/webui/xmltv.c\
+	src/webui/html.c \
+	src/webui/webui_api.c \
+	src/webui/xmltv.c \
+	src/webui/doc_md.c
 
 SRCS-2 += \
 	src/muxer.c \
@@ -432,7 +467,9 @@ SRCS-LIBAV = \
 	src/muxer/muxer_libav.c \
 	src/plumbing/transcoding.c \
 	src/plumbing/vdpau.c
+
 LDFLAGS += -lX11 -lvdpau
+
 SRCS-$(CONFIG_LIBAV) += $(SRCS-LIBAV)
 I18N-C += $(SRCS-LIBAV)
 
@@ -448,7 +485,7 @@ SRCS-CWC = \
 	src/descrambler/emm_reass.c
 SRCS-${CONFIG_CWC} += $(SRCS-CWC)
 I18N-C += $(SRCS-CWC)
-	
+
 # CAPMT
 SRCS-CAPMT = \
 	src/descrambler/capmt.c
@@ -536,7 +573,7 @@ OBJS       = $(SRCS:%.c=$(BUILDDIR)/%.o)
 OBJS_EXTRA = $(SRCS_EXTRA:%.c=$(BUILDDIR)/%.so)
 DEPS       = ${OBJS:%.o=%.d}
 
-ifeq ($(CONFIG_LIBFFMPEG_STATIC),yes)
+ifeq ($(CONFIG_FFMPEG_STATIC),yes)
 ALL-yes   += ${BUILDDIR}/libffmpeg_stamp
 endif
 ifeq ($(CONFIG_HDHOMERUN_STATIC),yes)
@@ -679,7 +716,7 @@ make_webui:
 
 # Static FFMPEG
 
-ifeq ($(CONFIG_LIBFFMPEG_STATIC),yes)
+ifeq ($(CONFIG_FFMPEG_STATIC),yes)
 src/libav.h ${SRCS-LIBAV} ${DEPS-LIBAV}: ${BUILDDIR}/libffmpeg_stamp
 endif
 

@@ -90,13 +90,18 @@ tvheadend.epgDetails = function(event) {
 
     var content = '';
     var duration = 0;
+    var chicon = 0;
 
     if (event.start && event.stop && event.stop - event.start > 0)
         duration = (event.stop - event.start) / 1000;
 
-    if (event.channelIcon != null && event.channelIcon.length > 0)
+    if (event.channelIcon != null && event.channelIcon.length > 0) {
         content += '<img class="x-epg-chicon" src="' + event.channelIcon + '">';
+        chicon = 1;
+    }
 
+    if (chicon)
+        content += '<div class="x-epg-left">';
     content += '<div class="x-epg-title">' + event.title;
     if (event.subtitle)
         content += "&nbsp;:&nbsp;" + event.subtitle;
@@ -109,6 +114,10 @@ tvheadend.epgDetails = function(event) {
       content += '<div class="x-epg-time"><span class="x-epg-prefix">' + _('End Time') + ':</span><span class="x-epg-body">' + tvheadend.niceDate(event.stop) + '</span></div>';
     if (duration)
       content += '<div class="x-epg-time"><span class="x-epg-prefix">' + _('Duration') + ':</span><span class="x-epg-body">' + parseInt(duration / 60) + ' ' + _('min') + '</span></div>';
+    if (chicon) {
+      content += '</div>'; /* x-epg-left */
+      content += '<div class="x-epg-bottom">';
+    }
     content += '<hr class="x-epg-hr"/>';
     if (event.summary)
       content += '<div class="x-epg-summary">' + event.summary + '</div>';
@@ -158,6 +167,8 @@ tvheadend.epgDetails = function(event) {
 
     content += '<div id="related"></div>';
     content += '<div id="altbcast"></div>';
+    if (chicon)
+      content += '</div>'; /* x-epg-bottom */
     
     var now = new Date();
     var buttons = [];

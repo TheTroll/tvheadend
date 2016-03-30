@@ -4,6 +4,7 @@
     "precise-amd64": {
       "buildenv": "precise-amd64",
       "builddeps": [
+        "cmake",
         "git",
         "build-essential",
         "pkg-config",
@@ -15,11 +16,12 @@
         "bzip2",
         "git-core",
         "liburiparser-dev",
-        "python"
+        "python",
+        "dvb-apps"
       ],
 
       "buildcmd": [
-        "./configure --disable-dvbscan --enable-libffmpeg_static --enable-hdhomerun_static",
+        "./configure --disable-dvbscan --enable-ffmpeg_static --disable-libx265_static --disable-libx265 --enable-hdhomerun_static",
         "make -j ${PARALLEL}"
       ]
     },
@@ -27,6 +29,7 @@
     "precise-i386": {
       "buildenv": "precise-i386",
       "builddeps": [
+        "cmake",
         "git",
         "build-essential",
         "pkg-config",
@@ -38,12 +41,12 @@
         "bzip2",
         "git-core",
         "liburiparser-dev",
-        "libx264-dev",
-        "python"
+        "python",
+        "dvb-apps"
       ],
 
       "buildcmd": [
-        "./configure --disable-dvbscan --enable-libffmpeg_static --disable-libx264_static --enable-hdhomerun_static",
+        "./configure --disable-dvbscan --enable-ffmpeg_static --disable-libx265_static --disable-libx265 --enable-hdhomerun_static",
         "make -j ${PARALLEL}"
       ]
     },
@@ -51,6 +54,7 @@
     "trusty-amd64": {
       "buildenv": "trusty-amd64",
       "builddeps": [
+        "cmake",
         "git",
         "build-essential",
         "pkg-config",
@@ -62,11 +66,12 @@
         "bzip2",
         "git-core",
         "liburiparser-dev",
-        "python"
+        "python",
+        "dvb-apps"
       ],
 
       "buildcmd": [
-        "./configure --disable-dvbscan --enable-libffmpeg_static --enable-hdhomerun_static",
+        "./configure --disable-dvbscan --enable-ffmpeg_static --enable-hdhomerun_static",
         "make -j ${PARALLEL}"
       ]
     },
@@ -74,6 +79,7 @@
     "trusty-i386": {
       "buildenv": "trusty-i386",
       "builddeps": [
+        "cmake",
         "git",
         "build-essential",
         "pkg-config",
@@ -85,12 +91,12 @@
         "bzip2",
         "git-core",
         "liburiparser-dev",
-        "libx264-dev",
-        "python"
+        "python",
+        "dvb-apps"
       ],
 
       "buildcmd": [
-        "./configure --disable-dvbscan --enable-libffmpeg_static --disable-libx264_static --enable-hdhomerun_static",
+        "./configure --disable-dvbscan --enable-ffmpeg_static --enable-hdhomerun_static",
         "make -j ${PARALLEL}"
       ]
     },
@@ -98,6 +104,7 @@
     "vivid-amd64": {
       "buildenv": "vivid-amd64",
       "builddeps": [
+        "cmake",
         "git",
         "build-essential",
         "pkg-config",
@@ -109,11 +116,12 @@
         "bzip2",
         "git-core",
         "liburiparser-dev",
-        "python"
+        "python",
+        "dvb-apps"
       ],
 
       "buildcmd": [
-        "./configure --disable-dvbscan --enable-libffmpeg_static --enable-hdhomerun_static",
+        "./configure --disable-dvbscan --enable-ffmpeg_static --enable-hdhomerun_static",
         "make -j ${PARALLEL}"
       ]
     },
@@ -121,6 +129,7 @@
     "vivid-i386": {
       "buildenv": "vivid-i386",
       "builddeps": [
+        "cmake",
         "git",
         "build-essential",
         "pkg-config",
@@ -132,12 +141,12 @@
         "bzip2",
         "git-core",
         "liburiparser-dev",
-        "libx264-dev",
-        "python"
+        "python",
+        "dvb-apps"
       ],
 
       "buildcmd": [
-        "./configure --disable-dvbscan --enable-libffmpeg_static --disable-libx264_static --enable-hdhomerun_static",
+        "./configure --disable-dvbscan --enable-ffmpeg_static --enable-hdhomerun_static",
         "make -j ${PARALLEL}"
       ]
     }
