@@ -41,7 +41,7 @@
 
 #define PROXY_IP1 "10.4.0.2"
 #define PROXY_IP2 "10.4.0.3"
-
+#define PROXY_IP3 "10.4.0.5"
 
 #if ENABLE_ANDROID
 #include <sys/socket.h>
@@ -574,7 +574,7 @@ http_access_verify(http_connection_t *hc, int mask)
     tcp_get_str_from_ip_port((struct sockaddr*)hc->hc_peer, authbuf, sizeof(authbuf), &port);
     peer = (struct sockaddr *)hc->hc_peer;
 
-    if (!strcmp(authbuf, PROXY_IP1) || !strcmp(authbuf, PROXY_IP2))
+    if (!strcmp(authbuf, PROXY_IP1) || !strcmp(authbuf, PROXY_IP2) || !strcmp(authbuf, PROXY_IP3))
     {
       v = http_arg_get(&hc->hc_args, "x-forwarded-for");
       if (v)
@@ -828,7 +828,7 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
 
   tcp_get_str_from_ip_port((struct sockaddr*)hc->hc_peer, authbuf, sizeof(authbuf), &port);
 
-  if (!strcmp(authbuf, PROXY_IP1) || !strcmp(authbuf, PROXY_IP2))
+  if (!strcmp(authbuf, PROXY_IP1) || !strcmp(authbuf, PROXY_IP2) || !strcmp(authbuf, PROXY_IP3))
   {
     const char* suffix;
 
@@ -836,6 +836,8 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
       suffix = "+1";
     else if (!strcmp(authbuf, PROXY_IP2))
       suffix = "+2";
+    else if (!strcmp(authbuf, PROXY_IP3))
+      suffix = "+3";
 
     v = http_arg_get(&hc->hc_args, "x-forwarded-for");
     if (v)
