@@ -212,6 +212,7 @@ doexit(int x)
   if (pthread_self() != main_tid)
     pthread_kill(main_tid, SIGTERM);
   pthread_cond_signal(&gtimer_cond);
+  tvh_cond_signal(&mtimer_cond, 1);
   atomic_set(&tvheadend_running, 0);
   signal(x, doexit);
 }
@@ -534,6 +535,17 @@ show_usage
 /**
  *
  */
+static inline time_t
+gdispatch_clock_update(void)
+{
+  time_t now = time(NULL);
+  atomic_set_time_t(&__gdispatch_clock, now);
+  return now;
+}
+
+/**
+ *
+ */
 static int64_t
 mdispatch_clock_update(void)
 {
@@ -541,6 +553,7 @@ mdispatch_clock_update(void)
 
   if (mono > atomic_get_s64(&mtimer_periodic)) {
     atomic_set_s64(&mtimer_periodic, mono + MONOCLOCK_RESOLUTION);
+    gdispatch_clock_update(); /* gclk() update */
     comet_flush(); /* Flush idle comet mailboxes */
   }
 
@@ -621,17 +634,6 @@ mtimer_thread(void *aux)
   }
   
   return NULL;
-}
-
-/**
- *
- */
-static inline time_t
-gdispatch_clock_update(void)
-{
-  time_t now = time(NULL);
-  atomic_set_time_t(&__gdispatch_clock, now);
-  return now;
 }
 
 /**
@@ -1052,6 +1054,7 @@ main(int argc, char **argv)
   }
 
   uuid_init();
+  idnode_boot();
   config_boot(opt_config, gid, uid);
   tcp_server_preinit(opt_ipv6);
   http_server_init(opt_bindaddr);    // bind to ports only
@@ -1129,8 +1132,8 @@ main(int argc, char **argv)
 
   /* Initialise configuration */
   notify_init();
-  idnode_init();
   spawn_init();
+  idnode_init();
   config_init(opt_nobackup == 0);
 
   /* Memoryinfo */
@@ -1416,6 +1419,5 @@ htsmsg_t *tvheadend_capabilities_list(int check)
  */
 void time_t_out_of_range_notify(int64_t val)
 {
-  tvherror("main", "time value of of range (%"PRId64") of time_t", val);
-  abort();
+  tvherror("main", "time value out of range (%"PRId64") of time_t", val);
 }

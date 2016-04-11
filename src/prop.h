@@ -63,6 +63,20 @@ typedef enum {
 #define PO_LORDER    (1<<15) // Manage order in lists
 #define PO_MULTILINE (1<<16) // Multiline string
 #define PO_PERSIST   (1<<17) // Persistent value (return back on save)
+#define PO_DOC       (1<<18) // Use doc callback instead description if exists
+#define PO_DOC_NLIST (1<<19) // Do not show list in doc
+
+/*
+ * min/max/step helpers
+ */
+#define INTEXTRA_RANGE(min, max, step) \
+  ((1<<31)|(((step)&0x7f)<<24)|(((max)&0xfff)<<12)|((min)&0xfff))
+
+#define INTEXTRA_IS_RANGE(e) (((e) & (1<<31)) != 0)
+#define INTEXTRA_IS_SPLIT(e) !INTEXTRA_IS_RANGE(e)
+#define INTEXTRA_GET_STEP(e) (((e)>>24)&0x7f)
+#define INTEXTRA_GET_MAX(e)  ((e)&(1<<23)?-(((e)>>12)&0x7ff):(((e)>>12)&0x7ff))
+#define INTEXTRA_GET_MIN(e)  ((e)&(1<<11)?-((e)&0x7ff):((e)&0x7ff))
 
 /*
  * Property definition
@@ -76,7 +90,7 @@ typedef struct property {
   uint8_t     group;      ///< Visual group ID (like ExtJS FieldSet)
   size_t      off;        ///< Offset into object
   uint32_t    opts;       ///< Options
-  uint32_t    intsplit;   ///< integer/remainder boundary
+  uint32_t    intextra;   ///< intsplit: integer/remainder boundary or range: min/max/step
 
   /* String based processing */
   const void *(*get)  (void *ptr);
@@ -101,6 +115,9 @@ typedef struct property {
 
   /* Extended options */
   uint32_t    (*get_opts) (void *ptr);
+
+  /* Documentation callback */
+  char       *(*doc) ( const struct property *prop, const char *lang );
 
   /* Notification callback */
   void        (*notify)   (void *ptr, const char *lang);
@@ -131,6 +148,9 @@ static inline int64_t prop_intsplit_from_str(const char *s, int64_t intsplit)
     s64 += (atol(s + 1) % intsplit);
   return s64;
 }
+
+char *
+prop_md_doc(const char **md, const char *lang);
 
 #endif /* __TVH_PROP_H__ */
 

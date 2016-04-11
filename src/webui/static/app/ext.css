@@ -723,32 +723,46 @@
     font: normal 12px arial, tahoma, helvetica, sans-serif;
 }
 
+.x-wizard-description ul {
+    list-style: disc outside;
+    padding-left: 15px;
+}
+
+.x-wizard-description p, .x-wizard-description li {
+    margin: 5px 0 0 0;
+    list-style: disc outside;
+}
+
+.x-wizard-description strong {
+    font-weight: bold;
+}
+
 /* Table styles for webUI help */
 
 .hts-doc-text table, .hts-doc-text th, .hts-doc-text td {
-  font-size: inherit;
-  border: 1px solid #98c0f4;
-  margin: 20px
+    font-size: inherit;
+    border: 1px solid #98c0f4;
+    margin: 20px
 }
 
 .hts-doc-text td,.hts-doc-text th {
-  padding: 5px
+    padding: 5px
 }
 
 .hts-doc-text table {
-  border-collapse: collapse
+    border-collapse: collapse
 }
 
 .hts-doc-text th {
-  text-align: center;
-  height: 2em;
-  background-color: #d9e8fb;
-  color: black;
-  font-weight: bold
+    text-align: center;
+    height: 2em;
+    background-color: #d9e8fb;
+    color: black;
+    font-weight: bold
 }
 
 .hts-doc-text tr:nth-child(even) {
-  background-color: #F2F7FE
+    background-color: #F2F7FE
 }
 
 /* Additional general text styles for webUI help */
@@ -758,33 +772,41 @@
     padding: 5px;
 }
 
-
 .hts-doc-text p {
-  margin-top: 1em;
-  margin-bottom: 1em;
-  margin-left: 1em
+    margin-left: 1em;
+    margin-top: 1em;
+    margin-bottom: 1em;
 }
 
 .hts-doc-text h2, h3, h4 {
-  font-size: larger
+    margin-top: 1em;
+    margin-bottom: 1em;
+    font-size: larger
 }
 
 .hts-doc-text h4 {
-  color: #2163A6;
-  margin-top: 15px
+    margin-top: 1em;
+    margin-bottom: 1em;
+    color: #2163A6;
+}
+
+.hts-doc-text h5 {
+    margin-top: .7em;
+    margin-bottom: .7em;
+    color: #2163A6;
 }
 
 .hts-doc-text strong {
-  font-weight: bold
+    font-weight: bold
 }
 
 .hts-doc-text em {
-  font-style: italic
+    font-style: italic
 }
 
 .hts-doc-text td img {
-  display: inline;
-  margin: -5px auto
+    display: inline;
+    margin: -5px auto
 }
 
 /* List styles for webUI help */
@@ -799,112 +821,138 @@
     padding-bottom: 10px;
 }
 
+.hts-doc-text ol {
+    list-style-type: arabic;
+    padding-left:3em
+}
+
 .hts-doc-text li {
     padding-top: 5px;
     padding-bottom: 5px;
 }
 
 .hts-doc-text ul {
-  list-style-type:disc;
-  padding-left:3em
+    list-style-type:disc;
+    padding-left:3em
 }
 
 .hts-doc-text ul li {
-  padding-top: 0px;
-  padding-bottom: 0px
+    padding-top: 0px;
+    padding-bottom: 0px
 }
 
 /* Additional image and caption styles for webUI help */
 
 .hts-doc-text img {
-  margin: 0px auto;
-  display: block;
-  border: none;
-  padding: 10px;
-  max-width: 97%
+    margin: 0px auto;
+    /* display: block; */
+    border: none;
+    padding: 10px;
+    max-width: 97%
 }
 
 .hts-doc-text p.caption {
-  font-weight: bold;
-  color: #2163A6;
-  font-style: italic;
-  text-align: center;
-  text-decoration: underline
+    font-weight: bold;
+    color: #2163A6;
+    font-style: italic;
+    text-align: center;
+    text-decoration: underline
 }
 
 /* Inline/block code styles for webUI help */
 
 .hts-doc-text code {
-  background-color: white;
-  border-color: #E1E4E5;
-  border-style: solid;
-  border-width: 1px;
-  color: darkred;
-  font-family:  'Courier New', Courier, monospace;
-  padding-bottom: 0px;
-  padding-left: 5px;
-  padding-right: 5px;
-  padding-top: 0px;
+    background-color: white;
+    border-color: #E1E4E5;
+    border-style: solid;
+    border-width: 1px;
+    color: darkred;
+    font-family:  'Courier New', Courier, monospace;
+    margin-left: 2em;
+    padding-bottom: 0px;
+    padding-left: 5px;
+    padding-right: 5px;
+    padding-top: 0px;
+    display: inline-block;
 }
 
-/* Admonition styles for webUI help */
-
-.hts-doc-text .admonition {
-  margin: 20px;
-  border: 0px solid;
-  border-left-width: 5px;
-  padding-top: 0px;padding-bottom: 5px
+.hts-doc-text p code {
+    margin-left: 0;
+    display: initial;
 }
 
-.hts-doc-text .admonition-title {
-  font-size: larger;
-  font-weight: bolder;
-  padding-top: 5px;padding-bottom: 5px;
-  margin: 0px
+/* Styles for help TOC */
+
+.hts-doc-toc {
+    width: 200px;
+    padding: 0;
+    margin: 0 5px 0 5px;
+    float: right;
+    border-left: dotted 1px;
+    border-bottom: dotted 1px;
 }
 
-.hts-doc-text .admonition.note {
-  background-color: #D6EBFF;
-  border-left-color: #4575A6
+.hts-doc-toc a {
+    cursor: pointer;
 }
 
-.hts-doc-text .admonition.note .admonition-title {
-  background-color: #4575A6;
-  color: white
+.hts-doc-toc a:hover {
+    cursor: pointer;
+    background-color: black;
+    color: white;
 }
 
-.hts-doc-text .admonition.tip {
-  background-color: #CDF1E9;
-  border-left-color: #1ABC9C
+.hts-doc-toc p {
+    margin: 3px 0 1px 5px;
 }
 
-.hts-doc-text .admonition.tip .admonition-title {
-  background-color: #1ABC9C;
-  color: white
+.hts-doc-toc li {
+    padding-top: 5px;
+    padding-bottom: 5px;
 }
 
-.hts-doc-text .admonition.warning {
-  background-color: #FFD0B0; 
-  border-left-color: #FF9147
+.hts-doc-toc ol {
+    list-style-type: arabic;
+    list-style-position: outside;
+    padding-left: 2em;
 }
 
-.hts-doc-text .admonition.warning .admonition-title {
-  background-color: #FF9147;
-  color: white
+.hts-doc-toc ol li {
+    padding-top: 0px;
+    padding-bottom: 0px
 }
 
-.hts-doc-text .admonition.danger {
-  background-color: #E8AFAF;
-  border-left-color: #FF3333
+.hts-doc-toc ul {
+    list-style-type: disc;
+    list-style-position: outside;
+    padding-left: 2em;
 }
 
-.hts-doc-text .admonition.danger .admonition-title {
-  background-color: #FF3333;
-  color: white
+.hts-doc-toc ul ul {
+    list-style-type: circle;
+    list-style-position: outside;
+    padding-left: 1em;
+}
+
+.hts-doc-toc ul ul ul {
+    list-style-type: square;
+    list-style-position: outside;
+    padding-left: 1em;
+}
+
+.hts-doc-toc ul li {
+    padding-top: 0px;
+    padding-bottom: 0px
+}
+
+.hts-doc-text a {
+    cursor: pointer;
+    text-decoration: underline;
+    color:blue;
 }
 
 .tv-video-idle {
-    background-image     : url(../../docresources/tvheadendlogo.png);
+    background-image     : url(../../static/img/logobig.png);
     background-repeat    : no-repeat;
     background-position  : center;
 }

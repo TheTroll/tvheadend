@@ -817,8 +817,8 @@ idnode_filter_init
         if (p->type == PT_U32 || p->type == PT_S64 ||
             p->type == PT_TIME) {
           int64_t v = f->u.n.n;
-          if (p->intsplit != f->u.n.intsplit) {
-            v = (v / MIN(1, f->u.n.intsplit)) * p->intsplit;
+          if (INTEXTRA_IS_SPLIT(p->intextra) && p->intextra != f->u.n.intsplit) {
+            v = (v / MIN(1, f->u.n.intsplit)) * p->intextra;
             f->u.n.n = v;
           }
         }
@@ -1351,7 +1351,6 @@ idclass_root_register(const idclass_t *idc)
   r = RB_INSERT_SORTED(&idrootclasses, idclasses_skel, link, ic_cmp);
   if (r) return;
   RB_INIT(&idclasses_skel->nodes);
-  r = idclasses_skel;
   SKEL_USED(idclasses_skel);
   tvhtrace("idnode", "register root class %s", idc->ic_class);
 }
@@ -1926,14 +1925,18 @@ save_thread ( void *aux )
  * *************************************************************************/
 
 void
-idnode_init(void)
+idnode_boot(void)
 {
   RB_INIT(&idnodes);
   RB_INIT(&idclasses);
   RB_INIT(&idrootclasses);
   TAILQ_INIT(&idnodes_save);
-
   tvh_cond_init(&save_cond);
+}
+
+void
+idnode_init(void)
+{
   atomic_set(&save_running, 1);
   tvhthread_create(&save_tid, NULL, save_thread, NULL, "save");
 }

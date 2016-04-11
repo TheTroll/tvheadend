@@ -142,9 +142,7 @@ endif
 
 ifeq ($(CONFIG_HDHOMERUN_STATIC),yes)
 CFLAGS  += -I$(BUILDDIR)/hdhomerun
-LDFLAGS += \
-    $(BUILDDIR)/hdhomerun/libhdhomerun/libhdhomerun.a \
-    -L$(BUILDDIR)/hdhomerun/libhdhomerun
+LDFLAGS += $(BUILDDIR)/hdhomerun/libhdhomerun/libhdhomerun.a
 endif
 
 vpath %.c $(ROOTDIR)
@@ -542,6 +540,23 @@ BUNDLES                    = $(BUNDLES-yes)
 ALL-$(CONFIG_DVBSCAN)     += check_dvb_scan
 
 #
+# Documentation
+#
+
+MD-TO-C    = PYTHONIOENCODING=utf-8 $(PYTHON) support/doc/md_to_c.py
+
+SRCS-yes  += src/docs.c
+I18N-C    += src/docs_inc.c
+I18N-DOCS  = $(wildcard docs/markdown/*.md)
+I18N-DOCS += $(wildcard docs/class/*.md)
+I18N-DOCS += $(wildcard docs/property/*.md)
+I18N-DOCS += $(wildcard docs/wizard/*.md)
+MD-ROOT    = $(patsubst docs/markdown/%.md,%,$(wildcard docs/markdown/*.md))
+MD-CLASS   = $(patsubst docs/class/%.md,%,$(wildcard docs/class/*.md))
+MD-PROP    = $(patsubst docs/property/%.md,%,$(wildcard docs/property/*.md))
+MD-WIZARD  = $(patsubst docs/wizard/%.md,%,$(wildcard docs/wizard/*.md))
+
+#
 # Internationalization
 #
 PO-FILES = $(foreach f,$(LANGUAGES),intl/tvheadend.$(f).po)
@@ -657,6 +672,45 @@ $(BUILDDIR)/build.o: $(BUILDDIR)/build.c
 	@mkdir -p $(dir $@)
 	$(pCC) -c -o $@ $<
 
+# Documentation
+$(BUILDDIR)/docs-timestamp: $(I18N-DOCS) support/doc/md_to_c.py
+	@-rm -f src/docs_inc.c
+	@for i in $(MD-ROOT); do \
+	   echo "Markdown: docs/markdown/$${i}.md"; \
+	   $(MD-TO-C) --in="docs/markdown/$${i}.md" \
+	              --name="tvh_doc_root_$${i}" >> src/docs_inc.c || exit 1; \
+	 done
+	@for i in $(MD-CLASS); do \
+	   echo "Markdown: docs/class/$${i}.md"; \
+	   $(MD-TO-C) --in="docs/class/$${i}.md" \
+	              --name="tvh_doc_$${i}_class" >> src/docs_inc.c || exit 1; \
+	 done
+	@for i in $(MD-PROP); do \
+	   echo "Markdown: docs/property/$${i}.md"; \
+	   $(MD-TO-C) --in="docs/property/$${i}.md" \
+	              --name="tvh_doc_$${i}_property" >> src/docs_inc.c || exit 1; \
+	 done
+	@for i in $(MD-WIZARD); do \
+	   echo "Markdown: docs/wizard/$${i}.md"; \
+	   $(MD-TO-C) --in="docs/wizard/$${i}.md" \
+	              --name="tvh_doc_wizard_$${i}" >> src/docs_inc.c || exit 1; \
+	 done
+	@printf "\n\nconst struct tvh_doc_page tvh_doc_markdown_pages[] = {\n" >> src/docs_inc.c
+	@for i in $(MD-ROOT); do \
+	   echo "  { \"$${i}\", tvh_doc_root_$${i} }," >> src/docs_inc.c || exit 1; \
+	 done
+	@echo "  { NULL, NULL }," >> src/docs_inc.c || exit 1
+	@echo "};" >> src/docs_inc.c
+	@touch $@
+
+src/docs_inc.c: $(BUILDDIR)/docs-timestamp
+
+src/docs_inc.h: $(BUILDDIR)/docs-timestamp
+
+src/docs.c: src/docs_inc.c src/docs_inc.h
+
+$(BUILDDIR)/src/docs.o: $(BUILDDIR)/docs-timestamp $(I18N-DOCS) support/doc/md_to_c.py
+
 # Internationalization
 .PHONY: intl
 intl:
@@ -664,7 +718,11 @@ intl:
 	@$(XGETTEXT2) -o intl/tvheadend.pot.new $(I18N-C)
 	@sed -e 's/^"Language: /"Language: en/' < intl/tvheadend.pot.new > intl/tvheadend.pot
 	$(MAKE) -f Makefile.webui LANGUAGES="$(LANGUAGES)" WEBUI=std intl
+	@printf "Building docs/tvheadend.pot\n"
+	@$(XGETTEXT2) -o intl/docs/tvheadend.pot.new $(I18N-DOCS)
+	@sed -e 's/^"Language: /"Language: en/' < intl/docs/tvheadend.pot.new > intl/docs/tvheadend.pot
 	$(MAKE)
+
 
 intl/tvheadend.pot:
 
@@ -755,7 +813,7 @@ $(ROOTDIR)/data/dvb-scan/dvb-s/.stamp: $(ROOTDIR)/data/satellites.xml \
 	@if ! test -s $(ROOTDIR)/data/satellites.xml ; then echo "Put your satellites.xml file to $(ROOTDIR)/data/satellites.xml"; exit 1; fi
 	@if ! test -d $(ROOTDIR)/data/dvb-scan/dvb-s ; then mkdir $(ROOTDIR)/data/dvb-scan/dvb-s ; fi
 	@rm -rf $(ROOTDIR)/data/dvb-scan/dvb-s/*
-	@$(ROOTDIR)/support/sat_xml_scan.py \
+	@PYTHONIOENCODING=utf-8 $(PYTHON) $(ROOTDIR)/support/sat_xml_scan.py \
 		$(ROOTDIR)/data/satellites.xml $(ROOTDIR)/data/dvb-scan/dvb-s
 	@touch $(ROOTDIR)/data/dvb-scan/dvb-s/.stamp
 

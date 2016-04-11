@@ -20,6 +20,7 @@
 #include "config.h"
 #include "webui.h"
 #include "http.h"
+#include "docs.h"
 
 /* */
 static int
@@ -129,8 +130,8 @@ http_markdown_class(http_connection_t *hc, const char *clazz)
   htsbuf_queue_t *hq = &hc->hc_reply;
   htsmsg_t *m, *l, *n, *e, *x;
   htsmsg_field_t *f, *f2;
-  const char *s;
-  int nl = 0;
+  const char *s, **doc;
+  int nl = 0, first = 1, b;
 
   pthread_mutex_lock(&global_lock);
   ic = idclass_find(clazz);
@@ -138,47 +139,101 @@ http_markdown_class(http_connection_t *hc, const char *clazz)
     pthread_mutex_unlock(&global_lock);
     return HTTP_STATUS_NOT_FOUND;
   }
-  m = idclass_serialize(ic, lang);
+  doc = ic->ic_doc;
+  m = idclass_serializedoc(ic, lang);
   pthread_mutex_unlock(&global_lock);
   s = htsmsg_get_str(m, "caption");
   if (s) {
-    md_header(hq, "####", s);
-    nl = 1;
+    md_header(hq, "## ", s);
+    nl = md_nl(hq, 1);
+  }
+  if (doc) {
+    for (; *doc; doc++) {
+      if (*doc[0] == '\xff') {
+        htsbuf_append_str(hq, tvh_gettext_lang(lang, *doc + 1));
+      } else {
+        htsbuf_append_str(hq, *doc);
+      }
+    }
   }
   l = htsmsg_get_list(m, "props");
   HTSMSG_FOREACH(f, l) {
     n = htsmsg_field_get_map(f);
     if (!n) continue;
+    if (!htsmsg_get_bool(n, "noui", &b) && b) continue;
     s = htsmsg_get_str(n, "caption");
     if (!s) continue;
+    if (first) {
+      nl = md_nl(hq, nl);
+      htsbuf_append_str(hq, "#### ");
+      htsbuf_append_str(hq, tvh_gettext_lang(lang, N_("Items")));
+      md_nl(hq, 1);
+      md_nl(hq, 1);
+      htsbuf_append_str(hq, tvh_gettext_lang(lang, N_("The items have the following functions:")));
+      md_nl(hq, 1);
+      first = 0;
+    }
     nl = md_nl(hq, nl);
     md_style(hq, "**", s);
+    if (!htsmsg_get_bool(n, "rdonly", &b) && b) {
+      htsbuf_append(hq, " _", 2);
+      htsbuf_append_str(hq, tvh_gettext_lang(lang, N_("(Read-only)")));
+      htsbuf_append(hq, "_", 1);
+    }
     md_nl(hq, 1);
     s = htsmsg_get_str(n, "description");
     if (s) {
       md_text(hq, ": ", "  ", s);
       md_nl(hq, 1);
     }
-    e = htsmsg_get_list(n, "enum");
-    if (e) {
-      HTSMSG_FOREACH(f2, e) {
-        x = htsmsg_field_get_map(f2);
-        if (x) {
-          s = htsmsg_get_str(x, "val");
-        } else {
-          s = htsmsg_field_get_string(f2);
-        }
-        if (s) {
-          md_nl(hq, 1);
-          htsbuf_append(hq, "  * ", 4);
-          md_style(hq, "**", s);
-        }
-      }
+    s = htsmsg_get_str(n, "doc");
+    if (s) {
+      htsbuf_append_str(hq, s);
       md_nl(hq, 1);
     }
-    htsmsg_print(n);
+    if (!htsmsg_get_bool_or_default(n, "doc_nlist", 0)) {
+      e = htsmsg_get_list(n, "enum");
+      if (e) {
+        HTSMSG_FOREACH(f2, e) {
+          x = htsmsg_field_get_map(f2);
+          if (x) {
+            s = htsmsg_get_str(x, "val");
+          } else {
+            s = htsmsg_field_get_string(f2);
+          }
+          if (s) {
+            md_nl(hq, 1);
+            htsbuf_append(hq, "  * ", 4);
+            md_style(hq, "**", s);
+          }
+        }
+        md_nl(hq, 1);
+      }
+    }
   }
   htsmsg_destroy(m);
+  return 0;
+}
+
+/**
+ *
+ */
+static int
+http_markdown_page(http_connection_t *hc, const struct tvh_doc_page *page)
+{
+  const char **doc = page->strings;
+  const char *lang = hc->hc_access->aa_lang_ui;
+  htsbuf_queue_t *hq = &hc->hc_reply;
+
+  if (doc == NULL)
+    return HTTP_STATUS_NOT_FOUND;
+  for (; *doc; doc++) {
+    if (*doc[0] == '\xff') {
+      htsbuf_append_str(hq, tvh_gettext_lang(lang, *doc + 1));
+    } else {
+      htsbuf_append_str(hq, *doc);
+    }
+  }
   return 0;
 }
 
@@ -188,6 +243,7 @@ http_markdown_class(http_connection_t *hc, const char *clazz)
 int
 page_markdown(http_connection_t *hc, const char *remain, void *opaque)
 {
+  const struct tvh_doc_page *page;
   char *components[2];
   int nc, r;
 
@@ -202,9 +258,18 @@ page_markdown(http_connection_t *hc, const char *remain, void *opaque)
     r = http_markdown_classes(hc);
   else if (nc == 2 && !strcmp(components[0], "class"))
     r = http_markdown_class(hc, components[1]);
-  else
+  else if (nc == 1) {
+    for (page = tvh_doc_markdown_pages; page->name; page++)
+      if (!strcmp(page->name, components[0])) {
+        r = http_markdown_page(hc, page);
+        goto done;
+      }
     r = HTTP_STATUS_BAD_REQUEST;
+  } else {
+    r = HTTP_STATUS_BAD_REQUEST;
+  }
 
+done:
   if (r == 0)
     http_output_content(hc, "text/markdown");
 

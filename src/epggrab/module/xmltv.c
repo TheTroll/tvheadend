@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <string.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -631,10 +632,12 @@ static int _xmltv_parse_programme
 static int _xmltv_parse_channel
   (epggrab_module_t *mod, htsmsg_t *body, epggrab_stats_t *stats)
 {
-  int save =0;
+  int save = 0, chnum = ((epggrab_module_ext_t *)mod)->xmltv_chnum;
   htsmsg_t *attribs, *tags, *subtag;
   const char *id, *name, *icon;
   epggrab_channel_t *ch;
+  htsmsg_field_t *f;
+  htsmsg_t *dnames;
 
   if(body == NULL) return 0;
 
@@ -646,15 +649,43 @@ static int _xmltv_parse_channel
   stats->channels.total++;
   if (save) stats->channels.created++;
   
-  if((name = htsmsg_xml_get_cdata_str(tags, "display-name")) != NULL) {
-    save |= epggrab_channel_set_name(ch, name);
+  dnames = htsmsg_create_list();
+
+  HTSMSG_FOREACH(f, tags) {
+    if (!(subtag = htsmsg_field_get_map(f))) continue;
+    if (strcmp(f->hmf_name, "display-name") == 0) {
+      int n = 0;
+
+      name = htsmsg_get_str(subtag, "cdata");
+      if (chnum) {
+        while (isdigit(*(name + n))) n++;
+        if (n > 0) {
+          if (*(name + n) == 0 || (*(name + n) == ' ' && chnum == 1)) {
+            save |= epggrab_channel_set_number(ch, atoi(name), 0);
+            name += n;
+            while (*name == ' ') name++;
+          }
+        }
+      }
+      if (*name)
+        htsmsg_add_str_exclusive(dnames, name);
+    }
+    else if (strcmp(f->hmf_name, "icon") == 0) {
+      if ((attribs = htsmsg_get_map(subtag,  "attrib")) != NULL &&
+          (icon    = htsmsg_get_str(attribs, "src"))    != NULL) {
+        save |= epggrab_channel_set_icon(ch, icon);
+      }
+    }
   }
 
-  if((subtag  = htsmsg_get_map(tags,    "icon"))   != NULL &&
-     (attribs = htsmsg_get_map(subtag,  "attrib")) != NULL &&
-     (icon    = htsmsg_get_str(attribs, "src"))    != NULL) {
-    save |= epggrab_channel_set_icon(ch, icon);
+  HTSMSG_FOREACH(f, dnames) {
+    const char *s;
+
+    if ((s = htsmsg_field_get_str(f)) != NULL)
+      save |= epggrab_channel_set_name(ch, s);
   }
+  htsmsg_destroy(dnames);
+
   if (save)
     stats->channels.modified++;
   return save;
@@ -717,6 +748,57 @@ static int _xmltv_parse
  * Module Setup
  * ***********************************************************************/
 
+#define DN_CHNUM_NAME N_("Channel numbers (heuristic)")
+#define DN_CHNUM_DESC \
+  N_("Try to obtain channel numbers from the display-name xml tag. " \
+     "If the first word is number, it is used as the channel number.")
+
+static htsmsg_t *
+xmltv_dn_chnum_list ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("Disabled"),          0 },
+    { N_("First word"),        1 },
+    { N_("Only digits"),       2 },
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
+const idclass_t epggrab_mod_int_xmltv_class = {
+  .ic_super      = &epggrab_mod_int_class,
+  .ic_class      = "epggrab_mod_int_xmltv",
+  .ic_caption    = N_("Internal XMLTV EPG grabber"),
+  .ic_properties = (const property_t[]){
+    {
+      .type   = PT_INT,
+      .id     = "dn_chnum",
+      .name   = DN_CHNUM_NAME,
+      .desc   = DN_CHNUM_DESC,
+      .off    = offsetof(epggrab_module_int_t, xmltv_chnum),
+      .list   = xmltv_dn_chnum_list,
+      .group  = 1
+    },
+    {}
+  }
+};
+
+const idclass_t epggrab_mod_ext_xmltv_class = {
+  .ic_super      = &epggrab_mod_ext_class,
+  .ic_class      = "epggrab_mod_ext_xmltv",
+  .ic_caption    = N_("External XMLTV EPG grabber"),
+  .ic_properties = (const property_t[]){
+    {
+      .type   = PT_BOOL,
+      .id     = "dn_chnum",
+      .name   = DN_CHNUM_NAME,
+      .desc   = DN_CHNUM_DESC,
+      .off    = offsetof(epggrab_module_ext_t, xmltv_chnum),
+      .group  = 1
+    },
+    {}
+  }
+};
+
 static void _xmltv_load_grabbers ( void )
 {
   int outlen = -1, rd = -1;
@@ -738,7 +820,8 @@ static void _xmltv_load_grabbers ( void )
       if ( outbuf[i] == '\n' || outbuf[i] == '\0' ) {
         outbuf[i] = '\0';
         sprintf(name, "XMLTV: %s", &outbuf[n]);
-        epggrab_module_int_create(NULL, NULL, &outbuf[p], "xmltv",
+        epggrab_module_int_create(NULL, &epggrab_mod_int_xmltv_class,
+                                  &outbuf[p], "xmltv",
                                   name, 3, &outbuf[p],
                                   NULL, _xmltv_parse, NULL);
         p = n = i + 1;
@@ -785,7 +868,8 @@ static void _xmltv_load_grabbers ( void )
             close(rd);
             if (outbuf[outlen-1] == '\n') outbuf[outlen-1] = '\0';
             snprintf(name, sizeof(name), "XMLTV: %s", outbuf);
-            epggrab_module_int_create(NULL, NULL, bin, "xmltv", name, 3, bin,
+            epggrab_module_int_create(NULL, &epggrab_mod_int_xmltv_class,
+                                      bin, "xmltv", name, 3, bin,
                                       NULL, _xmltv_parse, NULL);
             free(outbuf);
           } else {
@@ -804,8 +888,8 @@ static void _xmltv_load_grabbers ( void )
 void xmltv_init ( void )
 {
   /* External module */
-  epggrab_module_ext_create(NULL, "xmltv", "xmltv",
-                            "XMLTV", 3, "xmltv",
+  epggrab_module_ext_create(NULL, &epggrab_mod_ext_xmltv_class,
+                            "xmltv", "xmltv", "XMLTV", 3, "xmltv",
                             _xmltv_parse, NULL);
 
   /* Standard modules */

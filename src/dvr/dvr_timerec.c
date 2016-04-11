@@ -327,6 +327,8 @@ dvr_timerec_entry_class_channel_set(void *o, const void *v)
       return 1;
     }
   } else if (dte->dte_channel != ch) {
+    if (!channel_access(ch, dte->dte_id.in_access, 1))
+      return 0;
     if (dte->dte_channel)
       LIST_REMOVE(dte, dte_channel_link);
     dte->dte_channel = ch;
@@ -514,10 +516,13 @@ dvr_timerec_entry_class_owner_opts(void *o)
   return PO_RDONLY | PO_ADVANCED;
 }
 
+extern const char *tvh_doc_dvrtimerec_class[];
+
 const idclass_t dvr_timerec_entry_class = {
   .ic_class      = "dvrtimerec",
   .ic_caption    = N_("DVR time record entry"),
   .ic_event      = "dvrtimerec",
+  .ic_doc        = tvh_doc_dvrtimerec_class,
   .ic_changed    = dvr_timerec_entry_class_changed,
   .ic_save       = dvr_timerec_entry_class_save,
   .ic_get_title  = dvr_timerec_entry_class_get_title,

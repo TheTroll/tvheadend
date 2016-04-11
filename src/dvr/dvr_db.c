@@ -2153,7 +2153,7 @@ dvr_entry_class_start_extra_opts(void *o)
   dvr_entry_t *de = (dvr_entry_t *)o;
   if (de && !dvr_entry_is_editable(de))
     return PO_RDONLY | PO_DURATION | PO_ADVANCED;
-  return PO_DURATION | PO_ADVANCED;
+  return PO_DURATION | PO_ADVANCED | PO_DOC_NLIST;
 }
 
 static int
@@ -2271,6 +2271,8 @@ dvr_entry_class_channel_set(void *o, const void *v)
       return 1;
     }
   } else if (de->de_channel != ch) {
+    if (!channel_access(ch, de->de_id.in_access, 1))
+      return 0;
     if (de->de_channel)
       LIST_REMOVE(de, de_channel_link);
     free(de->de_channel_name);
@@ -2809,10 +2811,35 @@ dvr_entry_class_content_type_list(void *o, const char *lang)
   return m;
 }
 
+static char *
+dvr_entry_prop_status_doc(const struct property *p, const char *lang)
+{    
+    extern const char *tvh_doc_dvr_status_property[];
+    return prop_md_doc(tvh_doc_dvr_status_property, lang);
+}
+
+static char *
+dvr_entry_prop_start_extra_doc(const struct property *p, const char *lang)
+{
+    extern const char *tvh_doc_dvr_start_extra_property[];
+    return prop_md_doc(tvh_doc_dvr_start_extra_property, lang);
+}
+
+static char *
+dvr_entry_prop_dvr_stop_extra_doc(const struct property *p, const char *lang)
+{
+    extern const char *tvh_doc_dvr_stop_extra_property[];
+    return prop_md_doc(tvh_doc_dvr_stop_extra_property, lang);
+}
+
+extern const char *tvh_doc_dvrentry_class[];
+
 const idclass_t dvr_entry_class = {
   .ic_class     = "dvrentry",
-  .ic_caption   = N_("DVR entry"),
+  .ic_caption   = N_("DVR Entries"),
   .ic_event     = "dvrentry",
+  /*.ic_doc       = tvh_doc_dvrentry_class,*/
+  .ic_doc       = tvh_doc_dvrentry_class,
   .ic_changed   = dvr_entry_class_changed,
   .ic_save      = dvr_entry_class_save,
   .ic_get_title = dvr_entry_class_get_title,
@@ -2841,13 +2868,8 @@ const idclass_t dvr_entry_class = {
       .id       = "start_extra",
       .name     = N_("Pre-recording padding"),
       .desc     = N_("Start recording earlier than the "
-                     "EPG/timer-defined start time by x minutes: for "
-                     "example, if a program is to start at 13:00 and "
-                     "you set a padding of 5 minutes, it will start "
-                     "recording at 12:54:30 (including a warm-up time "
-                     "of 30 seconds). If this isn't specified, any "
-                     "pre-recording padding as set in the channel or "
-                     "DVR profile will be used."),
+                     "EPG/timer-defined start time by x minutes."),
+      .doc      = dvr_entry_prop_start_extra_doc,
       .off      = offsetof(dvr_entry_t, de_start_extra),
       .set      = dvr_entry_class_start_extra_set,
       .list     = dvr_entry_class_extra_list,
@@ -2857,9 +2879,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_TIME,
       .id       = "start_real",
       .name     = N_("Scheduled start time"),
-      .desc     = N_("The scheduled start time, including any "
-                     "pre-recording padding and a warm-up time of 30 "
-                     "seconds."),
+      .desc     = N_("The scheduled start time, including any padding."),
       .get      = dvr_entry_class_start_real_get,
       .opts     = PO_RDONLY | PO_NOSAVE,
     },
@@ -2877,25 +2897,24 @@ const idclass_t dvr_entry_class = {
       .name     = N_("Post-recording padding"),
       .desc     = N_("Continue recording for x minutes after scheduled "
                      "stop time."),
+      .doc      = dvr_entry_prop_dvr_stop_extra_doc,
       .off      = offsetof(dvr_entry_t, de_stop_extra),
       .list     = dvr_entry_class_extra_list,
-      .opts     = PO_SORTKEY | PO_ADVANCED,
+      .opts     = PO_SORTKEY | PO_ADVANCED | PO_DOC_NLIST,
     },
     {
       .type     = PT_TIME,
       .id       = "stop_real",
       .name     = N_("Scheduled stop time"),
-      .desc     = N_("The scheduled stop time including any post-recording "
-                     "padding."),
+      .desc     = N_("The scheduled stop time, including any padding."),
       .get      = dvr_entry_class_stop_real_get,
       .opts     = PO_RDONLY | PO_NOSAVE,
     },
     {
       .type     = PT_TIME,
       .id       = "duration",
-      .name     = N_("Duration"),
-      .desc     = N_("The total recording time including pre- and post-"
-                     "recording padding."),
+      .name     = N_("Scheduled Duration"),
+      .desc     = N_("The total scheduled duration."),
       .get      = dvr_entry_class_duration_get,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_DURATION,
     },
@@ -2903,7 +2922,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "channel",
       .name     = N_("Channel"),
-      .desc     = N_("The channel to be used/used for the recording."),
+      .desc     = N_("The channel name the entry will record from."),
       .set      = dvr_entry_class_channel_set,
       .get      = dvr_entry_class_channel_get,
       .rend     = dvr_entry_class_channel_rend,
@@ -2914,7 +2933,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "channel_icon",
       .name     = N_("Channel icon"),
-      /*.desc     = N_("Channel icon URL."),*/
+      .desc     = N_("Channel icon URL."),
       .get      = dvr_entry_class_channel_icon_url_get,
       .opts     = PO_HIDDEN | PO_RDONLY | PO_NOSAVE | PO_NOUI,
     },
@@ -2922,7 +2941,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "channelname",
       .name     = N_("Channel name"),
-      .desc     = N_("Name of channel used for the recording."),
+      .desc     = N_("Name of channel the entry recorded from."),
       .get      = dvr_entry_class_channel_name_get,
       .set      = dvr_entry_class_channel_name_set,
       .off      = offsetof(dvr_entry_t, de_channel_name),
@@ -2987,7 +3006,7 @@ const idclass_t dvr_entry_class = {
       .def.i    = DVR_PRIO_NORMAL,
       .set      = dvr_entry_class_pri_set,
       .list     = dvr_entry_class_pri_list,
-      .opts     = PO_SORTKEY,
+      .opts     = PO_SORTKEY | PO_DOC_NLIST,
     },
     {
       .type     = PT_U32,
@@ -2997,7 +3016,7 @@ const idclass_t dvr_entry_class = {
       .off      = offsetof(dvr_entry_t, de_retention),
       .def.i    = DVR_RET_DVRCONFIG,
       .list     = dvr_entry_class_retention_list,
-      .opts     = PO_HIDDEN | PO_EXPERT
+      .opts     = PO_HIDDEN | PO_EXPERT | PO_DOC_NLIST,
     },
     {
       .type     = PT_U32,
@@ -3007,7 +3026,7 @@ const idclass_t dvr_entry_class = {
       .off      = offsetof(dvr_entry_t, de_removal),
       .def.i    = DVR_RET_DVRCONFIG,
       .list     = dvr_entry_class_removal_list,
-      .opts     = PO_HIDDEN | PO_ADVANCED
+      .opts     = PO_HIDDEN | PO_ADVANCED | PO_DOC_NLIST,
     },
     {
       .type     = PT_STR,
@@ -3043,7 +3062,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "filename",
       .name     = N_("Filename"),
-      /*.desc   = N_("Filename used by this entry."), */
+      .desc     = N_("Filename used by the entry."),
       .get      = dvr_entry_class_filename_get,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_NOUI,
     },
@@ -3051,7 +3070,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "directory",
       .name     = N_("Directory"),
-      /*.desc   = N_("Directory used by this entry."), */
+      .desc     = N_("Directory used by the entry."),
       .off      = offsetof(dvr_entry_t, de_directory),
       .opts     = PO_RDONLY | PO_NOUI,
     },
@@ -3059,7 +3078,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_U32,
       .id       = "errorcode",
       .name     = N_("Error code"),
-      /*.desc   = N_("Error code of entry."), */
+      .desc     = N_("Error code of entry."),
       .off      = offsetof(dvr_entry_t, de_last_error),
       .opts     = PO_RDONLY | PO_NOUI,
     },
@@ -3202,6 +3221,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "status",
       .name     = N_("Status"),
+      .doc      = dvr_entry_prop_status_doc,
       .desc     = N_("The recording/entry status."),
       .get      = dvr_entry_class_status_get,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_LOCALE,
@@ -3334,7 +3354,7 @@ dvr_entry_delete(dvr_entry_t *de)
   struct tm tm;
   const char *filename;
   char *str1, *str2;
-  char tbuf[64], ubuf[UUID_HEX_SIZE], *rdir, *postcmd;
+  char tbuf[64], ubuf[UUID_HEX_SIZE], *rdir, *cmd;
   int r, ret = 0;
 
   t = dvr_entry_get_start_time(de, 1);
@@ -3371,9 +3391,9 @@ dvr_entry_delete(dvr_entry_t *de)
         tvhlog(LOG_WARNING, "dvr", "Unable to remove file '%s' from disk -- %s",
   	       filename, strerror(-errno));
 
-      postcmd = de->de_config->dvr_postremove;
-      if (postcmd && postcmd[0])
-        dvr_spawn_postcmd(de, postcmd, filename);
+      cmd = de->de_config->dvr_postremove;
+      if (cmd && cmd[0])
+        dvr_spawn_cmd(de, cmd, filename, 0);
       htsmsg_delete_field(m, "filename");
       ret = 1;
     }

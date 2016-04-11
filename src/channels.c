@@ -397,7 +397,7 @@ const idclass_t channel_class = {
     },
     {
       .type     = PT_S64,
-      .intsplit = CHANNEL_SPLIT,
+      .intextra = CHANNEL_SPLIT,
       .id       = "number",
       .name     = N_("Number"),
       .desc     = N_("Number. The position the channel will appear on "
@@ -596,8 +596,15 @@ channel_access(channel_t *ch, access_t *a, int disabled)
 {
   char ubuf[UUID_HEX_SIZE];
 
-  if (!ch)
+  if (!a)
     return 0;
+
+  if (!ch) {
+    /* If user has full rights, allow access to removed chanels */
+    if (a->aa_chrange == NULL && a->aa_chtags == NULL)
+      return 1;
+    return 0;
+  }
 
   if (!disabled && !ch->ch_enabled)
     return 0;

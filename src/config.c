@@ -1631,6 +1631,8 @@ config_boot ( const char *path, gid_t gid, uid_t uid )
   memset(&config, 0, sizeof(config));
   config.idnode.in_class = &config_class;
   config.ui_quicktips = 1;
+  config.digest = 1;
+  config.realm = strdup("tvheadend");
   config.info_area = strdup("login,storage,time");
   config.cookie_expires = 7;
   config.dscp = -1;
@@ -1751,6 +1753,7 @@ void config_done ( void )
   free(config.language);
   free(config.language_ui);
   free(config.theme_ui);
+  free(config.realm);
   free(config.info_area);
   free(config.muxconf_path);
   free(config.chicon_path);
@@ -1966,12 +1969,15 @@ config_muxconfpath_notify ( void *o, const char *lang )
 #endif
 }
 
+extern const char *tvh_doc_config_class[];
+
 const idclass_t config_class = {
   .ic_snode      = &config.idnode,
   .ic_class      = "config",
   .ic_caption    = N_("Configuration"),
   .ic_event      = "config",
   .ic_perm_def   = ACCESS_ADMIN,
+  .ic_doc        = tvh_doc_config_class,
   .ic_save       = config_class_save,
   .ic_groups     = (const property_group_t[]) {
       {
@@ -2063,7 +2069,19 @@ const idclass_t config_class = {
       .group  = 1
     },
     {
+      .type   = PT_BOOL,
+      .id     = "digest",
+      .name   = N_("Use HTTP digest authentication"),
+      .desc   = N_("Digest access authentication is intended as a security trade-off. "
+                   "It is intended to replace unencrypted HTTP basic access authentication. "
+                   "This option should be enabled for the standard usage."),
+      .off    = offsetof(config_t, digest),
+      .opts   = PO_ADVANCED,
+      .group  = 1
+    },
+    {
       .type   = PT_U32,
+      .intextra = INTEXTRA_RANGE(1, 0x7ff, 1),
       .id     = "cookie_expires",
       .name   = N_("Cookie expiration (days)"),
       .desc   = N_("The number of days cookies set by Tvheadend should "

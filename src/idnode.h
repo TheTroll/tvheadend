@@ -67,6 +67,7 @@ struct idclass {
   const char             *ic_class;        ///< Class name
   const char             *ic_caption;      ///< Class description
   const char             *ic_order;        ///< Property order (comma-separated)
+  const char            **ic_doc;          ///< NULL terminated array of strings
   const property_group_t *ic_groups;       ///< Groups for visual representation
   const property_t       *ic_properties;   ///< Property list
   const char             *ic_event;        ///< Events to fire on add/delete/title
@@ -191,6 +192,7 @@ typedef LIST_HEAD(,idnode_filter_ele) idnode_filter_t;
 extern idnode_t tvhlog_conf;
 extern const idclass_t tvhlog_conf_class;
 
+void idnode_boot(void);
 void idnode_init(void);
 void idnode_done(void);
 
@@ -230,8 +232,9 @@ void      idnode_read0  (idnode_t *self, htsmsg_t *m, htsmsg_t *list, int optmas
 int       idnode_write0 (idnode_t *self, htsmsg_t *m, int optmask, int dosave);
 void      idnode_save_check (idnode_t *self, int weak);
 
-#define idclass_serialize(idc, lang) idclass_serialize0(idc, NULL, 0, lang)
-#define idnode_serialize(in, lang)   idnode_serialize0(in, NULL, 0, lang)
+#define idclass_serialize(idc, lang)    idclass_serialize0(idc, NULL, 0, lang)
+#define idclass_serializedoc(idc, lang) idclass_serialize0(idc, NULL, PO_DOC, lang)
+#define idnode_serialize(in, lang)      idnode_serialize0(in, NULL, 0, lang)
 #define idnode_load(in, m)     idnode_write0(in, m, PO_NOSAVE, 0)
 #define idnode_save(in, m)     idnode_read0(in, m, NULL, PO_NOSAVE | PO_USERAW, NULL)
 #define idnode_update(in, m)   idnode_write0(in, m, PO_RDONLY | PO_WRONCE, 1)

@@ -41,7 +41,7 @@ tvheadend.baseconf = function(panel, index) {
                 if (l !== tvheadend.uilevel)
                     reload = 1;
             }
-            var n = data['theme'];
+            var n = data['theme_ui'];
             if (n !== tvheadend.theme)
               reload = 1;
             var n = data['uilevel_nochange'] ? true : false;
@@ -57,7 +57,7 @@ tvheadend.baseconf = function(panel, index) {
                 window.location.reload();
         },
         help: function() {
-            new tvheadend.help(_('General Configuration'), 'config_general.html');
+            new tvheadend.mdhelp('class/config');
         }
     });
 
@@ -116,7 +116,7 @@ tvheadend.imgcacheconf = function(panel, index) {
         labelWidth: 200,
         tbar: [cleanButton, triggerButton],
         help: function() {
-            new tvheadend.help(_('General Configuration'), 'config_general.html');
+            new tvheadend.mdhelp('class/imagecache');
         }
     });
 
@@ -158,7 +158,7 @@ tvheadend.satipsrvconf = function(panel, index) {
         labelWidth: 250,
         tbar: [discoverButton],
         help: function() {
-            new tvheadend.help(_('SAT>IP Server Configuration'), 'config_satips.html');
+            new tvheadend.mdhelp('class/satip_server');
         }
     });
 };

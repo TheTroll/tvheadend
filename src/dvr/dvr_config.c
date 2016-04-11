@@ -260,6 +260,9 @@ dvr_config_destroy(dvr_config_t *cfg, int delconf)
   free(cfg->dvr_charset);
   free(cfg->dvr_storage);
   free(cfg->dvr_config_name);
+  free(cfg->dvr_preproc);
+  free(cfg->dvr_postproc);
+  free(cfg->dvr_postremove);
   free(cfg);
 }
 
@@ -788,10 +791,20 @@ dvr_config_class_pathname_set(void *o, const void *v)
   return 0;
 }
 
+static char *
+dvr_config_prop_pathname_doc(const struct property *p, const char *lang)
+{
+  extern const char *tvh_doc_postprocessor_property[];
+  return prop_md_doc(tvh_doc_postprocessor_property, lang);
+}
+
+extern const char *tvh_doc_dvrconfig_class[];
+
 const idclass_t dvr_config_class = {
   .ic_class      = "dvrconfig",
   .ic_caption    = N_("DVR configuration profile"),
   .ic_event      = "dvrconfig",
+  .ic_doc        = tvh_doc_dvrconfig_class,
   .ic_changed    = dvr_config_class_changed,
   .ic_save       = dvr_config_class_save,
   .ic_get_title  = dvr_config_class_get_title,
@@ -891,7 +904,7 @@ const idclass_t dvr_config_class = {
       .off      = offsetof(dvr_config_t, dvr_retention_days),
       .def.u32  = DVR_RET_ONREMOVE,
       .list     = dvr_config_class_retention_list,
-      .opts     = PO_EXPERT,
+      .opts     = PO_EXPERT | PO_DOC_NLIST,
       .group    = 1,
     },
     {
@@ -902,6 +915,7 @@ const idclass_t dvr_config_class = {
       .off      = offsetof(dvr_config_t, dvr_removal_days),
       .def.u32  = DVR_RET_FOREVER,
       .list     = dvr_config_class_removal_list,
+      .opts     = PO_DOC_NLIST,
       .group    = 1,
     },
     {
@@ -952,7 +966,7 @@ const idclass_t dvr_config_class = {
                      "in the channel or DVR entry will be used."),
       .off      = offsetof(dvr_config_t, dvr_extra_time_pre),
       .list     = dvr_config_class_extra_list,
-      .opts     = PO_ADVANCED,
+      .opts     = PO_ADVANCED | PO_DOC_NLIST,
       .group    = 1,
     },
     {
@@ -963,7 +977,7 @@ const idclass_t dvr_config_class = {
                      "stop time."),
       .off      = offsetof(dvr_config_t, dvr_extra_time_post),
       .list     = dvr_config_class_extra_list,
-      .opts     = PO_ADVANCED,
+      .opts     = PO_ADVANCED | PO_DOC_NLIST,
       .group    = 1,
     },
     {
@@ -975,7 +989,7 @@ const idclass_t dvr_config_class = {
       .off      = offsetof(dvr_config_t, dvr_update_window),
       .list     = dvr_config_entry_class_update_window_list,
       .def.u32  = 24*3600,
-      .opts     = PO_EXPERT,
+      .opts     = PO_EXPERT | PO_DOC_NLIST,
       .group    = 1,
     },
     {
@@ -1007,6 +1021,16 @@ const idclass_t dvr_config_class = {
       .desc     = N_("The maximum number of recordings that can be scheduled."),
       .off      = offsetof(dvr_config_t, dvr_autorec_max_sched_count),
       .opts     = PO_ADVANCED,
+      .group    = 1,
+    },
+    {
+      .type     = PT_STR,
+      .id       = "preproc",
+      .name     = N_("Pre-processor command"),
+      .desc     = N_("Script/program to be run when a recording starts "
+                     "(service is subscribed but no filename available)."),
+      .off      = offsetof(dvr_config_t, dvr_preproc),
+      .opts     = PO_EXPERT,
       .group    = 1,
     },
     {
@@ -1109,6 +1133,7 @@ const idclass_t dvr_config_class = {
       .desc     = N_("The string allows you to manually specify the "
                      "full path generation using predefined "
                      "modifiers. See Help for full details."),
+      .doc      = dvr_config_prop_pathname_doc,
       .set      = dvr_config_class_pathname_set,
       .off      = offsetof(dvr_config_t, dvr_pathname),
       .opts     = PO_EXPERT,

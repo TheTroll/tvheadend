@@ -33,6 +33,7 @@ static time_t satip_server_bootid;
 static int satip_server_rtsp_port;
 static int satip_server_rtsp_port_locked;
 static upnp_service_t *satips_upnp_discovery;
+static pthread_mutex_t satip_server_reinit;
 
 static void satip_server_save(void);
 
@@ -522,6 +523,9 @@ static void satips_rtsp_port(int def)
 
 static void satip_server_info(const char *prefix, int descramble, int muxcnf)
 {
+  int fe, findex;
+  const char *ftype;
+
   tvhinfo("satips", "SAT>IP Server %sinitialized "
                     "(HTTP %s:%d, RTSP %s:%d, "
                     "descramble %d, muxcnf %d)",
@@ -529,15 +533,11 @@ static void satip_server_info(const char *prefix, int descramble, int muxcnf)
               http_server_ip, http_server_port,
               http_server_ip, satip_server_rtsp_port,
               descramble, muxcnf);
-  tvhinfo("satips", "SAT>IP Server tuners: DVB-T/T2 %d/%d, DVB-S/S2 %d/%d, DVB-C/C2 %d/%d, ATSC-T/C %d/%d",
-              satip_server_conf.satip_dvbt,
-              satip_server_conf.satip_dvbt2,
-              satip_server_conf.satip_dvbs,
-              satip_server_conf.satip_dvbs2,
-              satip_server_conf.satip_dvbc,
-              satip_server_conf.satip_dvbc2,
-              satip_server_conf.satip_atsc_t,
-              satip_server_conf.satip_atsc_c);
+  for (fe = 1; fe <= 128; fe++) {
+    if (satip_rtsp_delsys(fe, &findex, &ftype) == DVB_TYPE_NONE)
+      break;
+    tvhinfo("satips", "  tuner[fe=%d]: %s #%d", fe, ftype, findex);
+  }
 }
 
 /*
@@ -566,12 +566,15 @@ static htsmsg_t *satip_server_class_muxcfg_list ( void *o, const char *lang )
   return strtab2htsmsg(tab, 1, lang);
 }
 
+extern const char *tvh_doc_satip_server_class[];
+
 const idclass_t satip_server_class = {
   .ic_snode      = (idnode_t *)&satip_server_conf,
   .ic_class      = "satip_server",
   .ic_caption    = N_("SAT>IP server"),
   .ic_event      = "satip_server",
   .ic_perm_def   = ACCESS_ADMIN,
+  .ic_doc        = tvh_doc_satip_server_class,
   .ic_changed    = satip_server_class_changed,
   .ic_groups     = (const property_group_t[]) {
       {
@@ -740,24 +743,59 @@ const idclass_t satip_server_class = {
 /*
  *
  */
-static void satip_server_save(void)
+static void satip_server_init_common(const char *prefix, int announce)
 {
+  struct sockaddr_storage http;
+  char http_ip[128];
   int descramble, rewrite_pmt, muxcnf;
   char *nat_ip;
 
+  if (http_server_ip == NULL) {
+    if (tcp_server_bound(http_server, &http, PF_INET) < 0) {
+      tvherror("satips", "Unable to determine the HTTP/RTSP address");
+      return;
+    }
+    tcp_get_str_from_ip((const struct sockaddr *)&http, http_ip, sizeof(http_ip));
+    http_server_ip = strdup(http_ip);
+    http_server_port = ntohs(IP_PORT(http));
+  }
+
+  if (satip_server_rtsp_port <= 0)
+    return;
+
+  descramble = satip_server_conf.satip_descramble;
+  rewrite_pmt = satip_server_conf.satip_rewrite_pmt;
+  muxcnf = satip_server_conf.satip_muxcnf;
+  nat_ip = strdup(satip_server_conf.satip_nat_ip ?: "");
+
+  if (announce)
+    pthread_mutex_unlock(&global_lock);
+
+  pthread_mutex_lock(&satip_server_reinit);
+
+  satip_server_rtsp_init(http_server_ip, satip_server_rtsp_port, descramble, rewrite_pmt, muxcnf, nat_ip);
+  satip_server_info(prefix, descramble, muxcnf);
+
+  if (announce)
+    satips_upnp_send_announce();
+
+  pthread_mutex_unlock(&satip_server_reinit);
+
+  if (announce)
+    pthread_mutex_lock(&global_lock);
+
+  free(nat_ip);
+}
+
+/*
+ *
+ */
+static void satip_server_save(void)
+{
   if (!satip_server_rtsp_port_locked) {
     satips_rtsp_port(0);
     if (satip_server_rtsp_port > 0) {
-      descramble = satip_server_conf.satip_descramble;
-      rewrite_pmt = satip_server_conf.satip_rewrite_pmt;
-      muxcnf = satip_server_conf.satip_muxcnf;
-      nat_ip = satip_server_conf.satip_nat_ip ? strdup(satip_server_conf.satip_nat_ip) : NULL;
-      pthread_mutex_unlock(&global_lock);
-      satip_server_rtsp_init(http_server_ip, satip_server_rtsp_port, descramble, rewrite_pmt, muxcnf, nat_ip);
-      satip_server_info("re", descramble, muxcnf);
-      satips_upnp_send_announce();
-      pthread_mutex_lock(&global_lock);
-      free(nat_ip);
+      satip_server_init_common("re", 1);
     } else {
       pthread_mutex_unlock(&global_lock);
       tvhinfo("satips", "SAT>IP Server shutdown");
@@ -774,10 +812,7 @@ static void satip_server_save(void)
 
 void satip_server_init(int rtsp_port)
 {
-  struct sockaddr_storage http;
-  char http_ip[128];
-  int descramble, rewrite_pmt, muxcnf;
-  char *nat_ip;
+  pthread_mutex_init(&satip_server_reinit, NULL);
 
   idclass_register(&satip_server_class);
 
@@ -785,29 +820,11 @@ void satip_server_init(int rtsp_port)
   satip_server_bootid = time(NULL);
   satip_server_conf.satip_deviceid = 1;
 
-  if (tcp_server_bound(http_server, &http, PF_INET) < 0) {
-    tvherror("satips", "Unable to determine the HTTP/RTSP address");
-    return;
-  }
-  tcp_get_str_from_ip((const struct sockaddr *)&http, http_ip, sizeof(http_ip));
-  http_server_ip = strdup(http_ip);
-  http_server_port = ntohs(IP_PORT(http));
-
   satip_server_rtsp_port_locked = rtsp_port > 0;
   satip_server_rtsp_port = rtsp_port;
   satips_rtsp_port(rtsp_port);
 
-  if (satip_server_rtsp_port <= 0)
-    return;
-
-  descramble = satip_server_conf.satip_descramble;
-  rewrite_pmt = satip_server_conf.satip_rewrite_pmt;
-  muxcnf = satip_server_conf.satip_muxcnf;
-  nat_ip = satip_server_conf.satip_nat_ip;
-
-  satip_server_rtsp_init(http_server_ip, satip_server_rtsp_port, descramble, rewrite_pmt, muxcnf, nat_ip);
-
-  satip_server_info("", descramble, muxcnf);
+  satip_server_init_common("", 0);
 }
 
 void satip_server_register(void)

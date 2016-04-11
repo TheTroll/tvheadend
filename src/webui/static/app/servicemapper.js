@@ -129,6 +129,9 @@ tvheadend.service_mapper0 = function(all)
             services.on('afterrender', function() {
                 services.selectAll();
             });
+            services.store.on('load', function() {
+                services.selectAll();
+            });
         } : null,
         postsave: function() {
             tvheadend.select_tab('service_mapper');

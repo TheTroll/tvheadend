@@ -483,6 +483,8 @@ dvr_autorec_entry_class_channel_set(void *o, const void *v)
       return 1;
     }
   } else if (dae->dae_channel != ch) {
+    if (!channel_access(ch, dae->dae_id.in_access, 1))
+      return 0;
     if (dae->dae_channel)
       LIST_REMOVE(dae, dae_channel_link);
     dae->dae_channel = ch;
@@ -978,10 +980,13 @@ dvr_autorec_entry_class_owner_opts(void *o)
   return PO_RDONLY | PO_ADVANCED;
 }
 
+extern const char *tvh_doc_dvrautorec_class[];
+
 const idclass_t dvr_autorec_entry_class = {
   .ic_class      = "dvrautorec",
   .ic_caption    = N_("DVR Auto-record entry"),
   .ic_event      = "dvrautorec",
+  .ic_doc        = tvh_doc_dvrautorec_class,
   .ic_changed    = dvr_autorec_entry_class_changed,
   .ic_save       = dvr_autorec_entry_class_save,
   .ic_get_title  = dvr_autorec_entry_class_get_title,
