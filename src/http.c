@@ -1123,7 +1123,7 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
   hc->hc_peer_ipstr = tvh_strdupa(authbuf);
   hc->hc_peer_port = port;
   hc->hc_representative = hc->hc_peer_ipstr;
-  hc->hc_username = (char*) "no-user";
+  hc->hc_username = NULL;
   hc->hc_password = NULL;
   hc->hc_authhdr  = NULL;
   hc->hc_session  = NULL;
