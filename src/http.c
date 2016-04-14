@@ -1621,7 +1621,7 @@ static void http_log(http_connection_t *hc, http_path_t *hp)
   struct timeval time;
   FILE *file = NULL;
 
-  if (hp && hp->hp_path && strstr(hp->hp_path, "comet"))
+  if (hp && hp->hp_path && !strstr(hp->hp_path, "webui"))
 	return;
 
   if (hc->hc_username && !strcmp(hc->hc_username, "tester"))
