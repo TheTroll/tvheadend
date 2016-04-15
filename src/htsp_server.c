@@ -2333,6 +2333,7 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
   channel_t *ch;
   htsp_subscription_t *hs;
   profile_t *pro;
+  idnode_list_mapping_t* ilm;
 
   if(htsmsg_get_u32(in, "subscriptionId", &sid))
     return htsp_error(htsp, N_("Invalid arguments"));
@@ -2395,6 +2396,25 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
 
   if (pro->pro_prefersd)
       convert_channel_to_sd(ch, &ch);
+
+  ilm = LIST_FIRST(&ch->ch_services);
+  if (ilm)
+  {
+    service_t* ch_first_service = (service_t* )ilm->ilm_in1;
+    if (ch_first_service)
+    {
+      source_info_t si;
+      int count;
+      ch_first_service->s_setsourceinfo(ch_first_service, &si);
+      count = subscription_get_user_count_on_other_muxes(htsp->htsp_username, si.si_mux_uuid);
+      if (count > 0)
+      {
+        tvherror("htsp", "User is already using %d muxes while the max is %d", count, 1);
+	free(hs);
+        return htsp_error(htsp, "Stream setup error, reach max allowed muxes");
+      }
+    }
+  }
 
   profile_chain_init(&hs->hs_prch, pro, ch);
   if (profile_chain_work(&hs->hs_prch, &hs->hs_input, timeshiftPeriod, 0)) {

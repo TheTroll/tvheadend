@@ -1211,6 +1211,8 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
   const char *name;
   void *tcp_id;
   int res = HTTP_STATUS_SERVICE;
+  idnode_list_mapping_t* ilm;
+  service_t* ch_first_service;
 
   if (http_access_verify_channel(hc, ACCESS_STREAMING, ch))
     return HTTP_STATUS_UNAUTHORIZED;
@@ -1231,6 +1233,27 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
     qsize = atoll(str);
   else
     qsize = 1500000;
+
+  if (hc->hc_access && hc->hc_access->aa_muxes_limit)
+  {
+    ilm = LIST_FIRST(&ch->ch_services);
+    if (ilm)
+    {
+      ch_first_service = (service_t* )ilm->ilm_in1;
+      if (ch_first_service)
+      {
+        source_info_t si;
+        int count;
+        ch_first_service->s_setsourceinfo(ch_first_service, &si);
+        count = subscription_get_user_count_on_other_muxes(hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:NULL), si.si_mux_uuid);
+        if (count >= hc->hc_access->aa_muxes_limit)
+        {
+          tvherror("webui", "User is already using %d muxes while the max is %d", count, hc->hc_access->aa_muxes_limit);
+          return HTTP_STATUS_NOT_ALLOWED;
+        }
+      }
+    }
+  }
 
   profile_chain_init(&prch, pro, ch);
   if (!profile_chain_open(&prch, NULL, 0, qsize)) {

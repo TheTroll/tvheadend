@@ -115,6 +115,8 @@ typedef struct access_entry {
   int ae_conn_limit_type;
   uint32_t ae_conn_limit;
 
+  uint32_t ae_muxes_limit;
+
   int ae_dvr;
   int ae_htsp_dvr;
   int ae_all_dvr;
@@ -158,6 +160,7 @@ typedef struct access {
   uint32_t  aa_conn_limit_dvr;
   uint32_t  aa_conn_streaming;
   uint32_t  aa_conn_dvr;
+  uint32_t  aa_muxes_limit;
   int       aa_uilevel;
   int       aa_uilevel_nochange;
   char     *aa_theme;

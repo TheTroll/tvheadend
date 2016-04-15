@@ -1225,3 +1225,23 @@ void subscription_log(th_subscription_t *s, int on)
   }
 }
 
+int subscription_get_user_count_on_other_muxes(char *username, tvh_uuid_t mux_uuid)
+{
+  th_subscription_t *s;
+  int count;
+
+  count = 0;
+
+  LIST_FOREACH(s, &subscriptions, ths_global_link) {
+    if (s->ths_service)
+    {
+      source_info_t si;
+      s->ths_service->s_setsourceinfo(s->ths_service, &si);
+      if (s->ths_username && username && !strcmp(username, s->ths_username) && uuid_cmp(&si.si_mux_uuid, &mux_uuid))
+        count++;
+     }
+  }
+
+  return count;
+}
+
