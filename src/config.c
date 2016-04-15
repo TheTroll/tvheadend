@@ -1969,12 +1969,17 @@ config_muxconfpath_notify ( void *o, const char *lang )
 #endif
 }
 
-extern const char *tvh_doc_config_class[];
+
+CLASS_DOC(config)
+PROP_DOC(config_channelicon_path)
+PROP_DOC(config_channelname_scheme)
+PROP_DOC(config_picon_path)
+PROP_DOC(config_picon_servicetype)
 
 const idclass_t config_class = {
   .ic_snode      = &config.idnode,
   .ic_class      = "config",
-  .ic_caption    = N_("Configuration"),
+  .ic_caption    = N_("Configuration - Base"),
   .ic_event      = "config",
   .ic_perm_def   = ACCESS_ADMIN,
   .ic_doc        = tvh_doc_config_class,
@@ -2025,6 +2030,8 @@ const idclass_t config_class = {
       .type   = PT_STR,
       .id     = "full_version",
       .name   = N_("Last updated from"),
+      .desc   = N_("The version of Tvheadend that last updated the "
+                   "config."),
       .off    = offsetof(config_t, full_version),
       .opts   = PO_RDONLY | PO_HIDDEN | PO_EXPERT,
       .group  = 1
@@ -2043,7 +2050,7 @@ const idclass_t config_class = {
       .id     = "uilevel",
       .name   = N_("User interface level"),
       .desc   = N_("Sets the default interface view level (next to the "
-                   "help button)."),
+                   "Help button)."),
       .off    = offsetof(config_t, uilevel),
       .list   = config_class_uilevel,
       .group  = 1
@@ -2062,8 +2069,8 @@ const idclass_t config_class = {
     {
       .type   = PT_BOOL,
       .id     = "ui_quicktips",
-      .name   = N_("User interface quick tips"),
-      .desc   = N_("Allow to show the quick tips for the form fields."),
+      .name   = N_("User interface quick tips (tooltips)"),
+      .desc   = N_("Enable/disable interface quick tips."),
       .off    = offsetof(config_t, ui_quicktips),
       .opts   = PO_ADVANCED,
       .group  = 1
@@ -2074,7 +2081,7 @@ const idclass_t config_class = {
       .name   = N_("Use HTTP digest authentication"),
       .desc   = N_("Digest access authentication is intended as a security trade-off. "
                    "It is intended to replace unencrypted HTTP basic access authentication. "
-                   "This option should be enabled for the standard usage."),
+                   "This option should be enabled for standard usage."),
       .off    = offsetof(config_t, digest),
       .opts   = PO_ADVANCED,
       .group  = 1
@@ -2196,7 +2203,7 @@ const idclass_t config_class = {
       .type   = PT_STR,
       .id     = "theme_ui",
       .name   = N_("Theme"),
-      .desc   = N_("The default theme for web interface to use if the user "
+      .desc   = N_("The default web interface to use if the user's "
                    " theme isn't set in the Access Entries tab."),
       .list   = theme_get_ui_list,
       .off    = offsetof(config_t, theme_ui),
@@ -2255,7 +2262,7 @@ const idclass_t config_class = {
       .id     = "prefer_picon",
       .name   = N_("Prefer picons over channel name"),
       .desc   = N_("If both a picon and a channel-specific "
-      "(e.g. channelname.jpg) icon are defined, use the picon."),
+      "(e.g. channelname.jpg) icon are defined, prefer the picon."),
       .off    = offsetof(config_t, prefer_picon),
       .opts   = PO_ADVANCED,
       .group  = 6,
@@ -2263,12 +2270,13 @@ const idclass_t config_class = {
     {
       .type   = PT_STR,
       .id     = "chiconpath",
-      .name   = N_("Channel icon path (see Help)"),
+      .name   = N_("Channel icon path"),
       .desc   = N_("Path to an icon for this channel. This can be "
                    "named however you wish, as either a local "
                    "(file://) or remote (http://) image. "
                    "See Help for more infomation."),
       .off    = offsetof(config_t, chicon_path),
+      .doc    = prop_doc_config_channelicon_path,
       .opts   = PO_ADVANCED,
       .group  = 6,
     },
@@ -2279,6 +2287,7 @@ const idclass_t config_class = {
       .desc   = N_("Scheme to generate the the channel icon names "
                    "(all lower-case, service name picons etc.)."),
       .list   = config_class_chiconscheme_list,
+      .doc    = prop_doc_config_channelname_scheme,
       .off    = offsetof(config_t, chicon_scheme),
       .opts   = PO_ADVANCED,
       .group  = 6,
@@ -2286,10 +2295,11 @@ const idclass_t config_class = {
     {
       .type   = PT_STR,
       .id     = "piconpath",
-      .name   = N_("Picon path (see Help)"),
+      .name   = N_("Picon path"),
       .desc   = N_("Path to a directory (folder) containing your picon "
                    "collection. See Help for more detailed "
                    "information."),
+      .doc    = prop_doc_config_picon_path,
       .off    = offsetof(config_t, picon_path),
       .opts   = PO_ADVANCED,
       .group  = 6,
@@ -2301,6 +2311,7 @@ const idclass_t config_class = {
       .desc   = N_("Select scheme to generate the picon names "
                    "(standard, force service type to 1)"),
       .list   = config_class_piconscheme_list,
+      .doc    = prop_doc_config_picon_servicetype,
       .off    = offsetof(config_t, picon_scheme),
       .opts   = PO_ADVANCED,
       .group  = 6,

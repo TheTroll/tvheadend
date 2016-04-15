@@ -2029,6 +2029,7 @@ dvr_entry_class_save(idnode_t *self, char *filename, size_t fsize)
   htsmsg_field_t *f;
   char ubuf[UUID_HEX_SIZE];
   const char *filename2;
+  int64_t s64;
 
   idnode_save(&de->de_id, m);
   if (de->de_files) {
@@ -2042,6 +2043,10 @@ dvr_entry_class_save(idnode_t *self, char *filename, size_t fsize)
           htsmsg_add_str(c, "filename", filename2);
           if (info)
             htsmsg_add_msg(c, "info", htsmsg_copy(info));
+          if (!htsmsg_get_s64(e, "start", &s64))
+            htsmsg_add_s64(c, "start", s64);
+          if (!htsmsg_get_s64(e, "stop", &s64))
+            htsmsg_add_s64(c, "stop", s64);
           htsmsg_add_msg(l, NULL, c);
         }
       }
@@ -2812,34 +2817,15 @@ dvr_entry_class_content_type_list(void *o, const char *lang)
   return m;
 }
 
-static char *
-dvr_entry_prop_status_doc(const struct property *p, const char *lang)
-{    
-    extern const char *tvh_doc_dvr_status_property[];
-    return prop_md_doc(tvh_doc_dvr_status_property, lang);
-}
-
-static char *
-dvr_entry_prop_start_extra_doc(const struct property *p, const char *lang)
-{
-    extern const char *tvh_doc_dvr_start_extra_property[];
-    return prop_md_doc(tvh_doc_dvr_start_extra_property, lang);
-}
-
-static char *
-dvr_entry_prop_dvr_stop_extra_doc(const struct property *p, const char *lang)
-{
-    extern const char *tvh_doc_dvr_stop_extra_property[];
-    return prop_md_doc(tvh_doc_dvr_stop_extra_property, lang);
-}
-
-extern const char *tvh_doc_dvrentry_class[];
+CLASS_DOC(dvrentry)
+PROP_DOC(dvr_status)
+PROP_DOC(dvr_start_extra)
+PROP_DOC(dvr_stop_extra)
 
 const idclass_t dvr_entry_class = {
   .ic_class     = "dvrentry",
   .ic_caption   = N_("DVR Entries"),
   .ic_event     = "dvrentry",
-  /*.ic_doc       = tvh_doc_dvrentry_class,*/
   .ic_doc       = tvh_doc_dvrentry_class,
   .ic_changed   = dvr_entry_class_changed,
   .ic_save      = dvr_entry_class_save,
@@ -2870,7 +2856,7 @@ const idclass_t dvr_entry_class = {
       .name     = N_("Pre-recording padding"),
       .desc     = N_("Start recording earlier than the "
                      "EPG/timer-defined start time by x minutes."),
-      .doc      = dvr_entry_prop_start_extra_doc,
+      .doc      = prop_doc_dvr_start_extra,
       .off      = offsetof(dvr_entry_t, de_start_extra),
       .set      = dvr_entry_class_start_extra_set,
       .list     = dvr_entry_class_extra_list,
@@ -2898,7 +2884,7 @@ const idclass_t dvr_entry_class = {
       .name     = N_("Post-recording padding"),
       .desc     = N_("Continue recording for x minutes after scheduled "
                      "stop time."),
-      .doc      = dvr_entry_prop_dvr_stop_extra_doc,
+      .doc      = prop_doc_dvr_stop_extra,
       .off      = offsetof(dvr_entry_t, de_stop_extra),
       .list     = dvr_entry_class_extra_list,
       .opts     = PO_SORTKEY | PO_ADVANCED | PO_DOC_NLIST,
@@ -3007,7 +2993,7 @@ const idclass_t dvr_entry_class = {
       .def.i    = DVR_PRIO_NORMAL,
       .set      = dvr_entry_class_pri_set,
       .list     = dvr_entry_class_pri_list,
-      .opts     = PO_SORTKEY | PO_DOC_NLIST,
+      .opts     = PO_SORTKEY,
     },
     {
       .type     = PT_U32,
@@ -3222,7 +3208,7 @@ const idclass_t dvr_entry_class = {
       .type     = PT_STR,
       .id       = "status",
       .name     = N_("Status"),
-      .doc      = dvr_entry_prop_status_doc,
+      .doc      = prop_doc_dvr_status,
       .desc     = N_("The recording/entry status."),
       .get      = dvr_entry_class_status_get,
       .opts     = PO_RDONLY | PO_NOSAVE | PO_LOCALE,

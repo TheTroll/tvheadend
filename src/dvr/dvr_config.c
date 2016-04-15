@@ -791,18 +791,12 @@ dvr_config_class_pathname_set(void *o, const void *v)
   return 0;
 }
 
-static char *
-dvr_config_prop_pathname_doc(const struct property *p, const char *lang)
-{
-  extern const char *tvh_doc_postprocessor_property[];
-  return prop_md_doc(tvh_doc_postprocessor_property, lang);
-}
-
-extern const char *tvh_doc_dvrconfig_class[];
+CLASS_DOC(dvrconfig)
+PROP_DOC(postprocessor)
 
 const idclass_t dvr_config_class = {
   .ic_class      = "dvrconfig",
-  .ic_caption    = N_("DVR configuration profile"),
+  .ic_caption    = N_("DVR - Configuration Profile"),
   .ic_event      = "dvrconfig",
   .ic_doc        = tvh_doc_dvrconfig_class,
   .ic_changed    = dvr_config_class_changed,
@@ -1133,7 +1127,7 @@ const idclass_t dvr_config_class = {
       .desc     = N_("The string allows you to manually specify the "
                      "full path generation using predefined "
                      "modifiers. See Help for full details."),
-      .doc      = dvr_config_prop_pathname_doc,
+      .doc      = prop_doc_postprocessor,
       .set      = dvr_config_class_pathname_set,
       .off      = offsetof(dvr_config_t, dvr_pathname),
       .opts     = PO_EXPERT,

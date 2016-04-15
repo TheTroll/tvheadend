@@ -517,11 +517,12 @@ dvr_timerec_entry_class_owner_opts(void *o)
   return PO_RDONLY | PO_ADVANCED;
 }
 
-extern const char *tvh_doc_dvrtimerec_class[];
+CLASS_DOC(dvrtimerec)
+PROP_DOC(dvr_timerec_title_format)
 
 const idclass_t dvr_timerec_entry_class = {
   .ic_class      = "dvrtimerec",
-  .ic_caption    = N_("DVR time record entry"),
+  .ic_caption    = N_("DVR - Time-based Recording (Timers)"),
   .ic_event      = "dvrtimerec",
   .ic_doc        = tvh_doc_dvrtimerec_class,
   .ic_changed    = dvr_timerec_entry_class_changed,
@@ -549,6 +550,7 @@ const idclass_t dvr_timerec_entry_class = {
       .id       = "title",
       .name     = N_("Title"),
       .desc     = N_("Title of the recording."),
+      .doc      = prop_doc_dvr_timerec_title_format,
       .off      = offsetof(dvr_timerec_entry_t, dte_title),
       .def.s    = "Time-%F_%R",
     },
@@ -582,7 +584,7 @@ const idclass_t dvr_timerec_entry_class = {
       .get      = dvr_timerec_entry_class_start_get,
       .list     = dvr_timerec_entry_class_time_list,
       .def.s    = "12:00",
-      .opts     = PO_SORTKEY,
+      .opts     = PO_SORTKEY | PO_DOC_NLIST,
     },
     {
       .type     = PT_STR,
@@ -593,7 +595,7 @@ const idclass_t dvr_timerec_entry_class = {
       .get      = dvr_timerec_entry_class_stop_get,
       .list     = dvr_timerec_entry_class_time_list,
       .def.s    = "12:00",
-      .opts     = PO_SORTKEY,
+      .opts     = PO_SORTKEY | PO_DOC_NLIST,
     },
     {
       .type     = PT_U32,
@@ -605,7 +607,8 @@ const idclass_t dvr_timerec_entry_class = {
       .get      = dvr_timerec_entry_class_weekdays_get,
       .list     = dvr_autorec_entry_class_weekdays_list,
       .rend     = dvr_timerec_entry_class_weekdays_rend,
-      .def.list = dvr_timerec_entry_class_weekdays_default
+      .def.list = dvr_timerec_entry_class_weekdays_default,
+      .opts     = PO_DOC_NLIST,
     },
     {
       .type     = PT_U32,
@@ -625,7 +628,7 @@ const idclass_t dvr_timerec_entry_class = {
       .def.i    = DVR_RET_DVRCONFIG,
       .off      = offsetof(dvr_timerec_entry_t, dte_retention),
       .list     = dvr_entry_class_retention_list,
-      .opts     = PO_EXPERT
+      .opts     = PO_EXPERT | PO_DOC_NLIST,
     },
     {
       .type     = PT_U32,
@@ -635,7 +638,7 @@ const idclass_t dvr_timerec_entry_class = {
       .def.i    = DVR_RET_DVRCONFIG,
       .off      = offsetof(dvr_timerec_entry_t, dte_removal),
       .list     = dvr_entry_class_removal_list,
-      .opts     = PO_ADVANCED
+      .opts     = PO_ADVANCED | PO_DOC_NLIST,
     },
     {
       .type     = PT_STR,

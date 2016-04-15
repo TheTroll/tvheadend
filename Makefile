@@ -160,7 +160,7 @@ BUNDLE_FLAGS = ${BUNDLE_FLAGS-yes}
 #
 
 MKBUNDLE = $(PYTHON) $(ROOTDIR)/support/mkbundle
-XGETTEXT2 ?= $(XGETTEXT) --language=C --add-comments=/ -k_ -kN_ -s
+XGETTEXT2 ?= $(XGETTEXT) --language=C --from-code=utf-8 --add-comments=/ -k_ -kN_ -s
 MSGMERGE ?= msgmerge
 
 #
@@ -545,33 +545,25 @@ ALL-$(CONFIG_DVBSCAN)     += check_dvb_scan
 
 MD-TO-C    = PYTHONIOENCODING=utf-8 $(PYTHON) support/doc/md_to_c.py
 
-SRCS-yes  += src/docs.c
-I18N-C    += src/docs_inc.c
-I18N-DOCS  = $(wildcard docs/markdown/*.md)
-I18N-DOCS += $(wildcard docs/class/*.md)
-I18N-DOCS += $(wildcard docs/property/*.md)
-I18N-DOCS += $(wildcard docs/wizard/*.md)
-MD-ROOT    = $(patsubst docs/markdown/%.md,%,$(wildcard docs/markdown/*.md))
-MD-CLASS   = $(patsubst docs/class/%.md,%,$(wildcard docs/class/*.md))
-MD-PROP    = $(patsubst docs/property/%.md,%,$(wildcard docs/property/*.md))
-MD-WIZARD  = $(patsubst docs/wizard/%.md,%,$(wildcard docs/wizard/*.md))
+SRCS-yes   += src/docs.c
+I18N-C-DOCS = src/docs_inc.c
+I18N-DOCS   = $(wildcard docs/markdown/*.md)
+I18N-DOCS  += $(wildcard docs/class/*.md)
+I18N-DOCS  += $(wildcard docs/property/*.md)
+I18N-DOCS  += $(wildcard docs/wizard/*.md)
+MD-ROOT     = $(patsubst docs/markdown/%.md,%,$(wildcard docs/markdown/*.md))
+MD-CLASS    = $(patsubst docs/class/%.md,%,$(wildcard docs/class/*.md))
+MD-PROP     = $(patsubst docs/property/%.md,%,$(wildcard docs/property/*.md))
+MD-WIZARD   = $(patsubst docs/wizard/%.md,%,$(wildcard docs/wizard/*.md))
 
 #
 # Internationalization
 #
-PO-FILES = $(foreach f,$(LANGUAGES),intl/tvheadend.$(f).po)
+PO-FILES  = $(wildcard $(foreach f,$(LANGUAGES),intl/tvheadend.$(f).po))
+PO-FILES += $(wildcard $(foreach f,$(LANGUAGES-DOC),intl/docs/tvheadend.doc.$(f).po))
 SRCS += src/tvh_locale.c
 
 POC_PY=PYTHONIOENCODING=utf-8 $(PYTHON) support/poc.py
-
-define merge-po
-	@if ! test -r "$(1)"; then \
-		sed -e 's/Content-Type: text\/plain; charset=CHARSET/Content-Type: text\/plain; charset=utf-8/' < "$(2)" > "$(1).new"; \
-	else \
-		$(MSGMERGE) -o $(1).new $(1) $(2); \
-	fi
-	@mv $(1).new $(1)
-endef
 
 #
 # Add-on modules
@@ -718,40 +710,13 @@ intl:
 	@$(XGETTEXT2) -o intl/tvheadend.pot.new $(I18N-C)
 	@sed -e 's/^"Language: /"Language: en/' < intl/tvheadend.pot.new > intl/tvheadend.pot
 	$(MAKE) -f Makefile.webui LANGUAGES="$(LANGUAGES)" WEBUI=std intl
-	@printf "Building docs/tvheadend.pot\n"
-	@$(XGETTEXT2) -o intl/docs/tvheadend.pot.new $(I18N-DOCS)
-	@sed -e 's/^"Language: /"Language: en/' < intl/docs/tvheadend.pot.new > intl/docs/tvheadend.pot
+	@printf "Building docs/tvheadend.doc.pot\n"
+	@$(XGETTEXT2) -o intl/docs/tvheadend.doc.pot.new $(I18N-C-DOCS)
+	@sed -e 's/^"Language: /"Language: en/' < intl/docs/tvheadend.doc.pot.new > intl/docs/tvheadend.doc.pot
 	$(MAKE)
 
 
 intl/tvheadend.pot:
-
-#intl/tvheadend.en_GB.po: intl/tvheadend.pot
-#	$(call merge-po,$@,$<)
-
-#intl/tvheadend.de.po: intl/tvheadend.pot
-#	$(call merge-po,$@,$<)
-
-#intl/tvheadend.fr.po: intl/tvheadend.pot
-#	$(call merge-po,$@,$<)
-
-#intl/tvheadend.cs.po: intl/tvheadend.pot
-#	$(call merge-po,$@,$<)
-
-#intl/tvheadend.pl.po: intl/tvheadend.pot
-#	$(call merge-po,$@,$<)
-
-#intl/tvheadend.bg.po: intl/tvheadend.pot
-#	$(call merge-po,$@,$<)
-
-#intl/tvheadend.he.po: intl/tvheadend.pot
-#	$(call merge-po,$@,$<)
-
-#intl/tvheadend.hr.po: intl/tvheadend.pot
-#	$(call merge-po,$@,$<)
-
-#intl/tvheadend.it.po: intl/tvheadend.pot
-#	$(call merge-po,$@,$<)
 
 $(BUILDDIR)/src/tvh_locale.o: src/tvh_locale_inc.c
 src/tvh_locale_inc.c: $(PO-FILES)

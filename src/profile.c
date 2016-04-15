@@ -270,11 +270,14 @@ profile_class_svfilter_list ( void *o, const char *lang )
   return strtab2htsmsg(tab, 1, lang);
 }
 
+CLASS_DOC(profile)
+
 const idclass_t profile_class =
 {
   .ic_class      = "profile",
   .ic_caption    = N_("Stream profile"),
   .ic_event      = "profile",
+  .ic_doc        = tvh_doc_profile_class,
   .ic_perm_def   = ACCESS_ADMIN,
   .ic_save       = profile_class_save,
   .ic_get_title  = profile_class_get_title,
@@ -1789,7 +1792,7 @@ const idclass_t profile_transcode_class =
       .type     = PT_STR,
       .id       = "language",
       .name     = N_("Language"),
-      .desc     = N_("Audio language (Not currently used)."),
+      .desc     = N_("Preferred audio language."),
       .off      = offsetof(profile_transcode_t, pro_language),
       .list     = profile_class_language_list,
       .opts     = PO_ADVANCED,

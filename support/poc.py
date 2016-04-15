@@ -92,6 +92,9 @@ class PO:
 
 def load(po_files, fn):
 
+  if not fn:
+    return
+
   lang = fn.split('.')[-2]
 
   f = utf8open(fn, 'r')
@@ -105,7 +108,10 @@ def load(po_files, fn):
   po = PO()
   po.po_parse(text)
 
-  po_files[lang] = po.strings
+  if lang in po_files:
+    po_files[lang].update(po.strings)
+  else:
+    po_files[lang] = po.strings
 
 def cstr(s):
   return s.replace('\t', '\\t').\

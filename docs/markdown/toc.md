@@ -23,11 +23,11 @@ Web Interface Guide
 * Digital Video Recorder
 
   - [DVR Entries](class/dvrentry)
-  - [Upcoming/Current Recordings](dvr_upcoming)
-  - [Finished Recordings](dvr_finished)
-  - [Failed Recordings](dvr_failed)
-  - [DVR AutoRec Entries](class/dvrautorec)
-  - [Time Schedules (TimeRec)](class/dvrtimerec)
+  - [Upcoming/Current Recordings](class/dvrentry)
+  - [Finished Recordings](class/dvrentry)
+  - [Failed Recordings](class/dvrentry)
+  - [Auto-recording (Autorecs)](class/dvrautorec)
+  - [Time-based Recording (Timers)](class/dvrtimerec)
 
 Web Interface Configuration Guide
 
@@ -69,7 +69,7 @@ Web Interface Configuration Guide
 
   - Stream Profiles
     - [HTSP Profile](class/profile-htsp)
-    - [MPEG-TS Pass-thru Profile][class/profile-mpegts)
+    - [MPEG-TS Pass-thru Profile](class/profile-mpegts)
     - [Matroska Profile](class/profile-matroska)
     - [MPEG-TS/libav Profile](class/profile-libav-mpegts)
     - [Matroska/libav Profile](class/profile-libav-matroska)
