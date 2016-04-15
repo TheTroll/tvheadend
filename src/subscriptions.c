@@ -1238,11 +1238,11 @@ int subscription_get_user_count_on_other_muxes(char *username, tvh_uuid_t mux_uu
       s->ths_service->s_setsourceinfo(s->ths_service, &si);
       if (s->ths_username && username && !strcmp(username, s->ths_username) && uuid_cmp(&si.si_mux_uuid, &mux_uuid)) {
         if (is_dvr) {
-         if (s->ths_dvrfile)
+         if (strstr(s->ths_title, "DVR"))
            count++;
         }
         else {
-         if (!s->ths_dvrfile)
+         if (!strstr(s->ths_title, "DVR"))
            count++;
         }
       }

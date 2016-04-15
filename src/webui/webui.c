@@ -1250,7 +1250,7 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
         {
           tvherror("webui", "user [%s] is already using %d muxes for streaming while the max is %d",
              hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:"no-user"), count, hc->hc_access->aa_muxes_limit_streaming);
-          return HTTP_STATUS_NOT_ALLOWED;
+          return HTTP_STATUS_UNAUTHORIZED;;
         }
       }
     }
