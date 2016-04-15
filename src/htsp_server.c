@@ -2415,6 +2415,7 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
          free(hs);
          return htsp_error(htsp, "Stream setup error, reach max allowed muxes for streaming");
         }
+        service_source_info_free(&si);
       }
     }
   }

@@ -1246,6 +1246,7 @@ int subscription_get_user_count_on_other_muxes(char *username, tvh_uuid_t mux_uu
            count++;
         }
       }
+      service_source_info_free(&si);
     }
   }
 

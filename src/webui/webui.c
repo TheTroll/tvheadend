@@ -1252,6 +1252,7 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
              hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:"no-user"), count, hc->hc_access->aa_muxes_limit_streaming);
           return HTTP_STATUS_UNAUTHORIZED;;
         }
+        service_source_info_free(&si);
       }
     }
   }

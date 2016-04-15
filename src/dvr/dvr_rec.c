@@ -127,6 +127,7 @@ dvr_rec_subscribe(dvr_entry_t *de)
           access_destroy(aa);
           return -EINVAL;
         }
+        service_source_info_free(&si);
       }
     }
   }
