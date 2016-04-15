@@ -1248,7 +1248,7 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
         count = subscription_get_user_count_on_other_muxes(hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:NULL), si.si_mux_uuid);
         if (count >= hc->hc_access->aa_muxes_limit)
         {
-          tvherror("webui", "User is already using %d muxes while the max is %d", count, hc->hc_access->aa_muxes_limit);
+          tvherror("webui", "User [%s] is already using %d muxes while the max is %d", hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:"no-user"), count, hc->hc_access->aa_muxes_limit);
           return HTTP_STATUS_NOT_ALLOWED;
         }
       }

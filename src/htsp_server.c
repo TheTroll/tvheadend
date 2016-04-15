@@ -2409,7 +2409,7 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
       count = subscription_get_user_count_on_other_muxes(htsp->htsp_username, si.si_mux_uuid);
       if (count > 0)
       {
-        tvherror("htsp", "User is already using %d muxes while the max is %d", count, 1);
+        tvherror("htsp", "User [%s] is already using %d muxes while the max is %d", htsp->htsp_username?:"no-user", count, 1);
 	free(hs);
         return htsp_error(htsp, "Stream setup error, reach max allowed muxes");
       }
