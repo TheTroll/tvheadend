@@ -365,7 +365,7 @@ access_dump_a(access_t *a)
   int first;
 
   tvh_strlcatf(buf, sizeof(buf), l,
-    "%s:%s [%c%c%c%c%c%c%c%c%c%c%c], conn=%u:s%u:r%u:m%u:l%u%s",
+    "%s:%s [%c%c%c%c%c%c%c%c%c%c%c], conn=%u:s%u:r%u:ms%u:mr%u:l%u%s",
     a->aa_representative ?: "<no-id>",
     a->aa_username ?: "<no-user>",
     a->aa_rights & ACCESS_STREAMING          ? 'S' : ' ',
@@ -382,7 +382,8 @@ access_dump_a(access_t *a)
     a->aa_conn_limit,
     a->aa_conn_limit_streaming,
     a->aa_conn_limit_dvr,
-    a->aa_muxes_limit,
+    a->aa_muxes_limit_streaming,
+    a->aa_muxes_limit_dvr,
     a->aa_uilevel,
     a->aa_match ? ", matched" : "");
 
@@ -489,8 +490,11 @@ access_update(access_t *a, access_entry_t *ae)
     break;
   }
 
-  if (a->aa_muxes_limit < ae->ae_muxes_limit)
-    a->aa_muxes_limit = ae->ae_muxes_limit;
+  if (a->aa_muxes_limit_streaming < ae->ae_muxes_limit_streaming)
+    a->aa_muxes_limit_streaming = ae->ae_muxes_limit_streaming;
+
+  if (a->aa_muxes_limit_dvr < ae->ae_muxes_limit_dvr)
+    a->aa_muxes_limit_dvr = ae->ae_muxes_limit_dvr;
 
   if(ae->ae_uilevel > a->aa_uilevel)
     a->aa_uilevel = ae->ae_uilevel;
@@ -1535,11 +1539,20 @@ const idclass_t access_entry_class = {
     },
     {
       .type     = PT_U32,
-      .id       = "muxes_limit",
-      .name     = N_("Limit muxes"),
-      .desc     = N_("The number of muxes this user can "
-                     "simulteanously use on the server for streaming and recordings."),
-      .off      = offsetof(access_entry_t, ae_muxes_limit),
+      .id       = "muxes_limit_streaming",
+      .name     = N_("Limit muxes for streaming"),
+      .desc     = N_("The number of streaming muxes this user can "
+                     "simulteanously use on the server."),
+      .off      = offsetof(access_entry_t, ae_muxes_limit_streaming),
+      .opts     = PO_EXPERT
+    },
+    {
+      .type     = PT_U32,
+      .id       = "muxes_limit_dvr",
+      .name     = N_("Limit muxes for DVR"),
+      .desc     = N_("The number of DVR muxes this user can "
+                     "simulteanously use on the server."),
+      .off      = offsetof(access_entry_t, ae_muxes_limit_dvr),
       .opts     = PO_EXPERT
     },
     {

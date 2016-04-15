@@ -2397,21 +2397,24 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
   if (pro->pro_prefersd)
       convert_channel_to_sd(ch, &ch);
 
-  ilm = LIST_FIRST(&ch->ch_services);
-  if (ilm)
+  if (htsp->htsp_granted_access && htsp->htsp_granted_access->aa_muxes_limit_streaming)
   {
-    service_t* ch_first_service = (service_t* )ilm->ilm_in1;
-    if (ch_first_service)
+    ilm = LIST_FIRST(&ch->ch_services);
+    if (ilm)
     {
-      source_info_t si;
-      int count;
-      ch_first_service->s_setsourceinfo(ch_first_service, &si);
-      count = subscription_get_user_count_on_other_muxes(htsp->htsp_username, si.si_mux_uuid);
-      if (count > 0)
+      service_t* ch_first_service = (service_t* )ilm->ilm_in1;
+      if (ch_first_service)
       {
-        tvherror("htsp", "User [%s] is already using %d muxes while the max is %d", htsp->htsp_username?:"no-user", count, 1);
-	free(hs);
-        return htsp_error(htsp, "Stream setup error, reach max allowed muxes");
+        source_info_t si;
+        int count;
+        ch_first_service->s_setsourceinfo(ch_first_service, &si);
+        count = subscription_get_user_count_on_other_muxes(htsp->htsp_username, si.si_mux_uuid, 0);
+        if (count >= htsp->htsp_granted_access->aa_muxes_limit_streaming)
+        {
+          tvherror("htsp", "user [%s] is already using %d muxes for streaming while the max is %d", htsp->htsp_username?:"no-user", count, htsp->htsp_granted_access->aa_muxes_limit_streaming);
+         free(hs);
+         return htsp_error(htsp, "Stream setup error, reach max allowed muxes for streaming");
+        }
       }
     }
   }

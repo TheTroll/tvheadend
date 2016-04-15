@@ -1234,7 +1234,7 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
   else
     qsize = 1500000;
 
-  if (hc->hc_access && hc->hc_access->aa_muxes_limit)
+  if (hc->hc_access && hc->hc_access->aa_muxes_limit_streaming)
   {
     ilm = LIST_FIRST(&ch->ch_services);
     if (ilm)
@@ -1245,10 +1245,11 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
         source_info_t si;
         int count;
         ch_first_service->s_setsourceinfo(ch_first_service, &si);
-        count = subscription_get_user_count_on_other_muxes(hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:NULL), si.si_mux_uuid);
-        if (count >= hc->hc_access->aa_muxes_limit)
+        count = subscription_get_user_count_on_other_muxes(hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:NULL), si.si_mux_uuid, 0);
+        if (count >= hc->hc_access->aa_muxes_limit_streaming)
         {
-          tvherror("webui", "User [%s] is already using %d muxes while the max is %d", hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:"no-user"), count, hc->hc_access->aa_muxes_limit);
+          tvherror("webui", "user [%s] is already using %d muxes for streaming while the max is %d",
+             hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:"no-user"), count, hc->hc_access->aa_muxes_limit_streaming);
           return HTTP_STATUS_NOT_ALLOWED;
         }
       }

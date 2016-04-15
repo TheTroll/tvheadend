@@ -70,6 +70,7 @@ dvr_rec_subscribe(dvr_entry_t *de)
   access_t *aa;
   uint32_t rec_count, net_count;
   int c1, c2;
+  idnode_list_mapping_t* ilm;
 
   assert(de->de_s == NULL);
   assert(de->de_chain == NULL);
@@ -128,6 +129,29 @@ dvr_rec_subscribe(dvr_entry_t *de)
       profile_chain_close(prch);
       free(prch);
       return -EINVAL;
+    }
+  }
+
+  if (aa->aa_muxes_limit_dvr)
+  {
+    ilm = LIST_FIRST(&de->de_channel->ch_services);
+    if (ilm)
+    {
+      service_t* ch_first_service = (service_t* )ilm->ilm_in1;
+      if (ch_first_service)
+      {
+        source_info_t si;
+        int count;
+        ch_first_service->s_setsourceinfo(ch_first_service, &si);
+        count = subscription_get_user_count_on_other_muxes(de->de_creator, si.si_mux_uuid, 1);
+        if (count >= aa->aa_muxes_limit_dvr)
+        {
+          tvherror("htsp", "user [%s] is already using %d muxes for recording while the max is %d", de->de_creator?:"no-user", count, aa->aa_muxes_limit_dvr);
+          profile_chain_close(prch);
+          free(prch);
+          return -EINVAL;
+        }
+      }
     }
   }
 
