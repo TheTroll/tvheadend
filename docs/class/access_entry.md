@@ -9,6 +9,25 @@ if the username matches and the IP source address of the requesting peer
 is within the prefix. There is also anonymous access, if the user is set
 to asterisk. Only network prefix is matched then.
 
+!['Access Entries Grid'](docresources/accessentriesgrid.png)
+
+---
+
+###Buttons
+
+The tab has the following buttons:
+
+Button                 | Function
+-----------------------|-------------------
+**Save**               | Save any changes made to the grid/entries.
+**Undo**               | Revert any changes made since the last save.
+**Add**                | Display the *Add Access* dialog.
+**Delete**             | Delete the selected entry/entries.
+**Move Up**            | Move the selected entry up the grid.
+**Move Down**          | Move the selected entry down the grid.
+**Edit**               | Edit the selected entry.
+**Help**               | Display this help page.
+
 ---
 
 ### Adding an Entry/Creating an Account
@@ -26,19 +45,19 @@ apply to subsequent accounts.**
 !['Access Entry Example'](docresources/accessentriesnewuser.png)
 
 **Don't forget** to also create a password entry for the user in the 
-*Passwords* tab!
+*[Passwords](class/passwd)* tab!
 
 **Tips**:
 * Be as limiting as possible especially when making Tvheadend available over the internet.
 * For extra security, always enter (a comma-separated list of) network prefix(es) (*Allowed networks* in the *Add Access Entry* dialog).
 * If you lock yourself out, you can use the backdoor account to regain access, or restart Tvheadend with the `--noacl` argument.
 * You can have multiple entries using the same username with varying rights, allowing you to enable / disable each as needed. Keep in mind that matching account entry permissions are combined.
-
+* If you do create an anonymous account, it also requires a [password](class/passwd) entry (enter an asterisk `*` for both the username and password fields when adding the entry).
 ---
 
 ### Editing an Entry/Account
 
-To edit an entry highlight (select) the entry from the grid then press 
+To edit an entry highlight (select) the entry from the grid, then press 
 the *[Edit]* button from the menu bar.
 
 **Tip**: You can quickly make changes to an entry by double-clicking on 
@@ -47,8 +66,12 @@ page for details.
 
 ---
 
-### Deleting a User.
+### Deleting an Entry/Account.
 
-To delete a user highlight (select) the entry from the grid then press
+To delete a user highlight (select) the entry from the grid, then press
 the *[Delete]* button from the menu bar.
 
+**Tip**: Rather than deleting an entry, you can disable it instead by 
+pressing the *[Edit]* button, and unticking the "Enabled" check box.
+
+---

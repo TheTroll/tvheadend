@@ -234,6 +234,7 @@ linuxdvb_frontend_dvbs_class_master_enum( void * self, const char *lang )
   tvh_hardware_t *th;
   char ubuf[UUID_HEX_SIZE];
   htsmsg_t *m = htsmsg_create_list();
+  if (self == NULL) return m;
   htsmsg_t *e = htsmsg_create_map();
   htsmsg_add_str(e, "key", "");
   htsmsg_add_str(e, "val", N_("This tuner"));
@@ -427,18 +428,18 @@ linuxdvb_frontend_enabled_updated ( mpegts_input_t *mi )
 }
 
 static int
-linuxdvb_frontend_get_weight ( mpegts_input_t *mi, mpegts_mux_t *mm, int flags )
+linuxdvb_frontend_get_weight ( mpegts_input_t *mi, mpegts_mux_t *mm, int flags, int weight )
 {
-  int weight = 0;
+  int w = 0;
   linuxdvb_adapter_t *la = ((linuxdvb_frontend_t*)mi)->lfe_adapter;
   linuxdvb_frontend_t *lfe;
   if (la->la_exclusive) {
     LIST_FOREACH(lfe, &la->la_frontends, lfe_link)
-      weight = MAX(weight, mpegts_input_get_weight((mpegts_input_t*)lfe, mm, flags));
+      w = MAX(weight, mpegts_input_get_weight((mpegts_input_t*)lfe, mm, flags, weight));
   } else {
-    weight = mpegts_input_get_weight(mi, mm, flags);
+    w = mpegts_input_get_weight(mi, mm, flags, weight);
   }
-  return weight;
+  return w;
 }
 
 static int

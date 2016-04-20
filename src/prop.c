@@ -317,13 +317,9 @@ prop_read_value
       htsmsg_add_s64(m, name, atomic_get_s64((int64_t *)val));
       break;
     case PT_STR:
-      if (optmask & PO_LOCALE) {
-        if ((s = *(const char **)val))
-          htsmsg_add_str(m, name, lang ? tvh_gettext_lang(lang, s) : s);
-      } else {
-        if ((s = *(const char **)val))
-          htsmsg_add_str(m, name, s);
-      }
+      if ((s = *(const char **)val))
+        htsmsg_add_str(m, name, (optmask & PO_LOCALE) != 0 && lang ?
+                                tvh_gettext_lang(lang, s) : s);
       break;
     case PT_DBL:
       htsmsg_add_dbl(m, name, *(double*)val);
@@ -587,8 +583,11 @@ prop_md_doc(const char **doc, const char *lang)
   size_t l = 0;
 
   for (; *doc; doc++) {
-    if (*doc[0] == '\xff') {
-      s = tvh_gettext_lang(lang, *doc + 1);
+    if ((*doc)[0] == '\xff') {
+      if ((*doc)[1] == 1)
+        s = tvh_gettext_lang(lang, *doc + 2);
+      else
+        s = "";
     } else {
       s = *doc;
     }
