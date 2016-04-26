@@ -280,8 +280,8 @@ mpegts_service_config_save ( service_t *t, char *filename, size_t fsize )
 /*
  * Service instance list
  */
-static void
-mpegts_service_enlist
+static int
+mpegts_service_enlist_raw
   ( service_t *t, tvh_input_t *ti, struct service_instance_list *sil,
     int flags, int weight )
 {
@@ -292,6 +292,10 @@ mpegts_service_enlist
   mpegts_mux_instance_t *mmi;
 
   assert(s->s_source_type == S_MPEG_TS);
+
+  /* invalid PMT */
+  if (s->s_pmt_pid <= 0 || s->s_pmt_pid >= 8191)
+    return SM_CODE_INVALID_SERVICE;
 
   /* Create instances */
   m->mm_create_instances(m);
@@ -322,6 +326,23 @@ mpegts_service_enlist
 
     service_instance_add(sil, t, mi->mi_instance, mi->mi_name, p, w);
   }
+
+  return 0;
+}
+
+/*
+ * Service instance list
+ */
+static int
+mpegts_service_enlist
+  ( service_t *t, tvh_input_t *ti, struct service_instance_list *sil,
+    int flags, int weight )
+{
+  /* invalid PMT */
+  if (t->s_pmt_pid <= 0 || t->s_pmt_pid >= 8191)
+    return SM_CODE_INVALID_SERVICE;
+
+  return mpegts_service_enlist_raw(t, ti, sil, flags, weight);
 }
 
 /*
@@ -1017,7 +1038,7 @@ mpegts_service_create_raw ( mpegts_mux_t *mm )
   s->s_delete         = mpegts_service_delete;
   s->s_is_enabled     = mpegts_service_is_enabled;
   s->s_config_save    = mpegts_service_config_save;
-  s->s_enlist         = mpegts_service_enlist;
+  s->s_enlist         = mpegts_service_enlist_raw;
   s->s_start_feed     = mpegts_service_start;
   s->s_stop_feed      = mpegts_service_stop;
   s->s_refresh_feed   = mpegts_service_refresh;
