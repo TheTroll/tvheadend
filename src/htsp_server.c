@@ -2970,7 +2970,7 @@ htsp_authenticate(htsp_connection_t *htsp, htsmsg_t *m)
                         htsp_verify_callback, &vs);
 
     if (rights->aa_rights == 0) {
-      tvhlog(LOG_INFO, "htsp", "%s: Unauthorized access", htsp->htsp_logname);
+      tvhlog(LOG_INFO, "htsp", "%s: Unauthorized access (%s)", htsp->htsp_logname, username);
       access_destroy(rights);
       return 0;
     }
