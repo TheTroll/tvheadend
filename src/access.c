@@ -39,7 +39,7 @@
 #include "tcp.h"
 #include "lang_codes.h"
 
-#define TICKET_LIFETIME (10*60) /* in seconds */
+#define TICKET_LIFETIME (30*60) /* in seconds */
 
 struct access_entry_queue access_entries;
 struct access_ticket_queue access_tickets;
