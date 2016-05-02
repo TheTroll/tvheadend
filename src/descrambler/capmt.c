@@ -113,7 +113,7 @@ typedef struct dmx_filter {
 #define CAPMT_MSG_HELLO    0x08
 
 // limits
-#define MAX_CA       16
+#define MAX_CA       32
 #define MAX_INDEX    64
 #define MAX_FILTER   64
 #define MAX_SOCKETS  16   // max sockets (simultaneous channels) per demux
