@@ -752,7 +752,7 @@ static void satip_server_init_common(const char *prefix, int announce)
 
   if (http_server_ip == NULL) {
     if (tcp_server_bound(http_server, &http, PF_INET) < 0) {
-      tvherror("satips", "Unable to determine the HTTP/RTSP address, forcing them");
+      tvherror("satips", "Unable to determine the HTTP/RTSP address, forcing it to 192.168.0.5");
       http_server_ip = strdup("192.168.0.5");
       http_server_port = tvheadend_webui_port;
     }
