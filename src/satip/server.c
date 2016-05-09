@@ -752,12 +752,16 @@ static void satip_server_init_common(const char *prefix, int announce)
 
   if (http_server_ip == NULL) {
     if (tcp_server_bound(http_server, &http, PF_INET) < 0) {
-      tvherror("satips", "Unable to determine the HTTP/RTSP address");
-      return;
+      tvherror("satips", "Unable to determine the HTTP/RTSP address, forcing them");
+      http_server_ip = strdup("192.168.0.5");
+      http_server_port = tvheadend_webui_port;
     }
-    tcp_get_str_from_ip((const struct sockaddr *)&http, http_ip, sizeof(http_ip));
-    http_server_ip = strdup(http_ip);
-    http_server_port = ntohs(IP_PORT(http));
+    else
+    {
+      tcp_get_str_from_ip((const struct sockaddr *)&http, http_ip, sizeof(http_ip));
+      http_server_ip = strdup(http_ip);
+      http_server_port = ntohs(IP_PORT(http));
+    }
   }
 
   if (satip_server_rtsp_port <= 0)
