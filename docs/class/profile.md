@@ -13,7 +13,7 @@ DVR Profiles or as parameter for HTTP Streaming.
   - [MP4/libav Profile](class/profile-libav-mp4)
   - [Transcode Profile](class/profile-transcode)
 
-!['Stream Profiles'](docresources/configstreamprofiles.png)
+!['Stream Profiles'](static/img/doc/configstreamprofiles.png)
 
 ---
 
@@ -27,6 +27,7 @@ Button     | Function
 **Undo**   | Undo any changes made to the stream profile configuration since the last save.
 **Add**    | Add a new stream profile.
 **Delete** | Delete an existing stream profile.
+**View Level**| Change the interface view level to show/hide more advanced options.
 **Help**   | Display this help page.
 
 ---
@@ -34,12 +35,12 @@ Button     | Function
 ####Add/Edit Dialog Example
 
 A common set of fields is used for the _Add_ or _Edit_ functions, most
-of which can also be seen in the grid view:
+of which can be seen in the grid view:
 
-!['Add/Edit Stream Profiles' Dialog - mkv](docresources/configstreamprofiles1.png)
+!['Add/Edit Stream Profiles' Dialog - mkv](static/img/doc/configstreamprofiles1.png)
 
-!['Add/Edit Stream Profiles' Dialog - ts](docresources/configstreamprofiles2.png)
+!['Add/Edit Stream Profiles' Dialog - ts](static/img/doc/configstreamprofiles2.png)
 
-!['Add/Edit Stream Profiles' Dialog - transcode](docresources/configstreamprofiles3.png)
+!['Add/Edit Stream Profiles' Dialog - transcode](static/img/doc/configstreamprofiles3.png)
 
 ---

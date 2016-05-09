@@ -2,18 +2,18 @@
 
 The adapters and tuners are listed and edited in a tree.
 
-!['TV Adapter tree'](docresources/tvadaptertree.png)
+!['TV Adapter tree'](static/img/doc/tvadaptertree.png)
 
 ---
 
 ###Buttons
 
-The following buttons are available:
+The following functions are available:
 
 Button         | Function
 ---------------|---------
 **Save**       | Save the current configuration.
-**Help**       | Display this help page.
+<tvh_include>inc/common_button_table_end</tvh_include>
 
 ---
 
@@ -23,7 +23,7 @@ The device tree lists the available frontends, LNB configuration and
 so on related to your device(s) in sections. Clicking on these sections 
 will display all available parameters and various device information.
 
-!['TV Adapter params'](docresources/tvadapterparams.png)
+!['TV Adapter params'](static/img/doc/tvadapterparams.png)
 
 **Tip**: Remember to save your changes *before* switching panels.
 
@@ -46,8 +46,8 @@ list.
 
 * Frontend
   - [Master](class/linuxdvb_frontend_dvbs)
-  - [Slave](class/linuxdvb_frontend_dvbs_slave)
   - [Master (ISDB-S)](class/linuxdvb_frontend_isdb_s)
+  - [Slave](class/linuxdvb_frontend_dvbs_slave)
 * Satellite Configuration
   - [Universal LNB](class/linuxdvb_satconf_lnbonly)
   - [2 Port](class/linuxdvb_satconf_2port)

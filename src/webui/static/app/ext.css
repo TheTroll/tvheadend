@@ -716,6 +716,10 @@
 
 .x-wizard-icon {
     float: right;
+    margin: 0px auto;
+    border: none;
+    padding: 5px;
+    max-width: 25%
 }
 
 .x-wizard-description {
@@ -869,14 +873,16 @@
     color: darkred;
     font-family:  'Courier New', Courier, monospace;
     margin-left: 2em;
-    padding-bottom: 0px;
-    padding-left: 5px;
-    padding-right: 5px;
-    padding-top: 0px;
+    padding: 3px 5px 0 5px;
     display: inline-block;
 }
 
 .hts-doc-text p code {
+    margin-left: 0;
+    display: initial;
+}
+
+.hts-doc-text li code {
     margin-left: 0;
     display: initial;
 }
@@ -974,9 +980,26 @@
     font-size: 150%;
 }
 
+.about-tab {
+    margin-left: auto;
+    margin-right: auto;
+}
+
 .about-title {
     font-size: 24px;
     font-weight: bold;
+}
+
+.playlink {
+    margin: -1px;
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+
+.logobig {
+    width: 25%;
+    height: auto;
 }
 
 /** vim: ts=4:sw=4:nu:fdc=4:nospell 

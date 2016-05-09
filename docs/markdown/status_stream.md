@@ -4,7 +4,7 @@ This tab shows information about all currently-open streams.
 
 This is a read-only tab; nothing is configurable.
 
-!['Status - Stream' Tab](docresources/statusstream.png)
+!['Status - Stream' Tab](static/img/doc/statusstream.png)
 
 ---
 
@@ -12,9 +12,9 @@ This is a read-only tab; nothing is configurable.
 
 The following functions are available:
 
-Button     | Function
------------|---------
-**Help**   | Display this help page.
+Button        | Function
+--------------|---------
+**Help**      | Display this help page.
 
 ---
 

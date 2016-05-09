@@ -628,8 +628,6 @@ api_idnode_handler
     if (!(uuid = htsmsg_field_get_str(f)))
       return EINVAL;
 
-  pthread_mutex_lock(&global_lock);
-
   /* Multiple */
   if (uuids) {
     const idnodes_rb_t *domain = NULL;
@@ -638,16 +636,22 @@ api_idnode_handler
     htsmsg_add_str(msg, "__op__", op);
     HTSMSG_FOREACH(f, uuids) {
       if (!(uuid = htsmsg_field_get_string(f))) continue;
-      if (!(in   = idnode_find(uuid, NULL, domain))) continue;
-      domain = in->in_domain;
-      if (idnode_perm(in, perm, msg)) {
-        pcnt++;
-        continue;
+      pthread_mutex_lock(&global_lock);
+      if ((in = idnode_find(uuid, NULL, domain)) != NULL) {
+        domain = in->in_domain;
+        if (idnode_perm(in, perm, msg)) {
+          pthread_mutex_unlock(&global_lock);
+          pcnt++;
+          continue;
+        }
+        handler(perm, in);
+        if (!destroyed)
+          idnode_perm_unset(in);
+        cnt++;
       }
-      handler(perm, in);
-      if (!destroyed)
-        idnode_perm_unset(in);
-      cnt++;
+      pthread_mutex_unlock(&global_lock);
+      if (destroyed)
+        pthread_yield(); /* delete penalty */
     }
     htsmsg_destroy(msg);
 
@@ -657,6 +661,7 @@ api_idnode_handler
   /* Single */
   } else {
     uuid = htsmsg_field_get_string(f);
+    pthread_mutex_lock(&global_lock);
     if (!(in   = idnode_find(uuid, NULL, NULL))) {
       err = ENOENT;
     } else {
@@ -670,9 +675,9 @@ api_idnode_handler
       }
       htsmsg_destroy(msg);
     }
+    pthread_mutex_unlock(&global_lock);
   }
 
-  pthread_mutex_unlock(&global_lock);
 
   return err;
 }

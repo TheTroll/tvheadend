@@ -249,6 +249,8 @@ page_static_file(http_connection_t *hc, const char *_remain, void *opaque)
       nogzip = 1;
     else if(!strcmp(postfix, "jpg"))
       nogzip = 1;
+    else if(!strcmp(postfix, "png"))
+      nogzip = 1;
   }
 
   fb_file *fp = fb_open(path, 0, (nogzip || gzip) ? 0 : 1);
@@ -1767,8 +1769,7 @@ webui_static_content(const char *http_path, const char *source)
 static int
 favicon(http_connection_t *hc, const char *remain, void *opaque)
 {
-  http_redirect(hc, "static/htslogo.png", NULL, 0);
-  return 0;
+  return page_static_file(hc, "logo.png", (void *)"src/webui/static/img");
 }
 
 /**
@@ -1843,6 +1844,18 @@ http_redir(http_connection_t *hc, const char *remain, void *opaque)
       }
       return HTTP_STATUS_BAD_REQUEST;
     }
+    if (!strcmp(components[0], "theme.app.debug.css")) {
+      theme = access_get_theme(hc->hc_access);
+      if (theme) {
+        snprintf(buf, sizeof(buf), "src/webui/static/app/ext-%s.css", theme);
+        if (!http_file_test(buf)) {
+          snprintf(buf, sizeof(buf), "/static/app/ext-%s.css", theme);
+          http_css_import(hc, buf);
+          return 0;
+        }
+      }
+      return HTTP_STATUS_BAD_REQUEST;
+    }
   }
 
   return HTTP_STATUS_BAD_REQUEST;
@@ -1893,8 +1906,6 @@ webui_init(int xspf)
   http_path_add("/redir",  NULL, http_redir, ACCESS_ANONYMOUS);
 
   webui_static_content("/static",        "src/webui/static");
-  webui_static_content("/docs",          "docs/html");
-  webui_static_content("/docresources",  "docs/docresources");
 
   simpleui_start();
   extjs_start();

@@ -12,19 +12,19 @@ client. Note that if you use a similar number for multiple networks, the
 first matched network containing the mux with requested parameters will
 win (also for unknown mux).
 
-!['SAT\>IP Config tab'](docresources/satipconfig.png)
+!['SAT\>IP Config tab'](static/img/doc/satipconfig.png)
 
 ---
 
-###Buttons
+###Menu Bar/Buttons
 
-The tab has the following buttons:
+The following functions are available:
 
 Button                      | Function
 ----------------------------|-------------------
 **Save**                    | Save all changes.
 **Undo**                    | Revert all changes since last save.
 **Discover SAT\>IP servers**| Attempt to discover more SAT>IP servers on the network.
-**Help**                    | Display this help page.
+<tvh_include>inc/common_button_table_end</tvh_include>
 
 ---

@@ -4,7 +4,7 @@ This tab shows information about all active connections.
 
 This is a read-only tab; nothing is configurable.
 
-!['Status - Subscriptions' Tab](docresources/statusconnections.png)
+!['Status - Subscriptions' Tab](static/img/doc/statusconnections.png)
 
 ---
 
@@ -15,6 +15,7 @@ The following functions are available:
 Button     | Function
 -----------|---------
 **Help**   | Display this help page.
+**View Level**| Change the interface view level to show/hide more advanced options.
 
 ---
 

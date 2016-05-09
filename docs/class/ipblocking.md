@@ -1,44 +1,30 @@
 This tab allows to configure blocked IP ranges. Users within these ranges
 are not allowed to login (use any Tvheadend service).
 
-!['Access Control - Entries tab'](docresources/accessconfigipblockentries.png)
+!['Access Control - Entries tab'](static/img/doc/accessconfigipblockentries.png)
 
 ---
 
-###Buttons
+<tvh_include>inc/common_button_table_start</tvh_include>
 
-The tab has the following buttons:
-
-Button                 | Function
------------------------|-------------------
-**Save**               | Save any changes made to the grid/entries.
-**Undo**               | Revert any changes made since the last save.
-**Add**                | Display the *Add IP Blocking Record* dialog.
-**Delete**             | Delete the selected entry/entries.
-**Edit**               | Edit the selected entry.
-**Help**               | Display this help page.
+<tvh_include>inc/common_button_table_end</tvh_include>
 
 ---
 
-###Adding and Editing an Entry/Record
+<tvh_include>inc/add_grid_entry</tvh_include>
 
-To add an entry press the *[Add]* button from the menu bar. 
+!['Add Entries Dialog'](static/img/doc/accessipblockingedit.png)
 
-To edit an entry highlight the desired entry within the grid, and 
-then press the *[Edit]* button from the menu bar.
-
-!['Add Record Dialog'](docresources/accessipblockingedit.png)
-
-Note that both the *[Add]* and *[Edit]* buttons display similar dialogs.
+**Tip**: You can enter a comma-separated list of network prefixes, if you're 
+unsure as to what to enter in the *Network prefix* field take a look at 
+[this guide](https://www.ripe.net/about-us/press-centre/understanding-ip-addressing).
 
 ---
 
-### Deleting an Entry.
+<tvh_include>inc/edit_grid_entries</tvh_include>
 
-To delete an entry highlight (select) the entry from the grid, then press
-the *[Delete]* button from the menu bar.
+---
 
-**Tip**: Rather than deleting an entry, you can disable it instead by 
-pressing the *[Edit]* button, and unticking the "Enabled" check box.
+<tvh_include>inc/del_grid_entries</tvh_include>
 
 ---
