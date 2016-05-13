@@ -99,6 +99,10 @@ typedef struct epggrab_channel
 
   int                       only_one; ///< Map to only one channel (auto)
   idnode_list_head_t        channels; ///< Mapped channels (1 = epggrab channel, 2 = channel)
+
+  int                       update_chicon; ///< Update channel icon
+  int                       update_chnum;  ///< Update channel number
+  int                       update_chname; ///< Update channel name
 } epggrab_channel_t;
 
 /*
@@ -306,6 +310,7 @@ extern int                   epggrab_ota_running;
 int epggrab_activate_module       ( epggrab_module_t *mod, int activate );
 void epggrab_ota_set_cron         ( void );
 void epggrab_ota_trigger          ( int secs );
+void epggrab_rerun_internal       ( void );
 
 /*
  * Load/Save

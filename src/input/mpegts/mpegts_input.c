@@ -26,12 +26,15 @@
 #include "notify.h"
 #include "idnode.h"
 #include "dbus.h"
+#include "memoryinfo.h"
 
 #include <pthread.h>
 #include <assert.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 
+memoryinfo_t mpegts_input_queue_memoryinfo = { .my_name = "MPEG-TS input queue" };
+memoryinfo_t mpegts_input_table_memoryinfo = { .my_name = "MPEG-TS table queue" };
 
 static void
 mpegts_input_del_network ( mpegts_network_link_t *mnl );
@@ -1121,8 +1124,16 @@ retry:
 
     pthread_mutex_lock(&mi->mi_input_lock);
     if (mmi->mmi_mux->mm_active == mmi) {
-      TAILQ_INSERT_TAIL(&mi->mi_input_queue, mp, mp_link);
-      tvh_cond_signal(&mi->mi_input_cond, 0);
+      if (mi->mi_input_queue_size < 50*1024*1024) {
+        mi->mi_input_queue_size += len2;
+        memoryinfo_alloc(&mpegts_input_queue_memoryinfo, sizeof(mpegts_packet_t) + len2);
+        TAILQ_INSERT_TAIL(&mi->mi_input_queue, mp, mp_link);
+        tvh_cond_signal(&mi->mi_input_cond, 0);
+      } else {
+        if (tvhlog_limit(&mi->mi_input_queue_loglimit, 10))
+          tvhwarn("mpegts", "too much queued input data (over 50MB), discarding new");
+        free(mp);
+      }
     } else {
       free(mp);
     }
@@ -1370,12 +1381,19 @@ mpegts_input_process
           if (type & MPS_FTABLE)
             mpegts_input_table_dispatch(mm, muxname, tsb, llen);
           if (type & MPS_TABLE) {
-            mpegts_table_feed_t *mtf = malloc(sizeof(mpegts_table_feed_t)+llen);
-            mtf->mtf_len = llen;
-            memcpy(mtf->mtf_tsb, tsb, llen);
-            mtf->mtf_mux = mm;
-            TAILQ_INSERT_TAIL(&mi->mi_table_queue, mtf, mtf_link);
-            table_wakeup = 1;
+            if (mi->mi_table_queue_size >= 2*1024*1024) {
+              if (tvhlog_limit(&mi->mi_input_queue_loglimit, 10))
+                tvhwarn("mpegts", "too much queued table input data (over 2MB), discarding new");
+            } else {
+              mpegts_table_feed_t *mtf = malloc(sizeof(mpegts_table_feed_t)+llen);
+              mtf->mtf_len = llen;
+              memcpy(mtf->mtf_tsb, tsb, llen);
+              mtf->mtf_mux = mm;
+              mi->mi_table_queue_size += llen;
+              memoryinfo_alloc(&mpegts_input_table_memoryinfo, sizeof(mpegts_table_feed_t) + llen);
+              TAILQ_INSERT_TAIL(&mi->mi_table_queue, mtf, mtf_link);
+              table_wakeup = 1;
+            }
           }
         } else {
           //tvhdebug("tsdemux", "%s - SI packet had errors", name);
@@ -1470,6 +1488,8 @@ mpegts_input_thread ( void * p )
       tvh_cond_wait(&mi->mi_input_cond, &mi->mi_input_lock);
       continue;
     }
+    mi->mi_input_queue_size -= mp->mp_len;
+    memoryinfo_free(&mpegts_input_queue_memoryinfo, sizeof(mpegts_packet_t) + mp->mp_len);
     TAILQ_REMOVE(&mi->mi_input_queue, mp, mp_link);
     pthread_mutex_unlock(&mi->mi_input_lock);
       
@@ -1509,9 +1529,11 @@ mpegts_input_thread ( void * p )
 
   /* Flush */
   while ((mp = TAILQ_FIRST(&mi->mi_input_queue))) {
+    memoryinfo_free(&mpegts_input_queue_memoryinfo, sizeof(mpegts_packet_t) + mp->mp_len);
     TAILQ_REMOVE(&mi->mi_input_queue, mp, mp_link);
     free(mp);
   }
+  mi->mi_input_queue_size = 0;
   pthread_mutex_unlock(&mi->mi_input_lock);
 
   return NULL;
@@ -1533,6 +1555,8 @@ mpegts_input_table_thread ( void *aux )
       tvh_cond_wait(&mi->mi_table_cond, &mi->mi_output_lock);
       continue;
     }
+    mi->mi_table_queue_size -= mtf->mtf_len;
+    memoryinfo_free(&mpegts_input_table_memoryinfo, sizeof(mpegts_table_feed_t) + mtf->mtf_len);
     TAILQ_REMOVE(&mi->mi_table_queue, mtf, mtf_link);
     pthread_mutex_unlock(&mi->mi_output_lock);
     
@@ -1556,9 +1580,11 @@ mpegts_input_table_thread ( void *aux )
 
   /* Flush */
   while ((mtf = TAILQ_FIRST(&mi->mi_table_queue)) != NULL) {
+    memoryinfo_free(&mpegts_input_table_memoryinfo, sizeof(mpegts_table_feed_t) + mtf->mtf_len);
     TAILQ_REMOVE(&mi->mi_table_queue, mtf, mtf_link);
     free(mtf);
   }
+  mi->mi_table_queue_size = 0;
   pthread_mutex_unlock(&mi->mi_output_lock);
 
   return NULL;

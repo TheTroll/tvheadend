@@ -1,7 +1,6 @@
 ####Table of Contents
 
 [Introduction](index)
-* [To-do](todo)
 * [Overview](overview)
 * [Basic Requirements](requirements)
 * [Features](features)
@@ -9,7 +8,7 @@
 Getting Started
 * [Before you begin (concepts)](before_begin)
 * [Install hardware](install_hardware)
-* [Install tvheadend](install_tvheadend)
+* [Install Tvheadend](install_tvheadend)
 * [Configure Tvheadend](configure_tvheadend)
 
 Web Interface Guide
@@ -58,7 +57,7 @@ Web Interface Configuration Guide
   - [Bouquets](class/bouquet)
   - [EPG Grabber Channels](class/epggrab_channel)
   - [EPG Grabber](class/epggrab)
-  - EPG Grabber Modules
+  - [EPG Grabber Modules](class/epggrab_mod)
     - [OTA Module](class/epggrab_mod_ota)
     - [Internal PyEPG](class/epggrab_mod_int_pyepg)
     - [Internal XMLTV](class/epggrab_mod_int_xmltv)
@@ -108,8 +107,7 @@ Appendices
   - [Appendix 1 - URL syntax (Exports)](url)
   - [Appendix 2 - FAQ](faqs)
   - [Appendix 3 - Command-line Options](cmdline_options)
-  - [Appendix 4 - Debugging Options](debugging)
-  - [Appendix 5 - Updating this documentation](doc_update)
-  - [Appendix 6 - Markdown Cribsheet](markdown_cribsheet)
+  - [Appendix 4 - Updating this documentation](doc_update)
+  - [Appendix 5 - Markdown Cribsheet](markdown_cribsheet)
 
 [About](about)

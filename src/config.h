@@ -56,6 +56,7 @@ typedef struct config {
   uint32_t cookie_expires;
   int dscp;
   uint32_t descrambler_buffer;
+  int caclient_ui;
   int parser_backlog;
   int epg_compress;
 } config_t;

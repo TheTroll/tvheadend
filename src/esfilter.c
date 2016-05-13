@@ -591,9 +591,13 @@ esfilter_class_action_enum(void *o, const char *lang)
   return l;
 }
 
+CLASS_DOC(filters)
+PROP_DOC(action)
+
 const idclass_t esfilter_class = {
   .ic_class      = "esfilter",
   .ic_caption    = N_("Elementary stream filter"),
+  .ic_doc        = tvh_doc_filters_class,
   .ic_event      = "esfilter",
   .ic_perm_def   = ACCESS_ADMIN,
   .ic_save       = esfilter_class_save,
@@ -606,14 +610,14 @@ const idclass_t esfilter_class = {
       .type     = PT_INT,
       .id       = "class",
       .name     = N_("Class"),
-      .opts     = PO_RDONLY | PO_HIDDEN,
+      .opts     = PO_RDONLY | PO_HIDDEN | PO_DOC_NLIST,
       .off      = offsetof(esfilter_t, esf_class),
     },
     {
       .type     = PT_INT,
       .id       = "index",
       .name     = N_("Index"),
-      .opts     = PO_RDONLY | PO_HIDDEN,
+      .opts     = PO_RDONLY | PO_HIDDEN | PO_DOC_NLIST,
       .off      = offsetof(esfilter_t, esf_index),
     },
     {
@@ -630,7 +634,7 @@ const idclass_t esfilter_class = {
 const idclass_t esfilter_class_video = {
   .ic_super      = &esfilter_class,
   .ic_class      = "esfilter_video",
-  .ic_caption    = N_("Video stream filter"),
+  .ic_caption    = N_("Video Stream Filter"),
   .ic_properties = (const property_t[]){
     {
       .type     = PT_STR,
@@ -652,6 +656,7 @@ const idclass_t esfilter_class_video = {
       .get      = esfilter_class_language_get,
       .set      = esfilter_class_language_set,
       .list     = esfilter_class_language_enum,
+      .opts     = PO_DOC_NLIST,
     },
     {
       .type     = PT_STR,
@@ -697,6 +702,8 @@ const idclass_t esfilter_class_video = {
       .get      = esfilter_class_action_get,
       .set      = esfilter_class_action_set,
       .list     = esfilter_class_action_enum,
+      .opts     = PO_DOC_NLIST,
+      .doc      = prop_doc_action,
     },
     {
       .type     = PT_BOOL,
@@ -722,7 +729,7 @@ const idclass_t esfilter_class_video = {
 const idclass_t esfilter_class_audio = {
   .ic_super      = &esfilter_class,
   .ic_class      = "esfilter_audio",
-  .ic_caption    = N_("Audio stream filter"),
+  .ic_caption    = N_("Audio Stream Filter"),
   .ic_properties = (const property_t[]){
     {
       .type     = PT_STR,
@@ -744,6 +751,7 @@ const idclass_t esfilter_class_audio = {
       .get      = esfilter_class_language_get,
       .set      = esfilter_class_language_set,
       .list     = esfilter_class_language_enum,
+      .opts     = PO_DOC_NLIST,
     },
     {
       .type     = PT_STR,
@@ -789,6 +797,8 @@ const idclass_t esfilter_class_audio = {
       .get      = esfilter_class_action_get,
       .set      = esfilter_class_action_set,
       .list     = esfilter_class_action_enum,
+      .opts     = PO_DOC_NLIST,
+      .doc      = prop_doc_action,
     },
     {
       .type     = PT_BOOL,
@@ -814,7 +824,7 @@ const idclass_t esfilter_class_audio = {
 const idclass_t esfilter_class_teletext = {
   .ic_super      = &esfilter_class,
   .ic_class      = "esfilter_teletext",
-  .ic_caption    = N_("Teletext stream filter"),
+  .ic_caption    = N_("Teletext Stream Filter"),
   .ic_properties = (const property_t[]){
     {
       .type     = PT_STR,
@@ -836,6 +846,7 @@ const idclass_t esfilter_class_teletext = {
       .get      = esfilter_class_language_get,
       .set      = esfilter_class_language_set,
       .list     = esfilter_class_language_enum,
+      .opts     = PO_DOC_NLIST,
     },
     {
       .type     = PT_STR,
@@ -881,6 +892,8 @@ const idclass_t esfilter_class_teletext = {
       .get      = esfilter_class_action_get,
       .set      = esfilter_class_action_set,
       .list     = esfilter_class_action_enum,
+      .opts     = PO_DOC_NLIST,
+      .doc      = prop_doc_action,
     },
     {
       .type     = PT_BOOL,
@@ -906,7 +919,7 @@ const idclass_t esfilter_class_teletext = {
 const idclass_t esfilter_class_subtit = {
   .ic_super      = &esfilter_class,
   .ic_class      = "esfilter_subtit",
-  .ic_caption    = N_("Subtitle stream filter"),
+  .ic_caption    = N_("Subtitle Stream Filter"),
   .ic_properties = (const property_t[]){
     {
       .type     = PT_STR,
@@ -928,6 +941,7 @@ const idclass_t esfilter_class_subtit = {
       .get      = esfilter_class_language_get,
       .set      = esfilter_class_language_set,
       .list     = esfilter_class_language_enum,
+      .opts     = PO_DOC_NLIST,
     },
     {
       .type     = PT_STR,
@@ -973,6 +987,8 @@ const idclass_t esfilter_class_subtit = {
       .get      = esfilter_class_action_get,
       .set      = esfilter_class_action_set,
       .list     = esfilter_class_action_enum,
+      .opts     = PO_DOC_NLIST,
+      .doc      = prop_doc_action,
     },
     {
       .type     = PT_BOOL,
@@ -998,7 +1014,7 @@ const idclass_t esfilter_class_subtit = {
 const idclass_t esfilter_class_ca = {
   .ic_super      = &esfilter_class,
   .ic_class      = "esfilter_ca",
-  .ic_caption    = N_("CA stream filter"),
+  .ic_caption    = N_("CA Stream Filter"),
   .ic_properties = (const property_t[]){
     {
       .type     = PT_STR,
@@ -1076,6 +1092,8 @@ const idclass_t esfilter_class_ca = {
       .get      = esfilter_class_action_get,
       .set      = esfilter_class_action_set,
       .list     = esfilter_class_action_enum,
+      .opts     = PO_DOC_NLIST,
+      .doc      = prop_doc_action,
     },
     {
       .type     = PT_BOOL,
@@ -1101,7 +1119,7 @@ const idclass_t esfilter_class_ca = {
 const idclass_t esfilter_class_other = {
   .ic_super      = &esfilter_class,
   .ic_class      = "esfilter_other",
-  .ic_caption    = N_("Other stream filter"),
+  .ic_caption    = N_("Other Stream Filter"),
   .ic_properties = (const property_t[]){
     {
       .type     = PT_STR,
@@ -1123,6 +1141,7 @@ const idclass_t esfilter_class_other = {
       .get      = esfilter_class_language_get,
       .set      = esfilter_class_language_set,
       .list     = esfilter_class_language_enum,
+      .opts     = PO_DOC_NLIST,
     },
     {
       .type     = PT_STR,
@@ -1155,6 +1174,8 @@ const idclass_t esfilter_class_other = {
       .get      = esfilter_class_action_get,
       .set      = esfilter_class_action_set,
       .list     = esfilter_class_action_enum,
+      .opts     = PO_DOC_NLIST,
+      .doc      = prop_doc_action,
     },
     {
       .type     = PT_BOOL,
