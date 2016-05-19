@@ -1154,7 +1154,6 @@ static dvr_entry_t *_dvr_duplicate_event(dvr_entry_t *de)
     return NULL;
 
   record = de->de_autorec->dae_record;
-
   switch (record) {
     case DVR_AUTOREC_RECORD_ALL:
       return NULL;
@@ -1259,7 +1258,10 @@ dvr_entry_create_by_autorec(int enabled, epg_broadcast_t *e, dvr_autorec_entry_t
      NOTE: Semantic duplicate detection is deferred to the start time of recording and then done using _dvr_duplicate_event by dvr_timer_start_recording. */
   LIST_FOREACH(de, &dvrentries, de_global_link) {
     if (de->de_bcast == e || (de->de_bcast && de->de_bcast->episode == e->episode))
-      return;
+    {
+      if (!strcmp(dae->dae_owner, de->de_owner))
+        return;
+    }
   }
 
   /* Handle max schedules limit for autorrecord */
