@@ -411,7 +411,7 @@ transcoder_stream_subtitle(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *p
   AVCodecContext *ictx;
   AVPacket packet;
   AVSubtitle sub;
-  int length,  got_subtitle;
+  int length, got_subtitle;
 
   subtitle_stream_t *ss = (subtitle_stream_t*)ts;
 
@@ -421,12 +421,13 @@ transcoder_stream_subtitle(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *p
   icodec = ss->sub_icodec;
   //ocodec = ss->sub_ocodec;
 
+
   if (!avcodec_is_open(ictx)) {
     if (avcodec_open2(ictx, icodec, NULL) < 0) {
       tvherror("transcode", "%04X: Unable to open %s decoder",
                shortid(t), icodec->name);
       transcoder_stream_invalidate(ts);
-      goto cleanup;
+      return;
     }
   }
 
@@ -436,6 +437,8 @@ transcoder_stream_subtitle(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *p
   packet.pts      = pkt->pkt_pts;
   packet.dts      = pkt->pkt_dts;
   packet.duration = pkt->pkt_duration;
+
+  memset(&sub, 0, sizeof(sub));
 
   length = avcodec_decode_subtitle2(ictx,  &sub, &got_subtitle, &packet);
   if (length <= 0) {
@@ -504,6 +507,8 @@ transcoder_stream_audio(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   icodec = as->aud_icodec;
   ocodec = as->aud_ocodec;
 
+  av_init_packet(&packet);
+
   if (!avcodec_is_open(ictx)) {
     if (icodec->id == AV_CODEC_ID_AAC || icodec->id == AV_CODEC_ID_VORBIS) {
       if (ts->ts_input_gh) {
@@ -533,7 +538,6 @@ transcoder_stream_audio(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
     as->aud_dec_pts += (pkt->pkt_pts - as->aud_dec_pts);
   }
 
-  av_init_packet(&packet);
   packet.data     = pktbuf_ptr(pkt->pkt_payload);
   packet.size     = pktbuf_len(pkt->pkt_payload);
   packet.pts      = pkt->pkt_pts;

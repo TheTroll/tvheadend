@@ -268,6 +268,7 @@ http_get_nonce(void)
     pthread_mutex_lock(&global_lock);
     if (RB_INSERT_SORTED(&http_nonces, n, link, http_nonce_cmp)) {
       pthread_mutex_unlock(&global_lock);
+      free(m);
       continue; /* get unique md5 */
     }
     mtimer_arm_rel(&n->expire, http_nonce_timeout, n, sec2mono(10));
@@ -284,7 +285,8 @@ http_nonce_exists(const char *nonce)
 
   if (nonce == NULL)
     return 0;
-  strcpy(tmp.nonce, nonce);
+  strncpy(tmp.nonce, nonce, sizeof(tmp.nonce)-1);
+  tmp.nonce[sizeof(tmp.nonce)-1] = '\0';
   pthread_mutex_lock(&global_lock);
   n = RB_FIND(&http_nonces, &tmp, link, http_nonce_cmp);
   if (n) {
@@ -869,8 +871,10 @@ http_access_verify(http_connection_t *hc, int mask)
     }
 
     access_destroy(hc->hc_access);
-    if (http_verify_prepare(hc, &v))
+    if (http_verify_prepare(hc, &v)) {
+      hc->hc_access = NULL;
       return -1;
+    }
     hc->hc_access = access_get(peer, hc->hc_username,
                                http_verify_callback, &v);
     http_verify_free(&v);

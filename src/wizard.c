@@ -307,7 +307,7 @@ static void login_changed(idnode_t *in)
       passwd_entry_destroy(pw, 1);
   }
 
-  s = w->admin_username[0] ? w->admin_username : "*";
+  s = w->admin_username[0] ? (w->admin_username ?: "") : "*";
   conf = htsmsg_create_map();
   htsmsg_add_bool(conf, "enabled", 1);
   htsmsg_add_str(conf, "prefix", w->network);
@@ -326,7 +326,7 @@ static void login_changed(idnode_t *in)
   }
   htsmsg_destroy(conf);
 
-  if (s && s[0] != '*' && w->admin_password[0]) {
+  if (s[0] != '*' && w->admin_password[0]) {
     conf = htsmsg_create_map();
     htsmsg_add_bool(conf, "enabled", 1);
     htsmsg_add_str(conf, "username", s);
@@ -744,7 +744,7 @@ static void muxes_changed(idnode_t *in)
     }
 #if ENABLE_IPTV
       else if (idnode_is_instance(&mn->mn_id, &iptv_auto_network_class) &&
-               w->iptv_url[idx]) {
+               w->iptv_url[idx][0]) {
       htsmsg_t *m = htsmsg_create_map();
       htsmsg_add_str(m, "url", w->iptv_url[idx]);
       idnode_load(&mn->mn_id, m);
