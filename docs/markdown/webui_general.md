@@ -5,7 +5,7 @@ Tvheadend is operated primarily through a tabbed web interface.
 There are some basic navigation concepts that will help you get around and
 make the best of it.
 
-####Page Structure
+###Page Structure
 
 The interface is made up of nested tabs, so similar functions are grouped
 together (e.g. all configuration items at the top level, then all configuration
@@ -23,7 +23,7 @@ parameters common to DVB-S, -T, -C and IPTV networks, but specific things
 such as FEC rolloff or mux URL are then only in the dialogs for networks
 that need these values.
 
-####Displaying and Manipulating Columns
+###Displaying and Manipulating Columns
 
 * Not all columns are necessarily visible. If you hover your mouse over a
   column heading, you'll see a down arrow - click here, and a drop-down menu
@@ -36,14 +36,15 @@ that need these values.
 
 * And the same drop-down menu also gives you access to a **filter** function
   if defined. The filter does simple pattern-matching on any string you
-  provide.
+  provide. A small blue flag or triangle will appear in the top-left 
+  corner to indicate that a filter is active.
   
 * **Re-arrange** the columns by simply dragging he header to a new spot.
 
 * **Re-size** the columns by dragging the very edges of the column header as
   required. 
   
-####Editing Fields
+###Editing Fields
 
 * To edit a cell, double click on it. After a cell is changed, a small red
   flag or triangle will appear in the top-left corner to indicate that it

@@ -243,6 +243,8 @@ mpegts_mux_instance_start
   LIST_FOREACH(s, &mm->mm_services, s_dvb_mux_link)
     s->s_dvb_check_seen = s->s_dvb_last_seen;
 
+  mm->mm_tsid_checks = 0;
+
   /* Start */
   mi->mi_display_name(mi, buf2, sizeof(buf2));
   tvhinfo("mpegts", "%s - tuning on %s", buf, buf2);
@@ -518,6 +520,7 @@ const idclass_t mpegts_mux_class =
       .off      = offsetof(mpegts_mux_t, mm_epg),
       .def.i    = MM_EPG_ENABLE,
       .list     = mpegts_mux_epg_list,
+      .opts     = PO_DOC_NLIST,
     },
     {
       .type     = PT_STR,
@@ -586,7 +589,7 @@ const idclass_t mpegts_mux_class =
       .off      = offsetof(mpegts_mux_t, mm_scan_state),
       .set      = mpegts_mux_class_scan_state_set,
       .list     = mpegts_mux_class_scan_state_enum,
-      .opts     = PO_NOSAVE | PO_SORTKEY,
+      .opts     = PO_NOSAVE | PO_SORTKEY | PO_DOC_NLIST,
     },
     {
       .type     = PT_INT,
@@ -594,7 +597,7 @@ const idclass_t mpegts_mux_class =
       .name     = N_("Scan result"),
       .desc     = N_("The outcome of the last scan performed on this mux."),
       .off      = offsetof(mpegts_mux_t, mm_scan_result),
-      .opts     = PO_RDONLY | PO_SORTKEY,
+      .opts     = PO_RDONLY | PO_SORTKEY | PO_DOC_NLIST,
       .list     = mpegts_mux_class_scan_result_enum,
     },
     {
@@ -606,7 +609,7 @@ const idclass_t mpegts_mux_class =
                      " appear garbled."),
       .off      = offsetof(mpegts_mux_t, mm_charset),
       .list     = dvb_charset_enum,
-      .opts     = PO_ADVANCED,
+      .opts     = PO_ADVANCED | PO_DOC_NLIST,
     },
     {
       .type     = PT_INT,
@@ -633,7 +636,7 @@ const idclass_t mpegts_mux_class =
       .off      = offsetof(mpegts_mux_t, mm_pmt_ac3),
       .def.i    = MM_AC3_STANDARD,
       .list     = mpegts_mux_ac3_list,
-      .opts     = PO_HIDDEN | PO_EXPERT
+      .opts     = PO_HIDDEN | PO_EXPERT | PO_DOC_NLIST,
     },
     {
       .type     = PT_BOOL,
@@ -1210,11 +1213,14 @@ mpegts_mux_set_network_name ( mpegts_mux_t *mm, const char *name )
 int
 mpegts_mux_set_onid ( mpegts_mux_t *mm, uint16_t onid )
 {
-  char buf[256];
   if (onid == mm->mm_onid)
     return 0;
   mm->mm_onid = onid;
-  mpegts_mux_nice_name(mm, buf, sizeof(buf));
+  if (tvhtrace_enabled()) {
+    char buf[256];
+    mpegts_mux_nice_name(mm, buf, sizeof(buf));
+    tvhtrace("mpegts", "%s - set onid %04X (%d)", buf, onid, onid);
+  }
   idnode_changed(&mm->mm_id);
   return 1;
 }

@@ -161,6 +161,8 @@ service_type_auto_list ( void *o, const char *lang )
   return strtab2htsmsg(tab, 1, lang);
 }
 
+PROP_DOC(servicechecking)
+
 const idclass_t service_class = {
   .ic_class      = "service",
   .ic_caption    = N_("Service"),
@@ -174,6 +176,7 @@ const idclass_t service_class = {
       .type     = PT_BOOL,
       .id       = "enabled",
       .name     = N_("Enabled"),
+      .desc     = N_("Enable/Disable service."),
       .off      = offsetof(service_t, s_enabled),
       .notify   = service_class_notify_enabled,
     },
@@ -183,10 +186,11 @@ const idclass_t service_class = {
       .name     = N_("Automatic checking"),
       .desc     = N_("Check for the services' presence. If the service is no "
                      "longer broadcast this field will change to "
-                     "\"Missing In PAT/SDT\"."),
+                     "Missing In PAT/SDT."),
+      .doc      = prop_doc_servicechecking,
       .list     = service_class_auto_list,
       .off      = offsetof(service_t, s_auto),
-      .opts     = PO_ADVANCED,
+      .opts     = PO_ADVANCED | PO_DOC_NLIST,
     },
     {
       .type     = PT_STR,
@@ -234,7 +238,7 @@ const idclass_t service_class = {
                      "service type provided by the stream."),
       .list     = service_type_auto_list,
       .off      = offsetof(service_t, s_type_user),
-      .opts     = PO_ADVANCED
+      .opts     = PO_ADVANCED | PO_DOC_NLIST,
     },
     {}
   }
