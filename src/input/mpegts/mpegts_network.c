@@ -129,6 +129,17 @@ mpegts_network_class_idlescan_notify ( void *p, const char *lang )
   }
 }
 
+static htsmsg_t *
+mpegts_network_discovery_enum ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("Disable"),                  MN_DISCOVERY_DISABLE },
+    { N_("New muxes only"),           MN_DISCOVERY_NEW },
+    { N_("New muxes + change muxes"), MN_DISCOVERY_CHANGE },
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
 CLASS_DOC(mpegts_network)
 
 const idclass_t mpegts_network_class =
@@ -166,14 +177,15 @@ const idclass_t mpegts_network_class =
       .off      = offsetof(mpegts_network_t, mn_nid),
     },
     {
-      .type     = PT_BOOL,
+      .type     = PT_INT,
       .id       = "autodiscovery",
       .name     = N_("Network discovery"),
       .desc     = N_("Discover more muxes using the Network "
                      "Information Table (if available)."),
       .off      = offsetof(mpegts_network_t, mn_autodiscovery),
+      .list     = mpegts_network_discovery_enum,
       .opts     = PO_ADVANCED,
-      .def.i    = 1
+      .def.i    = MN_DISCOVERY_NEW
     },
     {
       .type     = PT_BOOL,
@@ -426,7 +438,7 @@ mpegts_network_create0
   /* Defaults */
   mn->mn_satpos = INT_MAX;
   mn->mn_skipinitscan = 1;
-  mn->mn_autodiscovery = 1;
+  mn->mn_autodiscovery = MN_DISCOVERY_NEW;
 
   /* Load config */
   if (conf)
@@ -633,13 +645,15 @@ mpegts_network_build
 
 mpegts_mux_t *
 mpegts_network_find_mux
-  ( mpegts_network_t *mn, uint16_t onid, uint16_t tsid )
+  ( mpegts_network_t *mn, uint16_t onid, uint16_t tsid, int check )
 {
   mpegts_mux_t *mm;
   LIST_FOREACH(mm, &mn->mn_muxes, mm_network_link) {
     if (mm->mm_onid && onid && mm->mm_onid != onid) continue;
-    if (mm->mm_tsid == tsid && mm->mm_enabled)
-      break;
+    if (mm->mm_tsid == tsid) {
+      if (!check || mm->mm_enabled == MM_ENABLE)
+        break;
+    }
   }
   return mm;
 }

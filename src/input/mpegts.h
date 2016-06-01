@@ -283,6 +283,12 @@ struct mpegts_table_feed {
  * Logical network
  * *************************************************************************/
 
+typedef enum {
+  MN_DISCOVERY_DISABLE = 0,
+  MN_DISCOVERY_NEW     = 1,
+  MN_DISCOVERY_CHANGE  = 2
+} mpegts_discovery_t;
+
 /* Network/Input linkage */
 struct mpegts_network_link
 {
@@ -365,11 +371,19 @@ typedef enum mpegts_mux_scan_result
   MM_SCAN_NONE,
   MM_SCAN_OK,
   MM_SCAN_FAIL,
-  MM_SCAN_PARTIAL
+  MM_SCAN_PARTIAL,
+  MM_SCAN_IGNORE,
 } mpegts_mux_scan_result_t;
 
 #define MM_SCAN_CHECK_OK(mm) \
   ((mm)->mm_scan_result == MM_SCAN_OK || (mm)->mm_scan_result == MM_SCAN_PARTIAL)
+
+enum mpegts_mux_enable
+{
+  MM_IGNORE  = -1,
+  MM_DISABLE =  0,
+  MM_ENABLE  =  1,
+};
 
 enum mpegts_mux_epg_flag
 {
@@ -825,7 +839,7 @@ static inline mpegts_network_t *mpegts_network_find(const char *uuid)
   { return idnode_find(uuid, &mpegts_network_class, NULL); }
 
 mpegts_mux_t *mpegts_network_find_mux
-  (mpegts_network_t *mn, uint16_t onid, uint16_t tsid);
+  (mpegts_network_t *mn, uint16_t onid, uint16_t tsid, int check);
 
 void mpegts_network_class_delete ( const idclass_t *idc, int delconf );
 

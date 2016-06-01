@@ -97,6 +97,7 @@ mpegts_mux_alive(mpegts_mux_t *mm)
   /*
    * Return, if mux seems to be alive for updating.
    */
+  if (mm->mm_enabled != MM_ENABLE) return 0;
   return !LIST_EMPTY(&mm->mm_services) && mm->mm_scan_result != MM_SCAN_FAIL;
 }
 
@@ -871,26 +872,27 @@ dvb_pat_callback
   r    = dvb_table_begin((mpegts_psi_table_t *)mt, ptr, len,
                          tableid, tsid, 5, &st, &sect, &last, &ver);
   if (r != 1) return r;
+  if (tsid == 0) goto end;
 
   /* Multiplex */
-  tvhdebug("pat", "tsid %04X (%d)", tsid, tsid);
-  if (mm->mm_tsid && mm->mm_tsid != tsid) {
-    char buf[256];
-    if (++mm->mm_tsid_checks > 10) {
-      mpegts_mux_nice_name(mm, buf, sizeof(buf));
-      tvhwarn("pat", "%s: TSID change detected - old %04x (%d), new %04x (%d)",
-              buf, mm->mm_tsid, mm->mm_tsid, tsid, tsid);
-      mm->mm_tsid_checks = 0;
-    } else {
-      if (tvhtrace_enabled()) {
+  tvhdebug("pat", "%p: tsid %04X (%d)", mm, tsid, tsid);
+  if (mm->mm_tsid != MPEGTS_TSID_NONE) {
+    if (mm->mm_tsid && mm->mm_tsid != tsid) {
+      char buf[256];
+      if (++mm->mm_tsid_checks > 12) {
         mpegts_mux_nice_name(mm, buf, sizeof(buf));
-        tvhtrace("pat", "%s: ignore TSID - old %04x (%d), new %04x (%d)",
-                 buf, mm->mm_tsid, mm->mm_tsid, tsid, tsid);
+        tvhwarn("pat", "%s: TSID change detected - old %04x (%d), new %04x (%d)",
+                buf, mm->mm_tsid, mm->mm_tsid, tsid, tsid);
+      } else {
+        if (tvhtrace_enabled()) {
+          mpegts_mux_nice_name(mm, buf, sizeof(buf));
+          tvhtrace("pat", "%s: ignore TSID - old %04x (%d), new %04x (%d) (checks %d)",
+                   buf, mm->mm_tsid, mm->mm_tsid, tsid, tsid, mm->mm_tsid_checks);
+        }
+        return 0; /* keep rolling */
       }
-      return 0; /* keep rolling */
     }
-  } else {
-    mm->mm_tsid_checks = 0;
+    mm->mm_tsid_checks = -100;
   }
   mpegts_mux_set_tsid(mm, tsid, 1);
   
@@ -935,6 +937,7 @@ dvb_pat_callback
                      MPS_WEIGHT_NIT);
 
   /* End */
+end:
   return dvb_table_end((mpegts_psi_table_t *)mt, st, sect);
 }
 
@@ -1181,7 +1184,7 @@ dvb_nit_mux
   const char *charset;
   char buf[128], dauth[256];
 
-  if (mux && !mux->mm_enabled)
+  if (mux && mux->mm_enabled != MM_ENABLE)
     bi = NULL;
 
   charset = dvb_charset_find(mux ? mux->mm_network : mm->mm_network, mux, NULL);

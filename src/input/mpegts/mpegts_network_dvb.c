@@ -80,7 +80,7 @@ dvb_network_scanfile_set ( dvb_network_t *ln, const char *id )
 
   /* Create */
   LIST_FOREACH(dmc, &sfn->sfn_muxes, dmc_link) {
-    if (!(mm = dvb_network_find_mux(ln, dmc, MPEGTS_ONID_NONE, MPEGTS_TSID_NONE))) {
+    if (!(mm = dvb_network_find_mux(ln, dmc, MPEGTS_ONID_NONE, MPEGTS_TSID_NONE, 0))) {
       mm = dvb_mux_create0(ln, MPEGTS_ONID_NONE, MPEGTS_TSID_NONE,
                            dmc, NULL, NULL);
       if (mm)
@@ -498,12 +498,15 @@ dvb_network_check_orbital_pos ( int satpos1, int satpos2 )
 
 dvb_mux_t *
 dvb_network_find_mux
-  ( dvb_network_t *ln, dvb_mux_conf_t *dmc, uint16_t onid, uint16_t tsid )
+  ( dvb_network_t *ln, dvb_mux_conf_t *dmc, uint16_t onid, uint16_t tsid, int check )
 {
   int deltaf, deltar;
   mpegts_mux_t *mm, *mm_alt = NULL;
 
   LIST_FOREACH(mm, &ln->mn_muxes, mm_network_link) {
+
+    if (check && mm->mm_enabled != MM_ENABLE) continue;
+
     deltaf = 2000; // 2K/MHz
     deltar = 1000;
     dvb_mux_t *lm = (dvb_mux_t*)mm;
@@ -532,6 +535,14 @@ dvb_network_find_mux
 
     /* DVB-S extra checks */
     if (lm->lm_tuning.dmc_fe_type == DVB_TYPE_S) {
+
+      /* Same modulation */
+      if (!dvb_modulation_is_none_or_auto(lm->lm_tuning.dmc_fe_modulation) &&
+          !dvb_modulation_is_none_or_auto(dmc->dmc_fe_modulation) &&
+          lm->lm_tuning.dmc_fe_modulation != dmc->dmc_fe_modulation) continue;
+
+      /* Same FEC */
+      if (lm->lm_tuning.u.dmc_fe_qpsk.fec_inner != dmc->u.dmc_fe_qpsk.fec_inner) continue;
 
       /* Same polarisation */
       if (lm->lm_tuning.u.dmc_fe_qpsk.polarisation != dmc->u.dmc_fe_qpsk.polarisation) continue;
@@ -646,8 +657,8 @@ dvb_network_create_mux
   }
 
   ln = (dvb_network_t*)mn;
-  mm = dvb_network_find_mux(ln, dmc, onid, tsid);
-  if (!mm && (ln->mn_autodiscovery || force)) {
+  mm = dvb_network_find_mux(ln, dmc, onid, tsid, 0);
+  if (!mm && (ln->mn_autodiscovery != MN_DISCOVERY_DISABLE || force)) {
     cls = dvb_network_mux_class((mpegts_network_t *)ln);
     save |= cls == &dvb_mux_dvbt_class && dmc->dmc_fe_type == DVB_TYPE_T;
     save |= cls == &dvb_mux_dvbc_class && dmc->dmc_fe_type == DVB_TYPE_C;
@@ -670,7 +681,10 @@ dvb_network_create_mux
       }
     }
   } else if (mm) {
+    char buf[128];
+    dvb_mux_conf_t tuning_new, tuning_old;
     dvb_mux_t *lm = (dvb_mux_t*)mm;
+    int change = (ln->mn_autodiscovery == MN_DISCOVERY_CHANGE) || force;
     /* the nit tables may be inconsistent (like rolloff ping-pong) */
     /* accept information only from one origin mux */
     if (mm->mm_dmc_origin_expire > mclk() && mm->mm_dmc_origin && mm->mm_dmc_origin != origin)
@@ -679,23 +693,21 @@ dvb_network_create_mux
       int xr = dmc->x != lm->lm_tuning.x; \
       if (xr) { \
         tvhtrace("mpegts", "create mux dmc->" #x " (%li) != lm->lm_tuning." #x \
-                 " (%li)", (long)dmc->x, (long)lm->lm_tuning.x); \
-        lm->lm_tuning.x = dmc->x; \
+                 " (%li)", (long)dmc->x, (long)tuning_new.x); \
+        tuning_new.x = dmc->x; \
       } xr ? cbit : 0; })
     #define COMPAREN(x, cbit) ({ \
-      int xr = dmc->x != 0 && dmc->x != 1 && dmc->x != lm->lm_tuning.x; \
+      int xr = dmc->x != 0 && dmc->x != 1 && dmc->x != tuning_new.x; \
       if (xr) { \
         tvhtrace("mpegts", "create mux dmc->" #x " (%li) != lm->lm_tuning." #x \
-                 " (%li)", (long)dmc->x, (long)lm->lm_tuning.x); \
-        lm->lm_tuning.x = dmc->x; \
+                 " (%li)", (long)dmc->x, (long)tuning_new.x); \
+        tuning_new.x = dmc->x; \
       } xr ? cbit : 0; })
-    dvb_mux_conf_t tuning_old;
-    char buf[128];
-    tuning_old = lm->lm_tuning;
+    tuning_new = tuning_old = lm->lm_tuning;
     /* Always save the orbital position */
     if (dmc->dmc_fe_type == DVB_TYPE_S) {
-      if (lm->lm_tuning.u.dmc_fe_qpsk.orbital_pos == INT_MAX ||
-          dvb_network_check_orbital_pos(lm->lm_tuning.u.dmc_fe_qpsk.orbital_pos,
+      if (tuning_new.u.dmc_fe_qpsk.orbital_pos == INT_MAX ||
+          dvb_network_check_orbital_pos(tuning_new.u.dmc_fe_qpsk.orbital_pos,
                                         dmc->u.dmc_fe_qpsk.orbital_pos))
         save |= COMPARE(u.dmc_fe_qpsk.orbital_pos, CBIT_ORBITAL_POS);
     }
@@ -703,8 +715,8 @@ dvb_network_create_mux
     if (!ln->mn_autodiscovery)
       goto save;
     /* Handle big diffs that have been allowed through for DVB-S */
-    if (deltaU32(dmc->dmc_fe_freq, lm->lm_tuning.dmc_fe_freq) > 4000) {
-      lm->lm_tuning.dmc_fe_freq = dmc->dmc_fe_freq;
+    if (deltaU32(dmc->dmc_fe_freq, tuning_new.dmc_fe_freq) > 4000) {
+      tuning_new.dmc_fe_freq = dmc->dmc_fe_freq;
       save |= CBIT_FREQ;
     }
     save |= COMPAREN(dmc_fe_modulation, CBIT_MODULATION);
@@ -744,10 +756,16 @@ dvb_network_create_mux
       char muxname[128];
       mpegts_mux_nice_name((mpegts_mux_t *)mm, muxname, sizeof(muxname));
       dvb_mux_conf_str(&tuning_old, buf, sizeof(buf));
-      tvhwarn("mpegts", "mux %s changed from %s (%08x)", muxname, buf, save);
-      dvb_mux_conf_str(&lm->lm_tuning, buf, sizeof(buf));
-      tvhwarn("mpegts", "mux %s changed to   %s (%08x)", muxname, buf, save);
+      tvhlog(change ? LOG_WARNING : LOG_NOTICE, "mpegts",
+             "mux %s%s from %s (%08x)", muxname,
+             change ? " changed from" : " old params", buf, save);
+      dvb_mux_conf_str(&tuning_new, buf, sizeof(buf));
+      tvhlog(change ? LOG_WARNING : LOG_NOTICE, "mpegts",
+             "mux %s%s to   %s (%08x)", muxname,
+             change ? " changed to  " : " new params", buf, save);
+      if (!change) save = 0;
     }
+    if (save) lm->lm_tuning = tuning_new;
   }
 save:
   if (mm && save) {
