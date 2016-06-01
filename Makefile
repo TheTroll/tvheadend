@@ -80,7 +80,8 @@ FFMPEG_LIBS := \
     libswscale \
     libavformat \
     libavcodec \
-    libavutil
+    libavutil \
+    libpostproc
 
 # FFMPEG_STATIC
 ifeq ($(CONFIG_FFMPEG_STATIC),yes)
