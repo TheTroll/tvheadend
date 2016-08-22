@@ -143,6 +143,41 @@ pkt_ref_inc_poly(th_pkt_t *pkt, int n)
   atomic_add(&pkt->pkt_refcount, n);
 }
 
+/**
+ *
+ */
+void
+pkt_trace_(const char *file, int line, int subsys, th_pkt_t *pkt,
+           int index, streaming_component_type_t type, const char *fmt, ...)
+{
+  char buf[512], _dts[22], _pts[22], _type[2];
+  va_list args;
+
+  va_start(args, fmt);
+  if (pkt->pkt_frametype) {
+    _type[0] = pkt_frametype_to_char(pkt->pkt_frametype);
+    _type[1] = '\0';
+  } else {
+    _type[0] = '\0';
+  }
+  snprintf(buf, sizeof(buf),
+           "%s%spkt stream %d %s%s%s"
+           " dts %s pts %s"
+           " dur %d len %zu err %i%s",
+           fmt ? fmt : "",
+           fmt ? " (" : "",
+           index,
+           streaming_component_type2txt(type),
+           _type[0] ? " type " : "", _type,
+           pts_to_string(pkt->pkt_dts, _dts),
+           pts_to_string(pkt->pkt_pts, _pts),
+           pkt->pkt_duration,
+           pktbuf_len(pkt->pkt_payload),
+           pkt->pkt_err,
+           fmt ? ")" : "");
+  tvhlogv(file, line, LOG_TRACE, subsys, buf, &args);
+  va_end(args);
+}
 
 /**
  *
@@ -193,6 +228,37 @@ pktref_remove(struct th_pktref_queue *q, th_pktref_t *pr)
   }
 }
 
+/**
+ *
+ */
+th_pkt_t *
+pktref_get_first(struct th_pktref_queue *q)
+{
+  th_pktref_t *pr;
+  th_pkt_t *pkt;
+
+  pr = TAILQ_FIRST(q);
+  if (pr) {
+    pkt = pr->pr_pkt;
+    TAILQ_REMOVE(q, pr, pr_link);
+    free(pr);
+    memoryinfo_free(&pktref_memoryinfo, sizeof(*pr));
+    return pkt;
+  }
+  return NULL;
+}
+
+/**
+ *
+ */
+void
+pktref_insert_head(struct th_pktref_queue *q, th_pkt_t *pkt)
+{
+  th_pktref_t *pr;
+
+  pr = pktref_create(pkt);
+  TAILQ_INSERT_HEAD(q, pr, pr_link);
+}
 
 /**
  *
@@ -295,4 +361,16 @@ pktbuf_append(pktbuf_t *pb, const void *data, size_t size)
     memoryinfo_append(&pktbuf_memoryinfo, size);
   }
   return pb;
+}
+
+/*
+ *
+ */
+
+const char *pts_to_string(int64_t pts, char *buf)
+{
+  if (pts == PTS_UNSET)
+    return strcpy(buf, "<unset>");
+  snprintf(buf, 22, "%"PRId64, pts);
+  return buf;
 }

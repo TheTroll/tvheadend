@@ -359,6 +359,7 @@ channel_class_epg_running_list ( void *o, const char *lang )
 }
 
 CLASS_DOC(channel)
+PROP_DOC(runningstate)
 
 const idclass_t channel_class = {
   .ic_class      = "channel",
@@ -484,9 +485,8 @@ const idclass_t channel_class = {
       .name     = N_("Use EPG running state"),
       .desc     = N_("Use EITp/f to decide "
                      "event start/stop. This is also known as "
-                     "\"Accurate Recording\". Note that this can have "
-                     "unexpected results if the broadcaster isn't very "
-                     "good at time keeping."),
+                     "\"Accurate Recording\". See Help for details."),
+      .doc      = prop_doc_runningstate,
       .off      = offsetof(channel_t, ch_epg_running),
       .list     = channel_class_epg_running_list,
       .opts     = PO_ADVANCED | PO_DOC_NLIST,
@@ -976,12 +976,12 @@ channel_create0
 
   if (idnode_insert(&ch->ch_id, uuid, idc, IDNODE_SHORT_UUID)) {
     if (uuid)
-      tvherror("channel", "invalid uuid '%s'", uuid);
+      tvherror(LS_CHANNEL, "invalid uuid '%s'", uuid);
     free(ch);
     return NULL;
   }
   if (RB_INSERT_SORTED(&channels, ch, ch_link, ch_id_cmp)) {
-    tvherror("channel", "id collision!");
+    tvherror(LS_CHANNEL, "id collision!");
     abort();
   }
 
@@ -1028,7 +1028,7 @@ channel_delete ( channel_t *ch, int delconf )
   idnode_save_check(&ch->ch_id, delconf);
 
   if (delconf)
-    tvhinfo("channel", "%s - deleting", channel_get_name(ch));
+    tvhinfo(LS_CHANNEL, "%s - deleting", channel_get_name(ch));
 
   /* Tags */
   while((ilm = LIST_FIRST(&ch->ch_ctms)) != NULL)
@@ -1241,7 +1241,7 @@ channel_tag_create(const char *uuid, htsmsg_t *conf)
 
   if (idnode_insert(&ct->ct_id, uuid, &channel_tag_class, IDNODE_SHORT_UUID)) {
     if (uuid)
-      tvherror("channel", "invalid tag uuid '%s'", uuid);
+      tvherror(LS_CHANNEL, "invalid tag uuid '%s'", uuid);
     free(ct);
     return NULL;
   }
@@ -1546,7 +1546,7 @@ convert_channel_to_sd(channel_t* in_ch, channel_t** out_ch)
   file_path = config.sdconv_path;
   file = fopen(file_path, "r");
   if (file == NULL) {
-    tvherror("main", "Cannot open channel conversion file [%s]", file_path);
+    tvherror(LS_CHANNEL, "Cannot open channel conversion file [%s]", file_path);
     return 0;
   }
 
@@ -1574,19 +1574,19 @@ convert_channel_to_sd(channel_t* in_ch, channel_t** out_ch)
          if (out)
          {
             *out_ch = out;
-            tvhlog(LOG_INFO, "main", "[%s] request converted to [%s]", in_channame, line_out_chan);
+            tvhinfo(LS_CHANNEL, "[%s] request converted to [%s]", in_channame, line_out_chan);
             return 1;
          }
          else
          {
-            tvherror("main", "cannot convert [%s] to [%s]", in_channame, line_out_chan);
+            tvherror(LS_CHANNEL, "cannot convert [%s] to [%s]", in_channame, line_out_chan);
             return 0;
          }
        }
     }
   }
 
-  tvhlog(LOG_INFO, "main", "[%s] has no entry in conversion list", in_channame);
+  tvhinfo(LS_CHANNEL, "[%s] has no entry in conversion list", in_channame);
 
   fclose(file);
   return 0;

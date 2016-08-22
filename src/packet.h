@@ -105,6 +105,11 @@ void pktref_enqueue(struct th_pktref_queue *q, th_pkt_t *pkt);
 
 void pktref_remove(struct th_pktref_queue *q, th_pktref_t *pr);
 
+th_pkt_t *pktref_get_first(struct th_pktref_queue *q);
+
+void pktref_insert_head(struct th_pktref_queue *q, th_pkt_t *pkt);
+
+#define PKTREF_FOREACH(item, queue) TAILQ_FOREACH((item), (queue), pr_link)
 
 th_pkt_t *pkt_alloc(const void *data, size_t datalen, int64_t pts, int64_t dts);
 
@@ -113,6 +118,16 @@ th_pkt_t *pkt_copy_shallow(th_pkt_t *pkt);
 th_pkt_t *pkt_copy_nodata(th_pkt_t *pkt);
 
 th_pktref_t *pktref_create(th_pkt_t *pkt);
+
+void pkt_trace_
+  (const char *file, int line, int subsys, th_pkt_t *pkt,
+   int index, streaming_component_type_t type, const char *fmt, ...);
+
+#define pkt_trace(subsys, pkt, index, type, fmt, ...) \
+  do { \
+    if (tvhtrace_enabled()) \
+      pkt_trace_(__FILE__, __LINE__, subsys, pkt, index, type, fmt, ##__VA_ARGS__); \
+  } while (0)
 
 /*
  *
@@ -133,8 +148,14 @@ pktbuf_t *pktbuf_append(pktbuf_t *pb, const void *data, size_t size);
 static inline size_t   pktbuf_len(pktbuf_t *pb) { return pb ? pb->pb_size : 0; }
 static inline uint8_t *pktbuf_ptr(pktbuf_t *pb) { return pb->pb_data; }
 
+/*
+ *
+ */
+
 static inline int64_t pts_diff(int64_t a, int64_t b)
 {
+  if (a == PTS_UNSET || b == PTS_UNSET)
+    return PTS_UNSET;
   a &= PTS_MASK;
   b &= PTS_MASK;
   if (b < (PTS_MASK / 4) && a > (PTS_MASK / 2))
@@ -144,5 +165,18 @@ static inline int64_t pts_diff(int64_t a, int64_t b)
   else
     return PTS_UNSET;
 }
+
+static inline int pts_is_greater_or_equal(int64_t base, int64_t value)
+{
+  if (base == PTS_UNSET || value == PTS_UNSET)
+    return -1;
+  if (value >= base)
+    return 1;
+  if (value < (PTS_MASK / 4) && base > (PTS_MASK / 2))
+    return value + PTS_MASK + 1 >= base;
+  return 0;
+}
+
+const char *pts_to_string(int64_t pts, char *buf);
 
 #endif /* PACKET_H_ */

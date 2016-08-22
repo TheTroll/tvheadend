@@ -88,7 +88,7 @@ dvr_rec_subscribe(dvr_entry_t *de)
            tcp_get_ip_from_str(de->de_creator, &sa) != NULL)
     aa = access_get_by_addr(&sa);
   else {
-    tvherror("dvr", "unable to find access (owner '%s', creator '%s')",
+    tvherror(LS_DVR, "unable to find access (owner '%s', creator '%s')",
              de->de_owner, de->de_creator);
     return -EPERM;
  }
@@ -100,7 +100,7 @@ dvr_rec_subscribe(dvr_entry_t *de)
     c1 = aa->aa_conn_limit ? rec_count + net_count >= aa->aa_conn_limit : -1;
     c2 = aa->aa_conn_limit_dvr ? rec_count >= aa->aa_conn_limit_dvr : -1;
     if (c1 && c2) {
-      tvherror("dvr", "multiple connections are not allowed for user '%s' from '%s' "
+      tvherror(LS_DVR, "multiple connections are not allowed for user '%s' from '%s' "
                       "(limit %u, dvr limit %u, active DVR %u, streaming %u)",
                aa->aa_username ?: "", aa->aa_representative ?: "",
                aa->aa_conn_limit, aa->aa_conn_limit_dvr, rec_count, net_count);
@@ -123,7 +123,7 @@ dvr_rec_subscribe(dvr_entry_t *de)
         count = subscription_get_user_count_on_other_muxes(de->de_creator, si.si_mux_uuid, 1);
         if (count >= aa->aa_muxes_limit_dvr)
         {
-          tvherror("htsp", "user [%s] is already using %d muxes for recording while the max is %d", de->de_creator?:"no-user", count, aa->aa_muxes_limit_dvr);
+          tvherror(LS_DVR, "user [%s] is already using %d muxes for recording while the max is %d", de->de_creator?:"no-user", count, aa->aa_muxes_limit_dvr);
           access_destroy(aa);
           return -EINVAL;
         }
@@ -143,12 +143,12 @@ dvr_rec_subscribe(dvr_entry_t *de)
   profile_chain_init(prch, pro, de->de_channel);
   if (profile_chain_open(prch, &de->de_config->dvr_muxcnf, 0, 0)) {
     profile_chain_close(prch);
-    tvherror("dvr", "unable to create new channel streaming chain '%s' for '%s', using default",
+    tvherror(LS_DVR, "unable to create new channel streaming chain '%s' for '%s', using default",
              profile_get_name(pro), channel_get_name(de->de_channel));
     pro = profile_find_by_name(NULL, NULL);
     profile_chain_init(prch, pro, de->de_channel);
     if (profile_chain_open(prch, &de->de_config->dvr_muxcnf, 0, 0)) {
-      tvherror("dvr", "unable to create channel streaming default chain '%s' for '%s'",
+      tvherror(LS_DVR, "unable to create channel streaming default chain '%s' for '%s'",
                profile_get_name(pro), channel_get_name(de->de_channel));
       profile_chain_close(prch);
       free(prch);
@@ -160,7 +160,7 @@ dvr_rec_subscribe(dvr_entry_t *de)
 					      buf, prch->prch_flags,
 					      NULL, 0, de->de_creator, NULL, NULL);
   if (de->de_s == NULL) {
-    tvherror("dvr", "unable to create new channel subcription for '%s' profile '%s'",
+    tvherror(LS_DVR, "unable to create new channel subcription for '%s' profile '%s'",
              channel_get_name(de->de_channel), profile_get_name(pro));
     profile_chain_close(prch);
     free(prch);
@@ -232,7 +232,7 @@ cleanup_filename(dvr_config_t *cfg, char *s, int dosubs)
 
   s1 = intlconv_utf8safestr(cfg->dvr_charset_id, s, (len * 2) + 1);
   if (s1 == NULL) {
-    tvherror("dvr", "Unsupported charset %s using ASCII", cfg->dvr_charset);
+    tvherror(LS_DVR, "Unsupported charset %s using ASCII", cfg->dvr_charset);
     s1 = intlconv_utf8safestr(intlconv_charset_id("ASCII", 1, 1),
                              s, len * 2);
     if (s1 == NULL)
@@ -589,6 +589,7 @@ static htsstr_substitute_t dvr_subs_postproc_entry[] = {
   { .id = "s",  .getval = dvr_sub_subtitle },
   { .id = "p",  .getval = dvr_sub_episode },
   { .id = "d",  .getval = dvr_sub_description },
+  { .id = "g",  .getval = dvr_sub_genre },
   { .id = "c",  .getval = dvr_sub_channel },
   { .id = "e",  .getval = dvr_sub_last_error },
   { .id = "C",  .getval = dvr_sub_creator },
@@ -712,7 +713,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
   path[sizeof(path)-1] = '\0';
   l = strlen(path);
   if (l + 1 >= sizeof(path)) {
-    tvherror("dvr", "wrong storage path");
+    tvherror(LS_DVR, "wrong storage path");
     return -1;
   }
 
@@ -793,7 +794,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
     dirsep = path + l;
   }
   htsstr_unescape_to(path, filename, sizeof(filename));
-  if (makedirs("dvr", filename,
+  if (makedirs(LS_DVR, filename,
                cfg->dvr_muxcnf.m_directory_permissions, 0, -1, -1) != 0)
     return -1;
   max = pathconf(filename, _PC_NAME_MAX);
@@ -854,19 +855,18 @@ cut1:
     if (lastpath) {
       if (strcmp(path, lastpath) == 0) {
         free(lastpath);
-        tvherror("dvr", "unable to create unique name (missing $n in format string?)");
+        tvherror(LS_DVR, "unable to create unique name (missing $n in format string?)");
         return -1;
       }
     }
 
     if(stat(path, &st) == -1) {
-      tvhlog(LOG_DEBUG, "dvr", "File \"%s\" -- %s -- Using for recording",
-	     path, strerror(errno));
+      tvhdebug(LS_DVR, "File \"%s\" -- %s -- Using for recording",
+	       path, strerror(errno));
       break;
     }
 
-    tvhlog(LOG_DEBUG, "dvr", "Overwrite protection, file \"%s\" exists",
-	   path);
+    tvhdebug(LS_DVR, "Overwrite protection, file \"%s\" exists", path);
 
     free(lastpath);
     lastpath = strdup(path);
@@ -897,9 +897,8 @@ dvr_rec_fatal_error(dvr_entry_t *de, const char *fmt, ...)
   vsnprintf(msgbuf, sizeof(msgbuf), fmt, ap);
   va_end(ap);
 
-  tvhlog(LOG_ERR, "dvr", 
-	 "Recording error: \"%s\": %s",
-	 dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL), msgbuf);
+  tvherror(LS_DVR, "Recording error: \"%s\": %s",
+	   dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL), msgbuf);
 }
 
 /**
@@ -992,7 +991,7 @@ dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
     }
   }
 
-  tvhlog(LOG_INFO, "dvr", "%s from "
+  tvhinfo(LS_DVR, "%s from "
 	 "adapter: \"%s\", "
 	 "network: \"%s\", mux: \"%s\", provider: \"%s\", "
 	 "service: \"%s\"",
@@ -1005,7 +1004,7 @@ dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
 	 si->si_service  ?: "<N/A>");
 
 
-  tvhlog(LOG_INFO, "dvr",
+  tvhinfo(LS_DVR,
 	 " #  %-16s  %-4s  %-10s  %-12s  %-11s  %-8s",
 	 "type",
 	 "lang",
@@ -1070,7 +1069,7 @@ dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
       htsmsg_add_u32(e, "ancillary_id",   ssc->ssc_ancillary_id);
     }
 
-    tvhlog(LOG_INFO, "dvr",
+    tvhinfo(LS_DVR,
 	   "%2d  %-16s  %-4s  %-10s  %-12s  %-11s  %-8s  %s",
 	   ssc->ssc_index,
 	   streaming_component_type2txt(ssc->ssc_type),
@@ -1192,9 +1191,8 @@ dvr_thread_rec_start(dvr_entry_t **_de, streaming_start_t *ss,
 
   if (*started &&
       muxer_reconfigure(prch->prch_muxer, ss) < 0) {
-    tvhlog(LOG_WARNING,
-           "dvr", "Unable to reconfigure \"%s\"",
-           dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL));
+    tvhwarn(LS_DVR, "Unable to reconfigure \"%s\"",
+            dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL));
 
     // Try to restart the recording if the muxer doesn't
     // support reconfiguration of the streams.
@@ -1455,9 +1453,8 @@ dvr_thread(void *aux)
 	 // Recording is completed
 
 	dvr_entry_set_state(de, de->de_sched_state, de->de_rec_state, SM_CODE_OK);
-	tvhlog(LOG_INFO, 
-	       "dvr", "Recording completed: \"%s\"",
-	       dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL));
+	tvhinfo(LS_DVR, "Recording completed: \"%s\"",
+	        dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL));
 
         goto fin;
 
@@ -1465,10 +1462,9 @@ dvr_thread(void *aux)
 	 // Error during recording
 
 	dvr_rec_set_state(de, DVR_RS_ERROR, sm->sm_code);
-	tvhlog(LOG_ERR,
-               "dvr", "Recording stopped: \"%s\": %s",
-               dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL),
-               streaming_code2txt(sm->sm_code));
+	tvherror(LS_DVR, "Recording stopped: \"%s\": %s",
+                dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL),
+                streaming_code2txt(sm->sm_code));
 
 fin:
         streaming_queue_clear(&backlog);
@@ -1498,10 +1494,9 @@ fin:
 
 	if(de->de_last_error != code) {
 	  dvr_rec_set_state(de, DVR_RS_ERROR, code);
-	  tvhlog(LOG_ERR,
-		 "dvr", "Streaming error: \"%s\": %s",
-		 dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL),
-		 streaming_code2txt(code));
+	  tvherror(LS_DVR, "Streaming error: \"%s\": %s",
+		   dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL),
+		   streaming_code2txt(code));
 	}
       }
       break;
@@ -1511,10 +1506,9 @@ fin:
       if (de->de_last_error != sm->sm_code) {
 	dvr_rec_set_state(de, DVR_RS_PENDING, sm->sm_code);
 
-	tvhlog(LOG_ERR,
-	       "dvr", "Recording unable to start: \"%s\": %s",
-	       dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL),
-	       streaming_code2txt(sm->sm_code));
+	tvherror(LS_DVR, "Recording unable to start: \"%s\": %s",
+	         dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL),
+	         streaming_code2txt(sm->sm_code));
       }
       break;
 

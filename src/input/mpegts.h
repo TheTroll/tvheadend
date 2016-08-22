@@ -419,6 +419,7 @@ typedef struct tsdebug_packet {
 struct mpegts_mux
 {
   idnode_t mm_id;
+  int      mm_refcount;
 
   /*
    * Identification
@@ -430,6 +431,8 @@ struct mpegts_mux
   uint16_t                mm_onid;
   uint16_t                mm_tsid;
   int                     mm_tsid_checks;
+  int                     mm_tsid_accept_zero_value;
+  tvhlog_limit_t          mm_tsid_loglimit;
 
   int                     mm_update_pids_flag;
   mtimer_t                mm_update_pids_timer;
@@ -504,6 +507,7 @@ struct mpegts_mux
    */
 
   void (*mm_delete)           (mpegts_mux_t *mm, int delconf);
+  void (*mm_free)             (mpegts_mux_t *mm);
   htsmsg_t *(*mm_config_save) (mpegts_mux_t *mm, char *filename, size_t fsize);
   void (*mm_display_name)     (mpegts_mux_t*, char *buf, size_t len);
   int  (*mm_is_enabled)       (mpegts_mux_t *mm);
@@ -875,6 +879,25 @@ static inline mpegts_mux_t *mpegts_mux_find(const char *uuid)
 
 void mpegts_mux_delete ( mpegts_mux_t *mm, int delconf );
 
+void mpegts_mux_free ( mpegts_mux_t *mm );
+
+static inline void mpegts_mux_grab ( mpegts_mux_t *mm )
+{
+  int v = atomic_add(&mm->mm_refcount, 1);
+  assert(v > 0);
+}
+
+static inline int mpegts_mux_release ( mpegts_mux_t *mm )
+{
+  int v = atomic_dec(&mm->mm_refcount, 1);
+  assert(v > 0);
+  if (v == 1) {
+    mm->mm_free(mm);
+    return 1;
+  }
+  return 0;
+}
+
 void mpegts_mux_save ( mpegts_mux_t *mm, htsmsg_t *c );
 
 void mpegts_mux_tuning_error( const char *mux_uuid, mpegts_mux_instance_t *mmi_match );
@@ -1011,7 +1034,7 @@ int mpegts_table_type
 mpegts_table_t *mpegts_table_add
   (mpegts_mux_t *mm, int tableid, int mask,
    mpegts_table_callback_t callback, void *opaque,
-   const char *name, int flags, int pid, int weight);
+   const char *name, int subsys, int flags, int pid, int weight);
 void mpegts_table_flush_all
   (mpegts_mux_t *mm);
 void mpegts_table_destroy ( mpegts_table_t *mt );

@@ -806,7 +806,7 @@ static inline uint8_t *sbuf_peek(sbuf_t *sb, int off) { return sb->sb_data + off
 
 char *md5sum ( const char *str, int lowercase );
 
-int makedirs ( const char *subsys, const char *path, int mode, int mstrict, gid_t gid, uid_t uid );
+int makedirs ( int subsys, const char *path, int mode, int mstrict, gid_t gid, uid_t uid );
 
 int rmtree ( const char *path );
 
@@ -839,6 +839,8 @@ static inline uint32_t deltaU32(uint32_t a, uint32_t b) { return (a > b) ? (a - 
 #define SKEL_FREE(name) do { free(name); name = NULL; } while (0)
 
 htsmsg_t *network_interfaces_enum(void *obj, const char *lang);
+
+const char *gmtime2local(time_t gmt, char *buf, size_t buflen);
 
 /* glibc wrapper */
 #if ! ENABLE_QSORT_R

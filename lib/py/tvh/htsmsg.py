@@ -49,6 +49,8 @@ HMF_S64  = 2
 HMF_STR  = 3
 HMF_BIN  = 4
 HMF_LIST = 5
+HMF_DBL = 6
+HMF_BOOL = 7
 
 # Light wrapper for binary type
 class hmf_bin(str):
@@ -57,15 +59,17 @@ class hmf_bin(str):
 # Convert python to HTSMSG type
 def hmf_type ( f ):
   if type(f) == list:
-    return HMF_MAP
-  elif type(f) == dict:
     return HMF_LIST
+  elif type(f) == dict:
+    return HMF_MAP
   elif type(f) == str:
     return HMF_STR
   elif type(f) == int:
     return HMF_S64
   elif type(f) == hmf_bin:
     return HMF_BIN
+  elif type(f) == bool:
+    return HMF_BOOL
   else:
     raise Exception('invalid type')
 
@@ -78,7 +82,7 @@ def _binary_count ( f ):
     while (f):
       ret = ret + 1
       f   = f >> 8
-  elif type(f) in [ list, map ]:
+  elif type(f) in [ list, dict ]:
     ret = ret + binary_count(f)
   else:
     raise Exception('invalid data type')
@@ -157,6 +161,12 @@ def deserialize0 ( data, typ = HMF_MAP ):
         i    = i - 1
     elif typ in [ HMF_LIST, HMF_MAP ]:
       item = deserialize0(data[:dlen], typ)
+    elif typ == HMF_BOOL:
+      bool_val = data[:dlen]
+      if len(bool_val) > 0:
+        item = bool(ord(bool_val))
+      else:
+        item = None
     else:
       raise Exception('invalid data type %d' % typ)
     if islist:
