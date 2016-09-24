@@ -243,6 +243,9 @@ const char *tvh_gettext_lang(const char *lang, const char *s)
 void tvh_gettext_init(void)
 {
   static const char *tbl[] = {
+    "ach",    "ach",
+    "ady",    "ady",
+    "ara",    "ar",
     "bul",    "bg",
     "cze",    "cs",
     "dan",    "da",
@@ -259,14 +262,23 @@ void tvh_gettext_init(void)
     "hrv",    "hr",
     "hun",    "hu",
     "ita",    "it",
+    "kor",    "ko",
     "lav",    "lv",
     "dut",    "nl",
+    "nor",    "no",
     "pol",    "pl",
     "por",    "pt",
+    "rum",    "ro",
     "rus",    "ru",
+    "slv",    "sl",
+    "slo",    "sk",
     "srp",    "sr",
+    "alb",    "sq",
     "swe",    "sv",
+    "tur",    "tr",
     "ukr",    "uk",
+    "chi",    "zh",
+    "chi_CN", "zh-Hans",
     NULL, NULL
   };
   const char **p;

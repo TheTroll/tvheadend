@@ -139,7 +139,7 @@ idnode_insert(idnode_t *in, const char *uuid, const idclass_t *class, int flags)
   /* Register the class */
   in->in_domain = idclass_find_domain(class);
   if (in->in_domain == NULL) {
-    tvherror(LS_IDNODE, "classs '%s' is not registered", class->ic_class);
+    tvherror(LS_IDNODE, "class '%s' is not registered", class->ic_class);
     abort();
   }
   c = RB_INSERT_SORTED(in->in_domain, in, in_domain_link, in_cmp);
@@ -1513,9 +1513,7 @@ idnode_slist_enum ( idnode_t *in, idnode_slist_t *options, const char *lang )
   htsmsg_t *l = htsmsg_create_list(), *m;
 
   for (; options->id; options++) {
-    m = htsmsg_create_map();
-    htsmsg_add_str(m, "key", options->id);
-    htsmsg_add_str(m, "val", tvh_gettext_lang(lang, options->name));
+    m = htsmsg_create_key_val(options->id, tvh_gettext_lang(lang, options->name));
     htsmsg_add_msg(l, NULL, m);
   }
   return l;

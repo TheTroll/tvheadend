@@ -1553,6 +1553,7 @@ static void _epg_channel_timer_callback ( void *p )
   time_t next = 0;
   epg_broadcast_t *ebc, *cur, *nxt;
   channel_t *ch = (channel_t*)p;
+  char tm1[32];
 
   /* Clear now/next */
   if ((cur = ch->ch_epg_now)) {
@@ -1605,8 +1606,8 @@ static void _epg_channel_timer_callback ( void *p )
 
   /* re-arm */
   if (next) {
-    tvhdebug(LS_EPG, "arm channel timer @ %"PRItime_t" for %s",
-             next, channel_get_name(ch));
+    tvhdebug(LS_EPG, "arm channel timer @ %s for %s",
+             gmtime2local(next, tm1, sizeof(tm1)), channel_get_name(ch));
     gtimer_arm_absn(&ch->ch_epg_timer, _epg_channel_timer_callback, ch, next);
   }
 
@@ -1621,6 +1622,16 @@ static epg_broadcast_t *_epg_channel_add_broadcast
 {
   int timer = 0;
   epg_broadcast_t *ebc, *ret;
+  char tm1[32], tm2[32];
+
+  if (!src) {
+    tvherror(LS_EPG, "skipped event (!grabber) %u (%s) on %s @ %s to %s",
+             (*bcast)->id, epg_broadcast_get_title(*bcast, NULL),
+             channel_get_name(ch),
+             gmtime2local((*bcast)->start, tm1, sizeof(tm1)),
+             gmtime2local((*bcast)->stop, tm2, sizeof(tm2)));
+    return NULL;
+  }
 
   /* Set channel */
   (*bcast)->channel = ch;
@@ -1642,9 +1653,13 @@ static epg_broadcast_t *_epg_channel_add_broadcast
       _epg_object_create(ret);
       // Note: sets updated
       _epg_object_getref(ret);
-      tvhtrace(LS_EPG, "added event %u (%s) on %s @ %"PRItime_t " to %"PRItime_t,
+      ret->grabber = src;
+      tvhtrace(LS_EPG, "added event %u (%s) on %s @ %s to %s (grabber %s)",
                ret->id, epg_broadcast_get_title(ret, NULL),
-               channel_get_name(ch), ret->start, ret->stop);
+               channel_get_name(ch),
+               gmtime2local(ret->start, tm1, sizeof(tm1)),
+               gmtime2local(ret->stop, tm2, sizeof(tm2)),
+               src->id);
 
     /* Existing */
     } else {
@@ -1659,9 +1674,12 @@ static epg_broadcast_t *_epg_channel_add_broadcast
       } else {
         ret->stop = (*bcast)->stop;
         _epg_object_set_updated(ret);
-        tvhtrace(LS_EPG, "updated event %u (%s) on %s @ %"PRItime_t " to %"PRItime_t,
+        tvhtrace(LS_EPG, "updated event %u (%s) on %s @ %s to %s (grabber %s)",
                  ret->id, epg_broadcast_get_title(ret, NULL),
-                 channel_get_name(ch), ret->start, ret->stop);
+                 channel_get_name(ch),
+                 gmtime2local(ret->start, tm1, sizeof(tm1)),
+                 gmtime2local(ret->stop, tm2, sizeof(tm2)),
+                 src->id);
       }
     }
   }
@@ -1677,9 +1695,11 @@ static epg_broadcast_t *_epg_channel_add_broadcast
       _epg_channel_rem_broadcast(ch, ret, NULL);
       return NULL;
     }
-    tvhtrace(LS_EPG, "remove overlap (b) event %u (%s) on %s @ %"PRItime_t " to %"PRItime_t,
+    tvhtrace(LS_EPG, "remove overlap (b) event %u (%s) on %s @ %s to %s",
              ebc->id, epg_broadcast_get_title(ebc, NULL),
-             channel_get_name(ch), ebc->start, ebc->stop);
+             channel_get_name(ch),
+             gmtime2local(ebc->start, tm1, sizeof(tm1)),
+             gmtime2local(ebc->stop, tm2, sizeof(tm2)));
     _epg_channel_rem_broadcast(ch, ebc, ret);
   }
 
@@ -1691,9 +1711,11 @@ static epg_broadcast_t *_epg_channel_add_broadcast
       _epg_channel_rem_broadcast(ch, ret, NULL);
       return NULL;
     }
-    tvhtrace(LS_EPG, "remove overlap (a) event %u (%s) on %s @ %"PRItime_t " to %"PRItime_t,
+    tvhtrace(LS_EPG, "remove overlap (a) event %u (%s) on %s @ %s to %s",
              ebc->id, epg_broadcast_get_title(ebc, NULL),
-             channel_get_name(ch), ebc->start, ebc->stop);
+             channel_get_name(ch),
+             gmtime2local(ebc->start, tm1, sizeof(tm1)),
+             gmtime2local(ebc->stop, tm2, sizeof(tm2)));
     _epg_channel_rem_broadcast(ch, ebc, ret);
   }
 
@@ -2696,7 +2718,16 @@ static int _epg_sort_title_ascending ( const void *a, const void *b, void *eq )
   if (s1 == NULL && s2 == NULL) return 0;
   if (s1 == NULL && s2) return 1;
   if (s1 && s2 == NULL) return -1;
-  return strcmp(s1, s2);
+  int r = strcmp(s1, s2);
+  if (r == 0) {
+    s1 = epg_broadcast_get_subtitle(*(epg_broadcast_t**)a, ((epg_query_t *)eq)->lang);
+    s2 = epg_broadcast_get_subtitle(*(epg_broadcast_t**)b, ((epg_query_t *)eq)->lang);
+    if (s1 == NULL && s2 == NULL) return 0;
+    if (s1 == NULL && s2) return 1;
+    if (s1 && s2 == NULL) return -1;
+    r = strcmp(s1, s2);
+  }
+  return r;
 }
 
 static int _epg_sort_title_descending ( const void *a, const void *b, void *eq )

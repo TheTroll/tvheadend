@@ -343,11 +343,18 @@ tsfix_backlog_diff(tsfix_t *tf)
 /**
  *
  */
+#if 1
 static void
 recover_pts(tsfix_t *tf, tfstream_t *tfs, th_pkt_t *pkt)
 {
-  th_pktref_t *srch;
-  int total;
+  normalize_ts(tf, tfs, pkt, 1);
+}
+#else
+static void
+recover_pts(tsfix_t *tf, tfstream_t *tfs, th_pkt_t *pkt)
+{
+  //th_pktref_t *srch;
+  //int total;
 
   pktref_enqueue(&tf->tf_ptsq, pkt);
 
@@ -407,6 +414,7 @@ recover_pts(tsfix_t *tf, tfstream_t *tfs, th_pkt_t *pkt)
     normalize_ts(tf, tfs, pkt, 1);
   }
 }
+#endif
 
 
 /**
@@ -593,6 +601,20 @@ tsfix_input(void *opaque, streaming_message_t *sm)
   streaming_target_deliver2(tf->tf_output, sm);
 }
 
+static htsmsg_t *
+tsfix_input_info(void *opaque, htsmsg_t *list)
+{
+  tsfix_t *tf = opaque;
+  streaming_target_t *st = tf->tf_output;
+  htsmsg_add_str(list, NULL, "tsfix input");
+  return st->st_ops.st_info(st->st_opaque, list);
+}
+
+static streaming_ops_t tsfix_input_ops = {
+  .st_cb   = tsfix_input,
+  .st_info = tsfix_input_info
+};
+
 
 /**
  *
@@ -607,7 +629,7 @@ tsfix_create(streaming_target_t *output)
   tf->tf_output = output;
   tf->tf_start_time = mclk();
 
-  streaming_target_init(&tf->tf_input, tsfix_input, tf, 0);
+  streaming_target_init(&tf->tf_input, &tsfix_input_ops, tf, 0);
   return &tf->tf_input;
 }
 

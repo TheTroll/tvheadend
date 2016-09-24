@@ -500,6 +500,7 @@ transcoder_stream_audio(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   int got_frame, got_packet_ptr;
   AVFrame *frame = av_frame_alloc();
   char layout_buf[100];
+  uint8_t *d;
 
   ictx = as->aud_ictx;
   octx = as->aud_octx;
@@ -511,11 +512,18 @@ transcoder_stream_audio(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 
   if (!avcodec_is_open(ictx)) {
     if (icodec->id == AV_CODEC_ID_AAC || icodec->id == AV_CODEC_ID_VORBIS) {
-      if (ts->ts_input_gh) {
+      d = pktbuf_ptr(pkt->pkt_payload);
+      if (icodec->id == AV_CODEC_ID_AAC && d && pktbuf_len(pkt->pkt_payload) > 2 &&
+          d[0] == 0xff && (d[1] & 0xf0) == 0xf0) {
+        /* DTS packets have all info */
+      } else if (ts->ts_input_gh) {
         ictx->extradata_size = pktbuf_len(ts->ts_input_gh);
         ictx->extradata = av_malloc(ictx->extradata_size);
         memcpy(ictx->extradata,
                pktbuf_ptr(ts->ts_input_gh), pktbuf_len(ts->ts_input_gh));
+        tvhtrace(LS_TRANSCODE, "%04X: copy meta data for %s (len %zd)",
+                 shortid(t), icodec->id == AV_CODEC_ID_AAC ? "AAC" : "VORBIS",
+                 pktbuf_len(ts->ts_input_gh));
       } else {
         tvherror(LS_TRANSCODE, "%04X: missing meta data for %s",
                  shortid(t), icodec->id == AV_CODEC_ID_AAC ? "AAC" : "VORBIS");
@@ -1129,8 +1137,8 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
         ictx->extradata = av_malloc(ictx->extradata_size);
         memcpy(ictx->extradata,
                pktbuf_ptr(ts->ts_input_gh), pktbuf_len(ts->ts_input_gh));
-      } else {
-        tvherror(LS_TRANSCODE, "%04X: missing meta data for H264", shortid(t));
+        tvhtrace(LS_TRANSCODE, "%04X: copy meta data for H264 (len %zd)",
+                 shortid(t), pktbuf_len(ts->ts_input_gh));
       }
     }
 
@@ -2104,10 +2112,8 @@ transcoder_stop(transcoder_t *t)
 static void
 transcoder_input(void *opaque, streaming_message_t *sm)
 {
-  transcoder_t *t;
+  transcoder_t *t = opaque;
   streaming_start_t *ss;
-
-  t = opaque;
 
   switch (sm->sm_type) {
   case SMT_PACKET:
@@ -2144,6 +2150,21 @@ transcoder_input(void *opaque, streaming_message_t *sm)
   }
 }
 
+static htsmsg_t *
+transcoder_input_info(void *opaque, htsmsg_t *list)
+{
+  transcoder_t *t = opaque;
+  streaming_target_t *st = t->t_output;
+  htsmsg_add_str(list, NULL, "transcoder input");
+  return st->st_ops.st_info(st->st_opaque, list);;
+}
+
+static streaming_ops_t transcoder_input_ops = {
+  .st_cb   = transcoder_input,
+  .st_info = transcoder_input_info
+};
+
+
 
 /**
  *
@@ -2158,7 +2179,7 @@ transcoder_create(streaming_target_t *output)
   if (!t->t_id) t->t_id = ++transcoder_id;
   t->t_output = output;
 
-  streaming_target_init(&t->t_input, transcoder_input, t, 0);
+  streaming_target_init(&t->t_input, &transcoder_input_ops, t, 0);
 
   return &t->t_input;
 }

@@ -237,7 +237,7 @@ headers_complete(globalheaders_t *gh)
        */
       if(threshold || (qd[i] <= 0 && qd_max > (MAX_SCAN_TIME * 90) / 2)) {
 	ssc->ssc_disabled = 1;
-        tvhdebug(LS_TSFIX, "gh disable stream %d %s%s%s (PID %i) threshold %d qd %"PRId64" qd_max %"PRId64,
+        tvhdebug(LS_GLOBALHEADERS, "gh disable stream %d %s%s%s (PID %i) threshold %d qd %"PRId64" qd_max %"PRId64,
              ssc->ssc_index, streaming_component_type2txt(ssc->ssc_type),
              ssc->ssc_lang[0] ? " " : "", ssc->ssc_lang, ssc->ssc_pid,
              threshold, qd[i], qd_max);
@@ -252,7 +252,7 @@ headers_complete(globalheaders_t *gh)
   if (tvhtrace_enabled()) {
     for(i = 0; i < ss->ss_num_components; i++) {
       ssc = &ss->ss_components[i];
-      tvhtrace(LS_TSFIX, "stream %d %s%s%s (PID %i) complete time %"PRId64"%s",
+      tvhtrace(LS_GLOBALHEADERS, "stream %d %s%s%s (PID %i) complete time %"PRId64"%s",
                ssc->ssc_index, streaming_component_type2txt(ssc->ssc_type),
                ssc->ssc_lang[0] ? " " : "", ssc->ssc_lang, ssc->ssc_pid,
                gh_queue_delay(gh, ssc->ssc_index),
@@ -294,6 +294,8 @@ gh_hold(globalheaders_t *gh, streaming_message_t *sm)
       streaming_msg_free(sm);
       return;
     }
+
+    pkt_trace(LS_GLOBALHEADERS, pkt, pkt->pkt_componentindex, ssc->ssc_type, "hold receive");
 
     pkt_ref_inc(pkt);
 
@@ -411,6 +413,20 @@ globalheaders_input(void *opaque, streaming_message_t *sm)
     gh_hold(gh, sm);
 }
 
+static htsmsg_t *
+globalheaders_input_info(void *opaque, htsmsg_t *list)
+{
+  globalheaders_t *gh = opaque;
+  streaming_target_t *st = gh->gh_output;
+  htsmsg_add_str(list, NULL, "globalheaders input");
+  return st->st_ops.st_info(st->st_opaque, list);
+}
+
+static streaming_ops_t globalheaders_input_ops = {
+  .st_cb   = globalheaders_input,
+  .st_info = globalheaders_input_info
+};
+
 
 /**
  *
@@ -423,7 +439,7 @@ globalheaders_create(streaming_target_t *output)
   TAILQ_INIT(&gh->gh_holdq);
 
   gh->gh_output = output;
-  streaming_target_init(&gh->gh_input, globalheaders_input, gh, 0);
+  streaming_target_init(&gh->gh_input, &globalheaders_input_ops, gh, 0);
   return &gh->gh_input;
 }
 

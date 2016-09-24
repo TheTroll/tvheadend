@@ -30,7 +30,6 @@ typedef struct bouquet {
 
   int           bq_saveflag;
   int           bq_in_load;
-  int           bq_only_bq_lcn;
 
   int           bq_shield;
   int           bq_enabled;
@@ -58,7 +57,6 @@ typedef struct bouquet {
   htsmsg_t     *bq_services_waiting;
   uint32_t      bq_services_seen;
   uint32_t      bq_lcn_offset;
-  uint64_t      bq_last_lcn;
 
   /* fastscan bouquet helpers */
   int           bq_fastscan_nit;
@@ -103,6 +101,7 @@ void bouquet_add_service(bouquet_t *bq, service_t *s, uint64_t lcn, const char *
 void bouquet_completed(bouquet_t *bq, uint32_t seen);
 void bouquet_change_comment(bouquet_t *bq, const char *comment, int replace);
 void bouquet_scan(bouquet_t *bq);
+void bouquet_detach(channel_t *ch);
 
 uint64_t bouquet_get_channel_number(bouquet_t *bq, service_t *t);
 

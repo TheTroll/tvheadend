@@ -21,6 +21,7 @@
 #include "filebundle.h"
 #include "config.h"
 #include "scanfile.h"
+#include "memoryinfo.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -34,7 +35,7 @@
 #include <strings.h>
 #include <ctype.h>
 
-#define SCANFILE_LIMIT (4*1024*1024)
+#define SCANFILE_LIMIT (64*1024*1024)
 
 static const char *scanfile_region_types[][2] = {
   { "dvb-s", "dvbs" },
@@ -50,6 +51,9 @@ static const char *scanfile_region_types[][2] = {
 static scanfile_region_list_t *scanfile_regions;
 static scanfile_region_list_t *scanfile_regions_load;
 static int64_t scanfile_total_load;
+static memoryinfo_t scanfile_memoryinfo = { .my_name = "Scan files" };
+
+static void scanfile_done_muxes( scanfile_network_t *net );
 
 
 /* **************************************************************************
@@ -307,6 +311,7 @@ scanfile_region_create
   if (!reg) {
     tvhtrace(LS_SCANFILE, "%s region %s created", type, id);
     reg = calloc(1, sizeof(scanfile_region_t));
+    memoryinfo_alloc(&scanfile_memoryinfo, sizeof(*reg) + strlen(id) + 1 + strlen(desc) + 1);
     reg->sfr_id   = strdup(id);
     reg->sfr_name = strdup(desc);
     LIST_INSERT_SORTED(&list->srl_regions, reg, sfr_link, scanfile_region_cmp);
@@ -320,7 +325,8 @@ scanfile_region_create
  */
 static int
 scanfile_create_network
-  ( scanfile_network_t **_net, const char *type, const char *name,
+  ( scanfile_network_t **_net, const char *type,
+    const char *path, const char *name,
     dvb_fe_delivery_system_t delsys )
 {
   scanfile_region_t *reg = NULL;
@@ -366,8 +372,12 @@ scanfile_create_network
   }
   snprintf(buf2, sizeof(buf2), "%s_%s", type, buf);
   net = calloc(1, sizeof(scanfile_network_t));
+  memoryinfo_alloc(&scanfile_memoryinfo, sizeof(*net) + strlen(buf2) + 1 + strlen(buf) + 1 +
+                                                        strlen(path) + 1 + strlen(type) + 1);
   net->sfn_id   = strdup(buf2);
   net->sfn_name = strdup(buf);
+  net->sfn_path = strdup(path);
+  net->sfn_type = strdup(type);
   net->sfn_satpos = opos;
   LIST_INSERT_SORTED(&reg->sfr_networks, net, sfn_link, scanfile_network_cmp);
 
@@ -380,7 +390,8 @@ scanfile_create_network
  */
 static int
 scanfile_load_one
-  ( scanfile_network_t **net, const char *type, const char *name, const char *line )
+  ( scanfile_network_t **net, const char *type, const char *path,
+    const char *name, const char *line, int test )
 {
   int r = 1;
   dvb_mux_conf_t *mux = malloc(sizeof(dvb_mux_conf_t));
@@ -404,11 +415,17 @@ scanfile_load_one
   if (r) {
     free(mux);
   } else {
-    if (*net == NULL && scanfile_create_network(net, type, name, mux->dmc_fe_delsys)) {
+    if (*net == NULL &&
+        scanfile_create_network(net, type, path, name, mux->dmc_fe_delsys)) {
       free(mux);
       return -1;
     }
-    LIST_INSERT_HEAD(&(*net)->sfn_muxes, mux, dmc_link);
+    if (!test) {
+      memoryinfo_alloc(&scanfile_memoryinfo, sizeof(*mux));
+      LIST_INSERT_HEAD(&(*net)->sfn_muxes, mux, dmc_link);
+    } else {
+      return -1;
+    }
   }
   return 1;
 }
@@ -445,8 +462,9 @@ str_trim(char *s)
 
 static int
 scanfile_load_dvbv5
-  ( scanfile_network_t **net, const char *type, const char *name,
-    char *line, fb_file *fp )
+  ( scanfile_network_t **net, const char *type,
+    const char *path, const char *name,
+    char *line, fb_file *fp, int test )
 {
   int res = 1, r = 1, i;
   char buf[256];
@@ -689,9 +707,15 @@ scanfile_load_dvbv5
     dvb_mux_conf_str(mux, buf, sizeof(buf));
     tvhtrace(LS_SCANFILE, "mux %s", buf);
     if (*net == NULL)
-      if (scanfile_create_network(net, type, name, mux->dmc_fe_delsys))
+      if (scanfile_create_network(net, type, path, name, mux->dmc_fe_delsys))
         return -1;
-    LIST_INSERT_HEAD(&(*net)->sfn_muxes, mux, dmc_link);
+    if (!test) {
+      memoryinfo_alloc(&scanfile_memoryinfo, sizeof(*mux));
+      LIST_INSERT_HEAD(&(*net)->sfn_muxes, mux, dmc_link);
+    } else {
+      free(mux);
+      res = -2;
+    }
   }
 
   return res;
@@ -700,20 +724,19 @@ scanfile_load_dvbv5
 /*
  * Process a file
  */
-static void
+static scanfile_network_t *
 scanfile_load_file
-  ( const char *type, fb_dir *dir, const char *name )
+  ( scanfile_network_t *net, const char *type, const char *path,
+    fb_file *fp, const char *name, int test )
 {
-  fb_file *fp;
-  scanfile_network_t *net = NULL;
   char *str, buf[256];
   int load = 0;
 
-  tvhtrace(LS_SCANFILE, "load file %s", name);
+  tvhtrace(LS_SCANFILE, "load file %s (processed bytes %"PRId64")",
+           name, scanfile_total_load);
 
-  if (scanfile_total_load > SCANFILE_LIMIT) return;
-  fp = fb_open2(dir, name, 1, 0);
-  if (!fp) return;
+  if (!fp) return NULL;
+
   scanfile_total_load += fb_size(fp);
   if (scanfile_total_load > SCANFILE_LIMIT) goto end;
 
@@ -739,10 +762,10 @@ scanfile_load_file
       case 'C':
       case 'T':
       case 'S':
-        load = scanfile_load_one(&net, type, name, buf);
+        load = scanfile_load_one(&net, type, path, name, buf, test);
         break;
       case '[':
-        load = scanfile_load_dvbv5(&net, type, name, buf, fp);
+        load = scanfile_load_dvbv5(&net, type, path, name, buf, fp, test);
         break;
       default:
         break;
@@ -750,6 +773,7 @@ scanfile_load_file
   }
 end:
   fb_close(fp);
+  return net;
 }
 
 /*
@@ -759,11 +783,14 @@ end:
  */
 static void
 scanfile_load_dir
-  ( const char *path, const char *type, int lvl )
+  ( const char *path, const char *type, int lvl, int test )
 {
-  char p[256];
+  char p[PATH_MAX];
   fb_dir *dir;
   fb_dirent *de;
+  fb_file *fp;
+  scanfile_network_t *net;
+
   tvhtrace(LS_SCANFILE, "load dir %s", path);
 
   if (lvl >= 3) return;
@@ -774,9 +801,13 @@ scanfile_load_dir
     if (*de->name == '.') continue;
     if (de->type == FB_DIR) {
       snprintf(p, sizeof(p), "%s/%s", path, de->name);
-      scanfile_load_dir(p, de->name, lvl+1);
+      scanfile_load_dir(p, de->name, lvl+1, test);
     } else if (type) {
-      scanfile_load_file(type, dir, de->name);
+      snprintf(p, sizeof(p), "%s/%s", path, de->name);
+      if (scanfile_total_load > SCANFILE_LIMIT) continue;
+      fp = fb_open2(dir, de->name, 1, 0);
+      net = scanfile_load_file(NULL, type, p, fp, de->name, test);
+      scanfile_done_muxes(net);
     }
   }
 
@@ -806,6 +837,22 @@ scanfile_stats(const char *what, scanfile_region_list_t *list)
 }
 
 /*
+ * Destroy the muxes
+ */
+static void
+scanfile_done_muxes( scanfile_network_t *net )
+{
+  dvb_mux_conf_t *mux;
+  if (!net) return;
+  while ((mux = LIST_FIRST(&net->sfn_muxes)) != NULL) {
+    memoryinfo_free(&scanfile_memoryinfo, sizeof(*mux));
+    LIST_REMOVE(mux, dmc_link);
+    free(mux);
+  }
+}
+
+
+/*
  * Destroy the region
  */
 static void
@@ -813,20 +860,26 @@ scanfile_done_region( scanfile_region_list_t *list )
 {
   scanfile_region_t *reg;
   scanfile_network_t *net;
-  dvb_mux_conf_t *mux;
 
   while ((reg = LIST_FIRST(&list->srl_regions)) != NULL) {
     LIST_REMOVE(reg, sfr_link);
     while ((net = LIST_FIRST(&reg->sfr_networks)) != NULL) {
       LIST_REMOVE(net, sfn_link);
-      while ((mux = LIST_FIRST(&net->sfn_muxes)) != NULL) {
-        LIST_REMOVE(mux, dmc_link);
-        free(mux);
-      }
+      scanfile_done_muxes(net);
+      memoryinfo_free(&scanfile_memoryinfo, sizeof(*net) +
+                      (net->sfn_id ? strlen(net->sfn_id) + 1 : 0) +
+                      (net->sfn_name ? strlen(net->sfn_name) + 1 : 0) +
+                      (net->sfn_path ? strlen(net->sfn_path) + 1 : 0) +
+                      (net->sfn_type ? strlen(net->sfn_type) + 1 : 0));
       free((void *)net->sfn_id);
       free((void *)net->sfn_name);
+      free((void *)net->sfn_path);
+      free((void *)net->sfn_type);
       free(net);
     }
+    memoryinfo_free(&scanfile_memoryinfo, sizeof(*reg) +
+                    (reg->sfr_id ? strlen(reg->sfr_id) + 1 : 0) +
+                    (reg->sfr_name ? strlen(reg->sfr_name) + 1 : 0));
     free((void *)reg->sfr_id);
     free((void *)reg->sfr_name);
     free(reg);
@@ -839,6 +892,7 @@ scanfile_done_region( scanfile_region_list_t *list )
 void
 scanfile_init ( const char *muxconf_path, int lock )
 {
+  static int initialized = 0;
   const char *path = muxconf_path;
   char buf[32], *p;
   int r = 0, i;
@@ -851,14 +905,20 @@ scanfile_init ( const char *muxconf_path, int lock )
     path = "/usr/share/dvb";
 #endif
 
+  if (!initialized) {
+    memoryinfo_register(&scanfile_memoryinfo);
+    initialized = 1;
+  }
+
   scanfile_total_load = 0;
   scanfile_regions_load = calloc(REGIONS, sizeof(scanfile_region_list_t));
+  memoryinfo_alloc(&scanfile_memoryinfo, REGIONS * sizeof(scanfile_region_list_t));
   for (i = 0; i < REGIONS; i++) {
     scanfile_regions_load[i].srl_type = scanfile_region_types[i][0];
     scanfile_regions_load[i].srl_alt_type = scanfile_region_types[i][1];
   }
 
-  scanfile_load_dir(path, NULL, 0);
+  scanfile_load_dir(path, NULL, 0, 1);
 
   for (i = 0; i < REGIONS; i++) {
     snprintf(buf, sizeof(buf)-1, "%s", scanfile_regions_load[i].srl_type);
@@ -873,6 +933,7 @@ scanfile_init ( const char *muxconf_path, int lock )
     tvhwarn(LS_SCANFILE, "expected tree structure - http://git.linuxtv.org/cgit.cgi/dtv-scan-tables.git/tree/");
     for (i = 0; i < REGIONS; i++)
       scanfile_done_region(&scanfile_regions_load[i]);
+    memoryinfo_free(&scanfile_memoryinfo, REGIONS * sizeof(scanfile_region_list_t));
     free(scanfile_regions_load);
     scanfile_regions_load = NULL;
   } else {
@@ -900,6 +961,7 @@ scanfile_done ( void )
   if (l) {
     for (i = 0; i < REGIONS; i++)
       scanfile_done_region(&l[i]);
+    memoryinfo_free(&scanfile_memoryinfo, REGIONS * sizeof(scanfile_region_list_t));
     free(l);
   }
 }
@@ -926,7 +988,7 @@ scanfile_find_region_list ( const char *type )
 }
 
 /*
- * Find scanfile
+ * Find scanfile and load muxes
  */
 scanfile_network_t *
 scanfile_find ( const char *id )
@@ -935,6 +997,7 @@ scanfile_find ( const char *id )
   scanfile_region_t *r = NULL;
   scanfile_network_t *n = NULL;
   scanfile_region_list_t *l;
+  fb_file *fp;
   tmp = strdup(id);
 
   /* Type */
@@ -960,9 +1023,25 @@ scanfile_find ( const char *id )
       break;
 
   free(tmp);
+
+  if (n) {
+    fp = fb_open(n->sfn_path, 1, 0);
+    tmp = strrchr(n->sfn_path, '/');
+    scanfile_load_file(n, n->sfn_type, n->sfn_path, fp, tmp ?: n->sfn_path, 0);
+  }
+
   return n;
 
 fail:
   free(tmp);
   return NULL;
+}
+
+/*
+ * Remove muxes from scanfile
+ */
+void
+scanfile_clean( scanfile_network_t *sfn )
+{
+  scanfile_done_muxes(sfn);
 }
