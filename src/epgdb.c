@@ -20,6 +20,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
 #include <setjmp.h>
@@ -344,12 +345,14 @@ void epg_init ( void )
 #if ENABLE_ZLIB
   if (remain > 12 && memcmp(rp, "\xff\xffGZIP00", 8) == 0) {
     uint32_t orig = (rp[8] << 24) | (rp[9] << 16) | (rp[10] << 8) | rp[11];
-    tvhinfo(LS_EPGDB, "gzip format detected, inflating (ratio %.1f%%)",
-           (float)((remain * 100.0) / orig));
+    tvhinfo(LS_EPGDB, "gzip format detected, inflating (ratio %.1f%% deflated size %zd)",
+           (float)((remain * 100.0) / orig), remain);
     rp = zlib_mem = tvh_gzip_inflate(rp + 12, remain - 12, orig);
     remain = rp ? orig : 0;
   }
 #endif
+
+  tvhinfo(LS_EPGDB, "parsing %zd bytes", remain);
 
   /* Process */
   memset(&stats, 0, sizeof(stats));
@@ -402,7 +405,7 @@ void epg_init ( void )
   /* Stats */
   tvhinfo(LS_EPGDB, "loaded v%d", ver);
   tvhinfo(LS_EPGDB, "  config     %d", stats.config.total);
-  tvhinfo(LS_EPGDB, "  channels   %d", stats.channels.total);
+  //tvhinfo(LS_EPGDB, "  channels   %d", stats.channels.total);
   tvhinfo(LS_EPGDB, "  brands     %d", stats.brands.total);
   tvhinfo(LS_EPGDB, "  seasons    %d", stats.seasons.total);
   tvhinfo(LS_EPGDB, "  episodes   %d", stats.episodes.total);
@@ -467,24 +470,36 @@ static int _epg_write_sect ( sbuf_t *sb, const char *sect )
 
 static void epg_save_tsk_callback ( void *p, int dearmed )
 {
+  char tmppath[PATH_MAX];
+  char path[PATH_MAX];
   sbuf_t *sb = p;
-  size_t size = sb->sb_ptr;
+  size_t size = sb->sb_ptr, orig;
   int fd, r;
 
   tvhinfo(LS_EPGDB, "save start");
-  fd = hts_settings_open_file(1, "epgdb.v%d", EPG_DB_VERSION);
+  hts_settings_buildpath(path, sizeof(path), "epgdb.v%d", EPG_DB_VERSION);
+  snprintf(tmppath, sizeof(tmppath), "%s.tmp", path);
+  if (hts_settings_makedirs(tmppath))
+    fd = -1;
+  else
+    fd = tvh_open(tmppath, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
   if (fd >= 0) {
 #if ENABLE_ZLIB
     if (config.epg_compress) {
-      r = tvh_gzip_deflate_fd_header(fd, sb->sb_data, sb->sb_ptr, 3) < 0;
+      r = tvh_gzip_deflate_fd_header(fd, sb->sb_data, size, &orig, 3) < 0;
    } else
 #endif
-      r = tvh_write(fd, sb->sb_data, sb->sb_ptr);
+      r = tvh_write(fd, sb->sb_data, orig = size);
     close(fd);
-    if (r)
-      tvherror(LS_EPGDB, "write error (size %zd)", size);
-    else
-      tvhinfo(LS_EPGDB, "stored (size %zd)", size);
+    if (r) {
+      tvherror(LS_EPGDB, "write error (size %zd)", orig);
+      if (remove(tmppath))
+        tvherror(LS_EPGDB, "unable to remove file %s", tmppath);
+    } else {
+      tvhinfo(LS_EPGDB, "stored (size %zd)", orig);
+      if (rename(tmppath, path))
+        tvherror(LS_EPGDB, "unable to rename file %s to %s", tmppath, path);
+    }
   } else
     tvherror(LS_EPGDB, "unable to open epgdb file");
   sbuf_free(sb);
