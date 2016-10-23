@@ -263,9 +263,10 @@ static htsmsg_t *
 profile_class_svfilter_list ( void *o, const char *lang )
 {
   static const struct strtab tab[] = {
-    { N_("None"),                    PROFILE_SVF_NONE },
-    { N_("SD: standard definition"), PROFILE_SVF_SD },
-    { N_("HD: high definition"),     PROFILE_SVF_HD },
+    { N_("None"),                       PROFILE_SVF_NONE },
+    { N_("SD: standard definition"),    PROFILE_SVF_SD },
+    { N_("HD: high definition"),        PROFILE_SVF_HD },
+    { N_("UHD: ultra high definition"), PROFILE_SVF_UHD },
   };
   return strtab2htsmsg(tab, 1, lang);
 }
@@ -306,7 +307,8 @@ const idclass_t profile_class =
       .desc     = N_("Enable/disable the profile."),
       .off      = offsetof(profile_t, pro_enabled),
       .get_opts = profile_class_enabled_opts,
-      .group    = 1
+      .group    = 1,
+      .def.i    = 1
     },
     {
       .type     = PT_BOOL,
@@ -1141,7 +1143,7 @@ const idclass_t profile_mpegts_pass_class =
                      "include information about the currently-streamed "
                      "service."),
       .off      = offsetof(profile_mpegts_t, pro_rewrite_pmt),
-      .opts     = PO_ADVANCED,
+      .opts     = PO_EXPERT,
       .def.i    = 1,
       .group    = 2
     },
@@ -1153,7 +1155,7 @@ const idclass_t profile_mpegts_pass_class =
                      "to only include information about the currently-"
                      "streamed service."),
       .off      = offsetof(profile_mpegts_t, pro_rewrite_pat),
-      .opts     = PO_ADVANCED,
+      .opts     = PO_EXPERT,
       .def.i    = 1,
       .group    = 2
     },
@@ -1165,7 +1167,7 @@ const idclass_t profile_mpegts_pass_class =
                      "to only include information about the currently-"
                      "streamed service."),
       .off      = offsetof(profile_mpegts_t, pro_rewrite_sdt),
-      .opts     = PO_ADVANCED,
+      .opts     = PO_EXPERT,
       .def.i    = 1,
       .group    = 2
     },
@@ -1177,7 +1179,7 @@ const idclass_t profile_mpegts_pass_class =
                      "to only include information about the currently-"
                      "streamed service."),
       .off      = offsetof(profile_mpegts_t, pro_rewrite_eit),
-      .opts     = PO_ADVANCED,
+      .opts     = PO_EXPERT,
       .def.i    = 1,
       .group    = 2
     },
@@ -1337,6 +1339,118 @@ profile_matroska_builder(void)
   pro->pro_get_mc = profile_matroska_get_mc;
   return (profile_t *)pro;
 }
+
+
+/*
+ *  Audioes Muxer
+ */
+typedef struct profile_audio {
+  profile_t;
+  int pro_mc;
+  int pro_index;
+} profile_audio_t;
+
+static htsmsg_t *
+profile_class_mc_audio_list ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("Any"),                          MC_UNKNOWN },
+    { N_("MPEG-2 audio"),                 MC_MPEG2AUDIO, },
+    { N_("AC3 audio"),                    MC_AC3, },
+    { N_("AAC audio"),                    MC_AAC },
+    { N_("MP4 audio"),                    MC_MP4A },
+    { N_("Vorbis audio"),                 MC_VORBIS },
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
+const idclass_t profile_audio_class =
+{
+  .ic_super      = &profile_class,
+  .ic_class      = "profile-audio",
+  .ic_caption    = N_("Audio stream"),
+  .ic_properties = (const property_t[]){
+    {
+      .type     = PT_INT,
+      .id       = "type",
+      .name     = N_("Audio type"),
+      .desc     = N_("Pick the stream with given audio type only."),
+      .off      = offsetof(profile_audio_t, pro_mc),
+      .list     = profile_class_mc_audio_list,
+      .group    = 1
+    },
+    {
+      .type     = PT_INT,
+      .id       = "index",
+      .name     = N_("Stream index"),
+      .desc     = N_("Stream index (starts with zero)."),
+      .off      = offsetof(profile_audio_t, pro_index),
+      .group    = 1
+    },
+    { }
+  }
+};
+
+
+static int
+profile_audio_reopen(profile_chain_t *prch,
+                     muxer_config_t *m_cfg, int flags)
+{
+  muxer_config_t c;
+  profile_audio_t *pro = (profile_audio_t *)prch->prch_pro;
+
+  if (m_cfg)
+    c = *m_cfg; /* do not alter the original parameter */
+  else
+    memset(&c, 0, sizeof(c));
+  c.m_type = pro->pro_mc != MC_UNKNOWN ? pro->pro_mc : MC_MPEG2AUDIO;
+  c.m_force_type = pro->pro_mc;
+  c.m_index = pro->pro_index;
+
+  assert(!prch->prch_muxer);
+  prch->prch_muxer = muxer_create(&c);
+  return 0;
+}
+
+static int
+profile_audio_open(profile_chain_t *prch,
+                   muxer_config_t *m_cfg, int flags, size_t qsize)
+{
+  int r;
+
+  prch->prch_flags = SUBSCRIPTION_PACKET;
+  prch->prch_sq.sq_maxsize = qsize;
+
+  r = profile_htsp_work(prch, &prch->prch_sq.sq_st, 0, 0);
+  if (r) {
+    profile_chain_close(prch);
+    return r;
+  }
+
+  profile_audio_reopen(prch, m_cfg, flags);
+  return 0;
+}
+
+static muxer_container_type_t
+profile_audio_get_mc(profile_t *_pro)
+{
+  profile_audio_t *pro = (profile_audio_t *)_pro;
+  if (pro->pro_mc == MC_UNKNOWN)
+    return MC_MPEG2AUDIO;
+  return pro->pro_mc;
+}
+
+static profile_t *
+profile_audio_builder(void)
+{
+  profile_audio_t *pro = calloc(1, sizeof(*pro));
+  pro->pro_sflags = SUBSCRIPTION_PACKET;
+  pro->pro_reopen = profile_audio_reopen;
+  pro->pro_open   = profile_audio_open;
+  pro->pro_get_mc = profile_audio_get_mc;
+  return (profile_t *)pro;
+}
+
 
 #if ENABLE_LIBAV
 
@@ -1608,6 +1722,7 @@ profile_class_mc_list ( void *o, const char *lang )
     { N_("WEBM/built-in"),                MC_WEBM, },
     { N_("MPEG-TS/av-lib"),               MC_MPEGTS },
     { N_("MPEG-PS (DVD)/av-lib"),         MC_MPEGPS },
+    { N_("Raw Audio Stream"),             MC_MPEG2AUDIO },
     { N_("Matroska (mkv)/av-lib"),        MC_AVMATROSKA },
     { N_("WEBM/av-lib"),                  MC_AVWEBM },
   };
@@ -2003,6 +2118,10 @@ profile_transcode_mc_valid(int mc)
   case MC_WEBM:
   case MC_MPEGTS:
   case MC_MPEGPS:
+  case MC_MPEG2AUDIO:
+  case MC_AC3:
+  case MC_AAC:
+  case MC_VORBIS:
   case MC_AVMATROSKA:
     return 1;
   default:
@@ -2101,6 +2220,7 @@ profile_init(void)
   profile_register(&profile_mpegts_pass_class, profile_mpegts_pass_builder);
   profile_register(&profile_matroska_class, profile_matroska_builder);
   profile_register(&profile_htsp_class, profile_htsp_builder);
+  profile_register(&profile_audio_class, profile_audio_builder);
 #if ENABLE_LIBAV
   profile_register(&profile_libav_mpegts_class, profile_libav_mpegts_builder);
   profile_register(&profile_libav_matroska_class, profile_libav_matroska_builder);
@@ -2167,6 +2287,22 @@ profile_init(void)
     htsmsg_add_str (conf, "name", name);
     htsmsg_add_str (conf, "comment", _("HTSP Default Stream Settings"));
     htsmsg_add_s32 (conf, "priority", PROFILE_SPRIO_IMPORTANT);
+    htsmsg_add_bool(conf, "shield", 1);
+    (void)profile_create(NULL, conf, 1);
+    htsmsg_destroy(conf);
+  }
+
+  name = "audio";
+  pro = profile_find_by_name2(name, NULL, 1);
+  if (pro == NULL || strcmp(profile_get_name(pro), name)) {
+    htsmsg_t *conf;
+
+    conf = htsmsg_create_map();
+    htsmsg_add_str (conf, "class", "profile-audio");
+    htsmsg_add_bool(conf, "enabled", 1);
+    htsmsg_add_str (conf, "name", name);
+    htsmsg_add_str (conf, "comment", _("Audio-only stream"));
+    htsmsg_add_s32 (conf, "priority", PROFILE_SPRIO_NORMAL);
     htsmsg_add_bool(conf, "shield", 1);
     (void)profile_create(NULL, conf, 1);
     htsmsg_destroy(conf);

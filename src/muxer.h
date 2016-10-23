@@ -34,6 +34,11 @@ typedef enum {
   MC_AVMATROSKA  = 7,
   MC_AVWEBM      = 8,
   MC_AVMP4       = 9,
+  MC_MPEG2AUDIO  = 10,
+  MC_AC3         = 11,
+  MC_AAC         = 12,
+  MC_MP4A        = 13,
+  MC_VORBIS      = 14
 } muxer_container_type_t;
 
 typedef enum {
@@ -54,6 +59,9 @@ typedef struct muxer_config {
   int                  m_rewrite_sdt;
   int                  m_rewrite_eit;
   int                  m_cache;
+
+  int                  m_force_type;
+  int                  m_index;
 
 /* 
  * directory_permissions should really be in dvr.h as it's not really needed for the muxer
