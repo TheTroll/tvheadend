@@ -33,6 +33,12 @@
 #define DVR_FILESIZE_UPDATE     (1<<0)
 #define DVR_FILESIZE_TOTAL      (1<<1)
 
+#define DVR_FINISHED_ALL             (1<<0)
+#define DVR_FINISHED_SUCCESS         (1<<1) 
+#define DVR_FINISHED_FAILED          (1<<2) 
+#define DVR_FINISHED_REMOVED_SUCCESS (1<<3) /* Removed recording, was succesful before */
+#define DVR_FINISHED_REMOVED_FAILED  (1<<4) /* Removed recording, was failed before */
+
 typedef struct dvr_vfs {
   LIST_ENTRY(dvr_vfs) link;
   tvh_fsid_t fsid;
@@ -209,6 +215,8 @@ typedef struct dvr_entry {
   uint32_t de_file_removed;
   uint32_t de_retention;
   uint32_t de_removal;
+  uint32_t de_playcount;    /* Recording play count */
+  uint32_t de_playposition; /* Recording last played position in seconds */
 
   /**
    * EPG information / links
@@ -542,7 +550,8 @@ dvr_entry_update( dvr_entry_t *de, int enabled,
                   const char *desc, const char *lang,
                   time_t start, time_t stop,
                   time_t start_extra, time_t stop_extra,
-                  dvr_prio_t pri, int retention, int removal );
+                  dvr_prio_t pri, int retention, int removal,
+                  int playcount, int playposition);
 
 void dvr_destroy_by_channel(channel_t *ch, int delconf);
 
@@ -602,7 +611,11 @@ htsmsg_t *dvr_entry_class_duration_list(void *o, const char *not_set, int max, i
 htsmsg_t *dvr_entry_class_retention_list ( void *o, const char *lang );
 htsmsg_t *dvr_entry_class_removal_list ( void *o, const char *lang );
 
+int dvr_entry_is_upcoming(dvr_entry_t *entry);
+int dvr_entry_is_finished(dvr_entry_t *entry, int flags);
 int dvr_entry_verify(dvr_entry_t *de, access_t *a, int readonly);
+
+void dvr_entry_changed_notify(dvr_entry_t *de);
 
 void dvr_spawn_cmd(dvr_entry_t *de, const char *cmd, const char *filename, int pre);
 

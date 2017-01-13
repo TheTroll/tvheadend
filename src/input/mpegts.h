@@ -106,9 +106,9 @@ int mpegts_pid_del_group ( mpegts_apids_t *pids, mpegts_apids_t *vals );
 int mpegts_pid_find_windex ( mpegts_apids_t *pids, uint16_t pid, uint16_t weight );
 int mpegts_pid_find_rindex ( mpegts_apids_t *pids, uint16_t pid );
 static inline int mpegts_pid_wexists ( mpegts_apids_t *pids, uint16_t pid, uint16_t weight )
-  { return pids->all || mpegts_pid_find_windex(pids, pid, weight) >= 0; }
+  { return pids && (pids->all || mpegts_pid_find_windex(pids, pid, weight) >= 0); }
 static inline int mpegts_pid_rexists ( mpegts_apids_t *pids, uint16_t pid )
-  { return pids->all || mpegts_pid_find_rindex(pids, pid) >= 0; }
+  { return pids && (pids->all || mpegts_pid_find_rindex(pids, pid) >= 0); }
 int mpegts_pid_copy ( mpegts_apids_t *dst, mpegts_apids_t *src );
 int mpegts_pid_compare ( mpegts_apids_t *dst, mpegts_apids_t *src,
                          mpegts_apids_t *add, mpegts_apids_t *del );
@@ -433,6 +433,7 @@ struct mpegts_mux
   int                     mm_tsid_checks;
   int                     mm_tsid_accept_zero_value;
   tvhlog_limit_t          mm_tsid_loglimit;
+  int64_t                 mm_start_monoclock;
 
   int                     mm_update_pids_flag;
   mtimer_t                mm_update_pids_timer;
@@ -652,6 +653,12 @@ struct mpegts_mux_sub
   RB_ENTRY(mpegts_mux_sub)  mms_link;
   void                     *mms_src;
   int                       mms_weight;
+};
+
+enum mpegts_input_is_enabled {
+  MI_IS_ENABLED_RETRY = -1,
+  MI_IS_ENABLED_NEVER = 0,
+  MI_IS_ENABLED_OK = 1,
 };
 
 /* Input source */

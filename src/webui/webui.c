@@ -865,6 +865,9 @@ http_dvr_list_playlist(http_connection_t *hc, int pltype)
         http_access_verify_channel(hc, ACCESS_RECORDER, de->de_channel))
       continue;
 
+    if (hc->hc_access == NULL)
+      continue;
+
     durration  = dvr_entry_get_stop_time(de) - dvr_entry_get_start_time(de, 0);
     bandwidth = ((8*fsize) / (durration*1024.0));
     strftime(buf, sizeof(buf), "%FT%T%z", localtime_r(&(de->de_start), &tm));
@@ -1539,7 +1542,6 @@ page_dvrfile(http_connection_t *hc, const char *remain, void *opaque)
     return HTTP_STATUS_UNAUTHORIZED;
 
   pthread_mutex_lock(&global_lock);
-
   de = dvr_entry_find_by_uuid(remain);
   if (de == NULL)
     de = dvr_entry_find_by_id(atoi(remain));
@@ -1646,6 +1648,17 @@ page_dvrfile(http_connection_t *hc, const char *remain, void *opaque)
     }
 
     subscription_log(sub, 1);
+  }
+  /* Play count + 1 when write access */
+  if (!hc->hc_no_output && file_start <= 0 &&
+      !dvr_entry_verify(de, hc->hc_access, 0)) {
+    de = dvr_entry_find_by_uuid(remain);
+    if (de == NULL)
+      de = dvr_entry_find_by_id(atoi(remain));
+    if (de) {
+      de->de_playcount = de->de_playcount + 1;
+      dvr_entry_changed_notify(de);
+    }
   }
   pthread_mutex_unlock(&global_lock);
   if (tcp_id == NULL) {

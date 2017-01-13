@@ -4,20 +4,18 @@
 
 tvheadend.acleditor = function(panel, index)
 {
-    var list = 'enabled,username,password,prefix,' +
+    var list = 'enabled,username,password,prefix,change,' +
                'lang,webui,uilevel,uilevel_nochange,admin,' +
-               'streaming,adv_streaming,htsp_streaming,' +
-               'profile,conn_limit_type,conn_limit,muxes_limit_streaming,muxes_limit_dvr,' +
-               'dvr,htsp_dvr,all_dvr,all_rw_dvr,' +
-	       'dvr_config,channel_min,channel_max,' +
-	       'channel_tag_exclude,channel_tag,comment';
+               'streaming,profile,conn_limit_type,conn_limit,' +
+               'muxes_limit_streaming,muxes_limit_dvr,' +
+               'dvr,dvr_config,channel_min,channel_max,' +
+               'channel_tag_exclude,channel_tag,comment';
 
-    var list2 = 'enabled,username,password,prefix,' +
+    var list2 = 'enabled,username,password,prefix,change,' +
                 'lang,webui,themeui,langui,uilevel,uilevel_nochange,admin,' +
-                'streaming,adv_streaming,htsp_streaming,' +
-                'profile,conn_limit_type,conn_limit,muxes_limit_streaming,muxes_limit_dvr,' +
-                'dvr,htsp_dvr,all_dvr,all_rw_dvr,' +
-                'failed_dvr,htsp_anonymize,dvr_config,' +
+                'streaming,profile,conn_limit_type,conn_limit,' +
+                'muxes_limit_streaming,muxes_limit_dvr,' +
+                'dvr,htsp_anonymize,dvr_config,' +
                 'channel_min,channel_max,channel_tag_exclude,' +
                 'channel_tag,comment';
 
@@ -32,13 +30,9 @@ tvheadend.acleditor = function(panel, index)
             username:       { width: 250 },
             password:       { width: 250 },
             prefix:         { width: 350 },
-            streaming:      { width: 110 },
-            adv_streaming:  { width: 200 },
-            htsp_streaming: { width: 200 },
-            dvr:            { width: 150 },
-            htsp_dvr:       { width: 150 },
-            all_dvr:        { width: 150 },
-            all_rw_dvr:     { width: 150 },
+            change:         { width: 350 },
+            streaming:      { width: 350 },
+            dvr:            { width: 350 },
             webui:          { width: 140 },
             admin:          { width: 100 },
             conn_limit_type:{ width: 160 },

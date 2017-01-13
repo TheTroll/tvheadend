@@ -261,7 +261,7 @@ static char *
 http_get_nonce(void)
 {
   struct http_nonce *n = calloc(1, sizeof(*n));
-  char stamp[32], *m;
+  char stamp[33], *m;
   int64_t mono;
 
   while (1) {
@@ -269,7 +269,8 @@ http_get_nonce(void)
     mono ^= 0xa1687211885fcd30LL;
     snprintf(stamp, sizeof(stamp), "%"PRId64, mono);
     m = md5sum(stamp, 1);
-    strcpy(n->nonce, m);
+    strncpy(n->nonce, m, sizeof(stamp));
+    n->nonce[sizeof(stamp)-1] = '\0';
     pthread_mutex_lock(&global_lock);
     if (RB_INSERT_SORTED(&http_nonces, n, link, http_nonce_cmp)) {
       pthread_mutex_unlock(&global_lock);
@@ -917,8 +918,10 @@ http_access_verify_channel(http_connection_t *hc, int mask,
 
   if (res) {
     access_destroy(hc->hc_access);
-    if (http_verify_prepare(hc, &v))
+    if (http_verify_prepare(hc, &v)) {
+      hc->hc_access = NULL;
       return -1;
+    }
     hc->hc_access = access_get((struct sockaddr *)hc->hc_peer, hc->hc_username,
                                http_verify_callback, &v);
     http_verify_free(&v);
@@ -1200,6 +1203,8 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
         if((n = http_tokenize(authbuf, argv, 2, ':')) == 2) {
           hc->hc_username = tvh_strdupa(argv[0]);
           hc->hc_password = tvh_strdupa(argv[1]);
+          http_deescape(hc->hc_username);
+          http_deescape(hc->hc_password);
           // No way to actually track this
         }
       } else if (strcasecmp(argv[0], "digest") == 0) {
@@ -1214,6 +1219,7 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
         v = http_get_header_value(argv[1], "username");
         hc->hc_authhdr  = tvh_strdupa(argv[1]);
         hc->hc_username = tvh_strdupa(v);
+        http_deescape(hc->hc_username);
         free(v);
       } else {
         http_error(hc, HTTP_STATUS_BAD_REQUEST);

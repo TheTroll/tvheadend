@@ -120,7 +120,8 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
 
   epgid = htsmsg_get_str(item, "tvg-id");
   epgcfg = _epgcfg_from_str(htsmsg_get_str(item, "tvh-epg"));
-  tags  = htsmsg_get_str(item, "tvh-tags");
+  tags = htsmsg_get_str(item, "tvh-tags");
+  if (!tags) tags = htsmsg_get_str(item, "group-title");
   if (tags) {
     tags = n = strdupa(tags);
     while (*n) {
@@ -240,7 +241,7 @@ skip_url:
       }
       if (strcmp(im->mm_iptv_tags ?: "", tags ?: "")) {
         free(im->mm_iptv_tags);
-        im->mm_iptv_tags = strdup(tags);
+        im->mm_iptv_tags = tags ? strdup(tags) : NULL;
         change = 1;
       }
       if (epgcfg >= 0 && im->mm_epg != epgcfg) {

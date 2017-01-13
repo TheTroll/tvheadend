@@ -524,28 +524,32 @@ satip_frontend_is_enabled
 
   lock_assert(&global_lock);
 
-  if (!mpegts_input_is_enabled(mi, mm, flags, weight)) return 0;
-  if (lfe->sf_device->sd_dbus_allow <= 0) return 0;
-  if (lfe->sf_type != DVB_TYPE_S) return 1;
+  if (!mpegts_input_is_enabled(mi, mm, flags, weight))
+    return MI_IS_ENABLED_NEVER;
+  if (lfe->sf_device->sd_dbus_allow <= 0)
+    return MI_IS_ENABLED_NEVER;
+  if (lfe->sf_type != DVB_TYPE_S)
+    return MI_IS_ENABLED_OK;
   /* check if the position is enabled */
   sfc = satip_satconf_get_position(lfe, mm, NULL, 1, flags, weight);
-  if (!sfc)
-    return 0;
+  if (!sfc) return MI_IS_ENABLED_NEVER;
   /* check if any "blocking" tuner is running */
   TAILQ_FOREACH(lfe2, &lfe->sf_device->sd_frontends, sf_link) {
     if (lfe2 == lfe) continue;
     if (lfe2->sf_type != DVB_TYPE_S) continue;
     if (lfe->sf_master == lfe2->sf_number) {
       if (!lfe2->sf_running)
-        return 0; /* master must be running */
-      return satip_frontend_match_satcfg(lfe2, mm, flags, weight);
+        return MI_IS_ENABLED_RETRY; /* master must be running */
+      return satip_frontend_match_satcfg(lfe2, mm, flags, weight) ?
+             MI_IS_ENABLED_OK : MI_IS_ENABLED_RETRY;
     }
     if (lfe2->sf_master == lfe->sf_number) {
       if (lfe2->sf_running)
-        return satip_frontend_match_satcfg(lfe2, mm, flags, weight);
+        return satip_frontend_match_satcfg(lfe2, mm, flags, weight) ?
+               MI_IS_ENABLED_OK : MI_IS_ENABLED_RETRY;
     }
   }
-  return 1;
+  return MI_IS_ENABLED_OK;
 }
 
 static void
@@ -695,6 +699,10 @@ satip_frontend_update_pids
           mpegts_pid_add(&tr->sf_pids, mp->mp_pid, mps->mps_weight);
       }
     }
+    if (lfe->sf_device->sd_pids0)
+      mpegts_pid_add(&tr->sf_pids, 0, MPS_WEIGHT_PMT_SCAN);
+    if (lfe->sf_device->sd_pids21)
+      mpegts_pid_add(&tr->sf_pids, 21, MPS_WEIGHT_PMT_SCAN);
   }
   pthread_mutex_unlock(&lfe->sf_dvr_lock);
 

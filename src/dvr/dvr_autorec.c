@@ -167,13 +167,17 @@ autorec_cmp(dvr_autorec_entry_t *dae, epg_broadcast_t *e)
     if(dae->dae_brand)
       if (!e->episode->brand || dae->dae_brand != e->episode->brand) return 0;
   }
+
   if(dae->dae_btype != DVR_AUTOREC_BTYPE_ALL) {
     if (dae->dae_btype == DVR_AUTOREC_BTYPE_NEW && e->is_repeat)
       return 0;
     if (dae->dae_btype == DVR_AUTOREC_BTYPE_REPEAT && e->is_repeat == 0)
       return 0;
   }
-  if(dae->dae_title != NULL && dae->dae_title[0] != '\0') {
+
+  /* Do not check title if the event is from the serieslink group */
+  if(dae->dae_serieslink == NULL &&
+     dae->dae_title != NULL && dae->dae_title[0] != '\0') {
     lang_str_ele_t *ls;
     if (!dae->dae_fulltext) {
       if(!e->episode->title) return 0;
@@ -405,11 +409,11 @@ autorec_entry_destroy(dvr_autorec_entry_t *dae, int delconf)
     LIST_REMOVE(dae, dae_channel_tag_link);
 
   if(dae->dae_brand)
-    dae->dae_brand->putref(dae->dae_brand);
+    dae->dae_brand->ops->putref(dae->dae_brand);
   if(dae->dae_season)
-    dae->dae_season->putref(dae->dae_season);
+    dae->dae_season->ops->putref(dae->dae_season);
   if(dae->dae_serieslink)
-    dae->dae_serieslink->putref(dae->dae_serieslink);
+    dae->dae_serieslink->ops->putref(dae->dae_serieslink);
 
   free(dae);
 }
@@ -821,12 +825,12 @@ dvr_autorec_entry_class_brand_set(void *o, const void *v)
   brand = v ? epg_brand_find_by_uri(v, NULL, 1, &save, NULL) : NULL;
   if (brand && dae->dae_brand != brand) {
     if (dae->dae_brand)
-      dae->dae_brand->putref((epg_object_t*)dae->dae_brand);
-    brand->getref((epg_object_t*)brand);
+      dae->dae_brand->ops->putref((epg_object_t*)dae->dae_brand);
+    brand->ops->getref((epg_object_t*)brand);
     dae->dae_brand = brand;
     return 1;
   } else if (brand == NULL && dae->dae_brand) {
-    dae->dae_brand->putref((epg_object_t*)dae->dae_brand);
+    dae->dae_brand->ops->putref((epg_object_t*)dae->dae_brand);
     dae->dae_brand = NULL;
     return 1;
   }
@@ -857,12 +861,12 @@ dvr_autorec_entry_class_season_set(void *o, const void *v)
   season = v ? epg_season_find_by_uri(v, NULL, 1, &save, NULL) : NULL;
   if (season && dae->dae_season != season) {
     if (dae->dae_season)
-      dae->dae_season->putref((epg_object_t*)dae->dae_season);
-    season->getref((epg_object_t*)season);
+      dae->dae_season->ops->putref((epg_object_t*)dae->dae_season);
+    season->ops->getref((epg_object_t*)season);
     dae->dae_season = season;
     return 1;
   } else if (season == NULL && dae->dae_season) {
-    dae->dae_season->putref((epg_object_t*)dae->dae_season);
+    dae->dae_season->ops->putref((epg_object_t*)dae->dae_season);
     dae->dae_season = NULL;
     return 1;
   }
@@ -893,12 +897,12 @@ dvr_autorec_entry_class_series_link_set(void *o, const void *v)
   sl = v ? epg_serieslink_find_by_uri(v, NULL, 1, &save, NULL) : NULL;
   if (sl && dae->dae_serieslink != sl) {
     if (dae->dae_serieslink)
-      dae->dae_serieslink->putref((epg_object_t*)dae->dae_season);
-    sl->getref((epg_object_t*)sl);
+      dae->dae_serieslink->ops->putref((epg_object_t*)dae->dae_season);
+    sl->ops->getref((epg_object_t*)sl);
     dae->dae_serieslink = sl;
     return 1;
   } else if (sl == NULL && dae->dae_serieslink) {
-    dae->dae_season->putref((epg_object_t*)dae->dae_season);
+    dae->dae_season->ops->putref((epg_object_t*)dae->dae_season);
     dae->dae_season = NULL;
     return 1;
   }
@@ -1193,7 +1197,7 @@ const idclass_t dvr_autorec_entry_class = {
       .type     = PT_U32,
       .id       = "retention",
       .name     = N_("DVR log retention"),
-      .desc     = N_("Number of days to retain infomation about recording."),
+      .desc     = N_("Number of days to retain information about recording."),
       .def.i    = DVR_RET_REM_DVRCONFIG,
       .off      = offsetof(dvr_autorec_entry_t, dae_retention),
       .list     = dvr_entry_class_retention_list,
@@ -1513,11 +1517,6 @@ dvr_autorec_get_retention_days( dvr_autorec_entry_t *dae )
   if (dae->dae_retention > 0) {
     if (dae->dae_retention > DVR_RET_REM_FOREVER)
       return DVR_RET_REM_FOREVER;
-
-    uint32_t removal = dvr_autorec_get_removal_days(dae);
-    /* As we need the db entry when deleting the file on disk */
-    if (removal != DVR_RET_REM_FOREVER && removal > dae->dae_retention)
-      return DVR_RET_ONREMOVE;
 
     return dae->dae_retention;
   }

@@ -73,6 +73,7 @@ static ssize_t _write
         pthread_mutex_unlock(&tsf->ram_lock);
         return -1;
       }
+      memoryinfo_append(&timeshift_memoryinfo_ram, alloc);
       tsf->ram = ram;
       tsf->ram_size += alloc;
     }
@@ -248,6 +249,12 @@ static void _update_smt_start ( timeshift_t *ts, streaming_start_t *ss )
       ts->vididx = ss->ss_components[i].ssc_index;
       break;
     }
+  /* Update teletext index */
+  for (i = 0; i < ss->ss_num_components; i++)
+    if (ss->ss_components[i].ssc_type == SCT_TELETEXT) {
+      ts->teletextidx = ss->ss_components[i].ssc_index;
+      break;
+    }
 }
 
 /*
@@ -257,6 +264,7 @@ static void _handle_sstart ( timeshift_t *ts, timeshift_file_t *tsf, streaming_m
 {
   timeshift_index_data_t *ti = calloc(1, sizeof(timeshift_index_data_t));
 
+  memoryinfo_alloc(&timeshift_memoryinfo, sizeof(*ti));
   ti->pos  = tsf->size;
   ti->data = sm;
   TAILQ_INSERT_TAIL(&tsf->sstart, ti, link);
@@ -285,6 +293,7 @@ static inline ssize_t _process_msg0
       if (pkt->pkt_componentindex == ts->vididx &&
           pkt->pkt_frametype      == PKT_I_FRAME) {
         timeshift_index_iframe_t *ti = calloc(1, sizeof(timeshift_index_iframe_t));
+        memoryinfo_alloc(&timeshift_memoryinfo, sizeof(*ti));
         ti->pos  = tsf->size;
         ti->time = sm->sm_time;
         TAILQ_INSERT_TAIL(&tsf->iframes, ti, link);
@@ -310,8 +319,9 @@ static inline ssize_t _process_msg0
 static void _process_msg
   ( timeshift_t *ts, streaming_message_t *sm, int *run )
 {
-  int err;
+  int err, teletext = 0;
   timeshift_file_t *tsf;
+  th_pkt_t *pkt;
 
   /* Process */
   switch (sm->sm_type) {
@@ -340,12 +350,18 @@ static void _process_msg
       goto live;
 
     /* Store */
+    case SMT_PACKET:
+      if (timeshift_conf.teletext && sm->sm_type == SMT_PACKET) {
+        pkt = sm->sm_data;
+        teletext = pkt->pkt_componentindex == ts->teletextidx;
+      }
+      /* fall thru */
     case SMT_SIGNAL_STATUS:
     case SMT_START:
     case SMT_MPEGTS:
-    case SMT_PACKET:
       pthread_mutex_lock(&ts->state_mutex);
-      ts->buf_time = sm->sm_time;
+      if (!teletext) /* do not use time from teletext packets */
+        ts->buf_time = sm->sm_time;
       if (ts->state == TS_LIVE) {
         streaming_target_deliver2(ts->output, streaming_msg_clone(sm));
         if (sm->sm_type == SMT_PACKET)
@@ -353,7 +369,8 @@ static void _process_msg
       }
       if (sm->sm_type == SMT_START)
         _update_smt_start(ts, (streaming_start_t *)sm->sm_data);
-      if (ts->dobuf) {
+      /* do buffering, but without teletext packets */
+      if (ts->dobuf && !teletext) {
         if ((tsf = timeshift_filemgr_get(ts, sm->sm_time)) != NULL) {
           if (tsf->wfd >= 0 || tsf->ram) {
             if ((err = _process_msg0(ts, tsf, sm)) < 0) {

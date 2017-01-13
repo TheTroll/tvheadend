@@ -127,7 +127,6 @@ psip_update_table(psip_status_t *ps, uint16_t pid, int type)
     if (pt->pt_type != type && pt->pt_table) {
       mpegts_table_destroy(pt->pt_table);
       pt->pt_table = NULL;
-      ps->ps_refcount--;
       goto assign;
     }
     return pt;
@@ -719,7 +718,7 @@ static int _psip_start
   /* Listen for Master Guide Table */
   mt = mpegts_table_add(dm, DVB_ATSC_MGT_BASE, DVB_ATSC_MGT_MASK,
                         _psip_mgt_callback, ps, "mgt", LS_TBL_EIT,
-                        MT_CRC | MT_QUICKREQ | MT_RECORD,
+                        MT_CRC | MT_RECORD,
                         DVB_ATSC_MGT_PID, MPS_WEIGHT_MGT);
   if (mt && !mt->mt_destroy) {
     ps->ps_refcount++;

@@ -310,9 +310,9 @@ mpegts_service_enlist_raw
       continue;
 
     r = mi->mi_is_enabled(mi, mmi->mmi_mux, flags, weight);
-    if (!r)
+    if (r == MI_IS_ENABLED_NEVER)
       continue;
-    if (r < 0) {
+    if (r == MI_IS_ENABLED_RETRY) {
       /* temporary error - retry later */
       errcnt++;
       continue;
@@ -506,7 +506,7 @@ int64_t
 mpegts_service_channel_number ( service_t *s )
 {
   mpegts_service_t *ms = (mpegts_service_t*)s;
-  int r = 0;
+  int64_t r = 0;
 
   if (!ms->s_dvb_mux->mm_network->mn_ignore_chnum) {
     r = ms->s_dvb_channel_num * CHANNEL_SPLIT + ms->s_dvb_channel_minor;
@@ -736,6 +736,15 @@ mpegts_service_memoryinfo ( service_t *t, int64_t *size )
   *size += tvh_strlen(ms->s_dvb_charset);
 }
 
+static int
+mpegts_service_unseen( service_t *t, const char *type, time_t before )
+{
+  mpegts_service_t *ms = (mpegts_service_t*)t;
+  int pat = type && strcasecmp(type, "pat") == 0;
+  if (pat && ms->s_auto != SERVICE_AUTO_PAT_MISSING) return 0;
+  return ms->s_dvb_last_seen < before;
+}
+
 /* **************************************************************************
  * Creation/Location
  * *************************************************************************/
@@ -790,6 +799,7 @@ mpegts_service_create0
   s->s_mapped         = mpegts_service_mapped;
   s->s_satip_source   = mpegts_service_satip_source;
   s->s_memoryinfo     = mpegts_service_memoryinfo;
+  s->s_unseen         = mpegts_service_unseen;
 
   pthread_mutex_lock(&s->s_stream_mutex);
   service_make_nicename((service_t*)s);

@@ -38,6 +38,9 @@ static int timeshift_index = 0;
 
 struct timeshift_conf timeshift_conf;
 
+memoryinfo_t timeshift_memoryinfo = { .my_name = "Timeshift" };
+memoryinfo_t timeshift_memoryinfo_ram = { .my_name = "Timeshift RAM buffer" };
+
 /*
  * Packet log
  */
@@ -75,6 +78,9 @@ void timeshift_init ( void )
 {
   htsmsg_t *m;
 
+  memoryinfo_register(&timeshift_memoryinfo);
+  memoryinfo_register(&timeshift_memoryinfo_ram);
+
   timeshift_filemgr_init();
 
   /* Defaults */
@@ -101,6 +107,9 @@ void timeshift_term ( void )
   timeshift_filemgr_term();
   free(timeshift_conf.path);
   timeshift_conf.path = NULL;
+
+  memoryinfo_unregister(&timeshift_memoryinfo);
+  memoryinfo_unregister(&timeshift_memoryinfo_ram);
 }
 
 /*
@@ -278,6 +287,15 @@ const idclass_t timeshift_conf_class = {
       .off    = offsetof(timeshift_conf_t, ram_fit),
       .opts   = PO_EXPERT,
     },
+    {
+      .type   = PT_BOOL,
+      .id     = "teletext",
+      .name   = N_("Include teletext"),
+      .desc   = N_("Include the teletext stream to the timeshift buffer. It may cause "
+                   "issues for channels where the teletext DTS is invalid."),
+      .off    = offsetof(timeshift_conf_t, teletext),
+      .opts   = PO_EXPERT,
+    },
     {}
   }
 };
@@ -418,7 +436,9 @@ timeshift_destroy(streaming_target_t *pad)
 
   if (ts->path)
     free(ts->path);
+
   free(ts);
+  memoryinfo_free(&timeshift_memoryinfo, sizeof(timeshift_t));
 }
 
 /**
@@ -431,6 +451,8 @@ streaming_target_t *timeshift_create
   (streaming_target_t *out, time_t max_time)
 {
   timeshift_t *ts = calloc(1, sizeof(timeshift_t));
+
+  memoryinfo_alloc(&timeshift_memoryinfo, sizeof(timeshift_t));
 
   /* Must hold global lock */
   lock_assert(&global_lock);
