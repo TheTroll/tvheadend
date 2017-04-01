@@ -342,7 +342,7 @@ http_send_header(http_connection_t *hc, int rc, const char *content,
     if (config.cors_origin && config.cors_origin[0]) {
       htsbuf_qprintf(&hdrs, "Access-Control-Allow-Origin: %s\r\n", config.cors_origin);
       htsbuf_append_str(&hdrs, "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n");
-      htsbuf_append_str(&hdrs, "Access-Control-Allow-Headers: x-requested-with\r\n");
+      htsbuf_append_str(&hdrs, "Access-Control-Allow-Headers: x-requested-with,authorization\r\n");
     }
   }
   
@@ -394,9 +394,11 @@ http_send_header(http_connection_t *hc, int rc, const char *content,
     }
   }
   if (hc->hc_logout_cookie == 1) {
-    htsbuf_append_str(&hdrs, "Set-Cookie: logout=1; Path=\"/logout\"\r\n");
+    htsbuf_qprintf(&hdrs, "Set-Cookie: logout=1; Path=\"%s/logout\"\r\n",
+                   tvheadend_webroot ? tvheadend_webroot : "");
   } else if (hc->hc_logout_cookie == 2) {
-    htsbuf_append_str(&hdrs, "Set-Cookie: logout=0; Path=\"/logout'\"; expires=Thu, 01 Jan 1970 00:00:00 GMT\r\n");
+    htsbuf_qprintf(&hdrs, "Set-Cookie: logout=0; Path=\"%s/logout'\"; expires=Thu, 01 Jan 1970 00:00:00 GMT\r\n",
+                   tvheadend_webroot ? tvheadend_webroot : "");
   }
 
   if (hc->hc_version != RTSP_VERSION_1_0)
@@ -585,7 +587,7 @@ http_error(http_connection_t *hc, int error)
                    error, errtxt, error, errtxt);
 
     if (error == HTTP_STATUS_UNAUTHORIZED)
-      htsbuf_qprintf(&hc->hc_reply, "<P><A HREF=\"%s/\">Default Login</A></P>",
+      htsbuf_qprintf(&hc->hc_reply, "<P><A HREF=\"%s/logout\">Default Login</A></P>",
                      tvheadend_webroot ? tvheadend_webroot : "");
 
     htsbuf_append_str(&hc->hc_reply, "</BODY></HTML>\r\n");

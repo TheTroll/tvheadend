@@ -299,14 +299,17 @@ typedef enum {
   DVR_AUTOREC_RECORD_DIFFERENT_EPISODE_NUMBER = 1,
   DVR_AUTOREC_RECORD_DIFFERENT_SUBTITLE = 2,
   DVR_AUTOREC_RECORD_DIFFERENT_DESCRIPTION = 3,
+  DVR_AUTOREC_RECORD_ONCE_PER_MONTH = 12,
   DVR_AUTOREC_RECORD_ONCE_PER_WEEK = 4,
   DVR_AUTOREC_RECORD_ONCE_PER_DAY = 5,
   DVR_AUTOREC_LRECORD_DIFFERENT_EPISODE_NUMBER = 6,
   DVR_AUTOREC_LRECORD_DIFFERENT_TITLE = 7,
   DVR_AUTOREC_LRECORD_DIFFERENT_SUBTITLE = 8,
   DVR_AUTOREC_LRECORD_DIFFERENT_DESCRIPTION = 9,
+  DVR_AUTOREC_LRECORD_ONCE_PER_MONTH = 13,
   DVR_AUTOREC_LRECORD_ONCE_PER_WEEK = 10,
   DVR_AUTOREC_LRECORD_ONCE_PER_DAY = 11,
+  /* last free value == 14 */
 } dvr_autorec_dedup_t;
 
 typedef enum {
@@ -622,6 +625,7 @@ void dvr_spawn_cmd(dvr_entry_t *de, const char *cmd, const char *filename, int p
 void dvr_vfs_refresh_entry(dvr_entry_t *de);
 void dvr_vfs_remove_entry(dvr_entry_t *de);
 int64_t dvr_vfs_update_filename(const char *filename, htsmsg_t *fdata);
+int64_t dvr_vfs_rec_start_check(dvr_config_t *cfg);
 
 void dvr_disk_space_boot(void);
 void dvr_disk_space_init(void);

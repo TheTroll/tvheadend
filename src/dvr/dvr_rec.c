@@ -184,6 +184,7 @@ void
 dvr_rec_unsubscribe(dvr_entry_t *de)
 {
   profile_chain_t *prch = de->de_chain;
+  char *postproc = NULL;
 
   assert(de->de_s != NULL);
   assert(prch != NULL);
@@ -192,7 +193,12 @@ dvr_rec_unsubscribe(dvr_entry_t *de)
 
   atomic_add(&de->de_thread_shutdown, 1);
 
-  pthread_join(de->de_thread, NULL);
+  pthread_join(de->de_thread, (void **)&postproc);
+
+  if (prch->prch_muxer)
+    dvr_thread_epilog(de, postproc);
+
+  free(postproc);
 
   subscription_unsubscribe(de->de_s, UNSUBSCRIBE_FINAL);
   de->de_s = NULL;
@@ -952,6 +958,11 @@ dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
     return -1;
   }
 
+  if (!dvr_vfs_rec_start_check(cfg)) {
+    dvr_rec_fatal_error(de, "Not enough free disk space");
+    return SM_CODE_NO_SPACE;
+  }
+
   if (!(muxer = prch->prch_muxer)) {
     if (profile_chain_reopen(prch, &cfg->dvr_muxcnf, 0)) {
       dvr_rec_fatal_error(de, "Unable to reopen muxer");
@@ -1196,11 +1207,14 @@ dvr_thread_rec_start(dvr_entry_t **_de, streaming_start_t *ss,
 
     // Try to restart the recording if the muxer doesn't
     // support reconfiguration of the streams.
+    if (!dvr_thread_global_lock(de, run)) {
+      *dts_offset = PTS_UNSET;
+      *started = 0;
+      return 0;
+    }
     dvr_thread_epilog(de, postproc);
     *dts_offset = PTS_UNSET;
     *started = 0;
-    if (!dvr_thread_global_lock(de, run))
-      return 0;
     if (de->de_config->dvr_clone)
       *_de = dvr_entry_clone(de);
     dvr_thread_global_unlock(de);
@@ -1211,11 +1225,12 @@ dvr_thread_rec_start(dvr_entry_t **_de, streaming_start_t *ss,
     if (!dvr_thread_global_lock(de, run))
       return 0;
     dvr_rec_set_state(de, DVR_RS_WAIT_PROGRAM_START, 0);
-    if(dvr_rec_start(de, ss) == 0) {
+    int code = dvr_rec_start(de, ss);
+    if(code == 0) {
       ret = 1;
       *started = 1;
     } else
-      dvr_stop_recording(de, SM_CODE_INVALID_TARGET, 1, 0);
+      dvr_stop_recording(de, code == SM_CODE_NO_SPACE ? SM_CODE_NO_SPACE : SM_CODE_INVALID_TARGET, 1, 0);
     dvr_thread_global_unlock(de);
   }
   return ret;
@@ -1476,7 +1491,10 @@ dvr_thread(void *aux)
 
 fin:
         streaming_queue_clear(&backlog);
-	dvr_thread_epilog(de, postproc);
+        if (!dvr_thread_global_lock(de, &run))
+          break;
+        dvr_thread_epilog(de, postproc);
+        dvr_thread_global_unlock(de);
 	start_time = 0;
 	started = 0;
 	muxing = 0;
@@ -1541,14 +1559,10 @@ fin:
 
   streaming_queue_clear(&backlog);
 
-  if (prch->prch_muxer)
-    dvr_thread_epilog(de, postproc);
-
   if (ss)
     streaming_start_unref(ss);
 
-  free(postproc);
-  return NULL;
+  return postproc;
 }
 
 /**
@@ -1605,6 +1619,8 @@ dvr_thread_epilog(dvr_entry_t *de, const char *dvr_postproc)
   profile_chain_t *prch = de->de_chain;
   htsmsg_t *e;
   htsmsg_field_t *f;
+
+  lock_assert(&global_lock);
 
   if (prch == NULL)
     return;

@@ -244,7 +244,7 @@ descrambler_service_start ( service_t *t )
   if (t->s_scrambled_pass)
     return;
 
-  if (!((mpegts_service_t *)t)->s_dvb_forcecaid) {
+  if (!t->s_dvb_forcecaid) {
 
     count = 0;
     TAILQ_FOREACH(st, &t->s_filt_components, es_filt_link)
@@ -266,7 +266,7 @@ descrambler_service_start ( service_t *t )
 
     if (constcw_table) {
       for (p = constcw_table; *p; p++)
-        if (*p == ((mpegts_service_t *)t)->s_dvb_forcecaid) {
+        if (*p == t->s_dvb_forcecaid) {
           constcw = 1;
           break;
         }
@@ -288,11 +288,19 @@ descrambler_service_start ( service_t *t )
     dr->dr_force_skip = 0;
     tvhcsa_init(&dr->dr_csa);
   }
-  caclient_start(t);
+
+  if (t->s_dvb_forcecaid != 0xffff)
+    caclient_start(t);
 
 #if ENABLE_LINUXDVB_CA
   dvbcam_service_start(t);
 #endif
+
+  if (t->s_dvb_forcecaid == 0xffff) {
+    pthread_mutex_lock(&t->s_stream_mutex);
+    descrambler_external(t, 1);
+    pthread_mutex_unlock(&t->s_stream_mutex);
+  }
 }
 
 void
@@ -685,7 +693,7 @@ descrambler_descramble ( service_t *t,
 
   if (dr == NULL || dr->dr_external) {
     if ((tsb[3] & 0x80) == 0) {
-      ts_recv_packet2((mpegts_service_t *)t, tsb, len);
+      ts_recv_packet0((mpegts_service_t *)t, st, tsb, len);
       return 1;
     }
     return dr && dr->dr_external ? 1 : -1;
@@ -693,7 +701,7 @@ descrambler_descramble ( service_t *t,
 
   if (dr->dr_csa.csa_type == DESCRAMBLER_NONE && dr->dr_queue_total == 0)
     if ((tsb[3] & 0x80) == 0) {
-      ts_recv_packet2((mpegts_service_t *)t, tsb, len);
+      ts_recv_packet0((mpegts_service_t *)t, st, tsb, len);
       return 1;
     }
 
@@ -915,15 +923,15 @@ descrambler_table_callback
                    ptr[0], des->number, len, mt->mt_pid);
       } else {
         if (len >= 18)
-          tvhtrace(LS_DESCRAMBLER, "EMM message %02x:{%02x:%02x}:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x (len %d, pid %d)",
+          tvhtrace(LS_DESCRAMBLER_EMM, "EMM message %02x:{%02x:%02x}:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x (len %d, pid %d)",
                    ptr[0], ptr[1], ptr[2], ptr[3], ptr[4], ptr[5], ptr[6], ptr[7],
                    ptr[8], ptr[9], ptr[10], ptr[11], ptr[12], ptr[13], ptr[14], ptr[15],
                    ptr[16], ptr[17], len, mt->mt_pid);
         else if (len >= 6)
-          tvhtrace(LS_DESCRAMBLER, "EMM message %02x:{%02x:%02x}:%02x:%02x:%02x (len %d, pid %d)",
+          tvhtrace(LS_DESCRAMBLER_EMM, "EMM message %02x:{%02x:%02x}:%02x:%02x:%02x (len %d, pid %d)",
                    ptr[0], ptr[1], ptr[2], ptr[3], ptr[4], ptr[5], len, mt->mt_pid);
         else if (len >= 4)
-          tvhtrace(LS_DESCRAMBLER, "EMM message %02x:{%02x:%02x}:%02x (len %d, pid %d)",
+          tvhtrace(LS_DESCRAMBLER_EMM, "EMM message %02x:{%02x:%02x}:%02x (len %d, pid %d)",
                    ptr[0], ptr[1], ptr[2], ptr[3], len, mt->mt_pid);
       }
     }

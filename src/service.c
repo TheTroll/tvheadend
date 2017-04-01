@@ -1332,6 +1332,10 @@ int
 service_is_encrypted(service_t *t)
 {
   elementary_stream_t *st;
+  if (((mpegts_service_t *)t)->s_dvb_forcecaid == 0xffff)
+    return 0;
+  if (((mpegts_service_t *)t)->s_dvb_forcecaid)
+    return 1;
   TAILQ_FOREACH(st, &t->s_components, es_link)
     if (st->es_type == SCT_CA)
       return 1;
@@ -1770,10 +1774,10 @@ tss2errcode(int tss)
 void
 service_refresh_channel(service_t *t)
 {
-#if 0
-  if(t->s_ch != NULL)
-    htsp_channel_update(t->s_ch);
-#endif
+  idnode_list_mapping_t *ilm;
+  LIST_FOREACH(ilm, &t->s_channels, ilm_in1_link) {
+    htsp_channel_update((channel_t *)ilm->ilm_in2);
+  }
 }
 
 

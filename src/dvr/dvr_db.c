@@ -645,6 +645,8 @@ dvr_entry_status(dvr_entry_t *de)
         return N_("User access error");
       case SM_CODE_USER_LIMIT:
         return N_("User limit reached");
+      case SM_CODE_NO_SPACE:
+        return streaming_code2txt(de->de_last_error);
       default:
         break;
     }
@@ -658,7 +660,7 @@ dvr_entry_status(dvr_entry_t *de)
       return N_("Completed OK");
 
   case DVR_MISSED_TIME:
-    if (de->de_last_error == SM_CODE_SVC_NOT_ENABLED)
+    if (de->de_last_error == SM_CODE_SVC_NOT_ENABLED || de->de_last_error == SM_CODE_NO_SPACE)
       return streaming_code2txt(de->de_last_error);
     return N_("Time missed");
 
@@ -1240,6 +1242,19 @@ static int _dvr_duplicate_desc(dvr_entry_t *de, dvr_entry_t *de2, void **aux)
   return !lang_str_compare(de->de_desc, de2->de_desc);
 }
 
+static int _dvr_duplicate_per_month(dvr_entry_t *de, dvr_entry_t *de2, void **aux)
+{
+  struct tm *de1_start = *aux, de2_start;
+  if (de1_start == NULL) {
+    de1_start = calloc(1, sizeof(*de1_start));
+    localtime_r(&de->de_start, de1_start);
+    *aux = de1_start;
+  }
+  localtime_r(&de2->de_start, &de2_start);
+  return de1_start->tm_year == de2_start.tm_year &&
+         de1_start->tm_mon == de2_start.tm_mon;
+}
+
 static int _dvr_duplicate_per_week(dvr_entry_t *de, dvr_entry_t *de2, void **aux)
 {
   struct tm *de1_start = *aux, de2_start;
@@ -1283,6 +1298,8 @@ static dvr_entry_t *_dvr_duplicate_event(dvr_entry_t *de)
     [DVR_AUTOREC_LRECORD_DIFFERENT_SUBTITLE]       = _dvr_duplicate_subtitle,
     [DVR_AUTOREC_RECORD_DIFFERENT_DESCRIPTION]     = _dvr_duplicate_desc,
     [DVR_AUTOREC_LRECORD_DIFFERENT_DESCRIPTION]    = _dvr_duplicate_desc,
+    [DVR_AUTOREC_RECORD_ONCE_PER_MONTH]            = _dvr_duplicate_per_month,
+    [DVR_AUTOREC_LRECORD_ONCE_PER_MONTH]           = _dvr_duplicate_per_month,
     [DVR_AUTOREC_RECORD_ONCE_PER_WEEK]             = _dvr_duplicate_per_week,
     [DVR_AUTOREC_LRECORD_ONCE_PER_WEEK]            = _dvr_duplicate_per_week,
     [DVR_AUTOREC_RECORD_ONCE_PER_DAY]              = _dvr_duplicate_per_day,
@@ -1324,6 +1341,9 @@ static dvr_entry_t *_dvr_duplicate_event(dvr_entry_t *de)
       break;
     case DVR_AUTOREC_RECORD_ONCE_PER_WEEK:
     case DVR_AUTOREC_LRECORD_ONCE_PER_WEEK:
+      break;
+    case DVR_AUTOREC_RECORD_ONCE_PER_MONTH:
+    case DVR_AUTOREC_LRECORD_ONCE_PER_MONTH:
       break;
     case DVR_AUTOREC_LRECORD_DIFFERENT_TITLE:
       break;

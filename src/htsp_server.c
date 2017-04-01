@@ -1310,6 +1310,7 @@ htsp_method_authenticate(htsp_connection_t *htsp, htsmsg_t *in)
     htsmsg_add_u32(r, "admin",          htsp->htsp_granted_access->aa_rights & ACCESS_ADMIN ? 1 : 0);
     htsmsg_add_u32(r, "streaming",      htsp->htsp_granted_access->aa_rights & ACCESS_HTSP_STREAMING ? 1 : 0);
     htsmsg_add_u32(r, "dvr",            htsp->htsp_granted_access->aa_rights & ACCESS_HTSP_RECORDER ? 1 : 0);
+    htsmsg_add_u32(r, "faileddvr",      htsp->htsp_granted_access->aa_rights & ACCESS_FAILED_RECORDER ? 1 : 0);
     htsmsg_add_u32(r, "anonymous",      htsp->htsp_granted_access->aa_rights & ACCESS_HTSP_ANONYMIZE ? 1 : 0);
     htsmsg_add_u32(r, "limitall",       htsp->htsp_granted_access->aa_conn_limit);
     htsmsg_add_u32(r, "limitdvr",       htsp->htsp_granted_access->aa_conn_limit_dvr);
@@ -4155,6 +4156,7 @@ _htsp_get_subscription_status(int smcode)
   case SM_CODE_NO_FREE_ADAPTER:
   case SM_CODE_NO_ADAPTERS:
     return "noFreeAdapter";
+  case SM_CODE_NO_ACCESS:
   case SM_CODE_NO_DESCRAMBLER:
     return "scrambled";
   case SM_CODE_NO_INPUT:
@@ -4174,6 +4176,8 @@ _htsp_get_subscription_status(int smcode)
     return "userLimit";
   case SM_CODE_WEAK_STREAM:
     return "weakStream";
+  case SM_CODE_NO_SPACE:
+    return "noDiskSpace";
   default:
     return streaming_code2txt(smcode);
   }

@@ -119,7 +119,6 @@ udp_get_ifindex( const char *ifname )
   return r;
 }
 
-#if defined(PLATFORM_DARWIN)
 static int
 udp_get_ifaddr( int fd, const char *ifname, struct in_addr *addr )
 {
@@ -138,7 +137,6 @@ udp_get_ifaddr( int fd, const char *ifname, struct in_addr *addr )
          sizeof(struct in_addr));
   return 0;
 }
-#endif
 
 static int
 udp_get_solip( void )
@@ -154,7 +152,7 @@ udp_get_solip( void )
 
 udp_connection_t *
 udp_bind ( int subsystem, const char *name,
-           const char *bindaddr, int port,
+           const char *bindaddr, int port, const char *multicast_src,
            const char *ifname, int rxsize, int txsize )
 {
   int fd, ifindex, reuse = 1;
@@ -204,13 +202,6 @@ udp_bind ( int subsystem, const char *name,
 
   /* IPv4 */
   if (uc->ip.ss_family == AF_INET) {
-#if defined(PLATFORM_DARWIN)
-    struct ip_mreq       m;
-#else
-    struct ip_mreqn      m;
-#endif
-    memset(&m,   0, sizeof(m));
-
     /* Bind */
     if (bind(fd, (struct sockaddr *)&uc->ip, sizeof(struct sockaddr_in))) {
       inet_ntop(AF_INET, &IP_AS_V4(uc->ip, addr), buf, sizeof(buf));
@@ -220,23 +211,61 @@ udp_bind ( int subsystem, const char *name,
     }
 
     if (uc->multicast) {
-      /* Join group */
-      m.imr_multiaddr      = IP_AS_V4(uc->ip, addr);
-#if !defined(PLATFORM_DARWIN)
-      m.imr_address.s_addr = 0;
-      m.imr_ifindex        = ifindex;
-#else
-      if (udp_get_ifaddr(fd, ifname, &m.imr_interface) == -1) {
-        tvherror(subsystem, "%s - cannot find ip address for interface %s [e=%s]",
-                 name, ifname,  strerror(errno));
-        goto error;
+      /* Join multicast group */
+      if (multicast_src) {
+        /* Join with specific source address (SSM) */
+        struct ip_mreq_source ms;
+        memset(&ms, 0, sizeof(ms));
+
+        ms.imr_multiaddr = IP_AS_V4(uc->ip, addr);
+
+        /* Note, ip_mreq_source does not support the ifindex parameter,
+           so we have to resolve to the ip of the interface on all platforms. */
+        if (udp_get_ifaddr(fd, ifname, &ms.imr_interface) == -1) {
+          tvherror(subsystem, "%s - cannot find ip address for interface %s [e=%s]",
+                   name, ifname,  strerror(errno));
+          goto error;
+        }
+
+        if (inet_pton(AF_INET, multicast_src, &ms.imr_sourceaddr) < 1) {
+          tvherror(subsystem, "%s - invalid ipv4 address '%s' specified as multicast source [e=%s]",
+                   name, multicast_src,  strerror(errno));
+          goto error;
+        }
+
+        if (setsockopt(fd, udp_get_solip(), IP_ADD_SOURCE_MEMBERSHIP,
+                       &ms, sizeof(ms)) < 0) {
+          tvherror(subsystem, "%s - setsockopt IP_ADD_SOURCE_MEMBERSHIP failed [e=%s]",
+                   name,  strerror(errno));
+          goto error;
+        }
       }
+      else {
+        /* Standard multicast join (non-SSM) */
+#if defined(PLATFORM_DARWIN)
+        struct ip_mreq       m;
+#else
+        struct ip_mreqn      m;
+#endif
+        memset(&m,   0, sizeof(m));
+
+        m.imr_multiaddr      = IP_AS_V4(uc->ip, addr);
+#if !defined(PLATFORM_DARWIN)
+        m.imr_address.s_addr = 0;
+        m.imr_ifindex        = ifindex;
+#else
+        if (udp_get_ifaddr(fd, ifname, &m.imr_interface) == -1) {
+          tvherror(subsystem, "%s - cannot find ip address for interface %s [e=%s]",
+                   name, ifname,  strerror(errno));
+          goto error;
+        }
 #endif
 
-      if (setsockopt(fd, udp_get_solip(), IP_ADD_MEMBERSHIP, &m, sizeof(m))) {
-        inet_ntop(AF_INET, &m.imr_multiaddr, buf, sizeof(buf));
-        tvhwarn(subsystem, "%s - cannot join %s [%s]",
-                name, buf, strerror(errno));
+        if (setsockopt(fd, udp_get_solip(), IP_ADD_MEMBERSHIP, &m, sizeof(m))) {
+          inet_ntop(AF_INET, &m.imr_multiaddr, buf, sizeof(buf));
+          tvhwarn(subsystem, "%s - cannot join %s [%s]",
+                  name, buf, strerror(errno));
+        }
       }
    }
 
@@ -309,13 +338,13 @@ udp_bind_double ( udp_connection_t **_u1, udp_connection_t **_u2,
 
   memset(&ucs, 0, sizeof(ucs));
   while (1) {
-    u1 = udp_bind(subsystem, name1, host, port, ifname, rxsize1, txsize1);
+    u1 = udp_bind(subsystem, name1, host, port, NULL, ifname, rxsize1, txsize1);
     if (u1 == NULL || u1 == UDP_FATAL_ERROR)
       goto fail;
     port2 = ntohs(IP_PORT(u1->ip));
     /* RTP port should be even, RTCP port should be odd */
     if ((port2 % 2) == 0) {
-      u2 = udp_bind(subsystem, name2, host, port2 + 1, ifname, rxsize2, txsize2);
+      u2 = udp_bind(subsystem, name2, host, port2 + 1, NULL, ifname, rxsize2, txsize2);
       if (u2 != NULL && u2 != UDP_FATAL_ERROR)
         break;
     }

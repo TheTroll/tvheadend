@@ -303,6 +303,7 @@ typedef struct service {
   int s_auto;
   int s_prio;
   int s_type_user;
+  int s_pts_shift; // in ms (may be negative)
 
   LIST_ENTRY(service) s_active_link;
 
@@ -457,6 +458,7 @@ typedef struct service {
    * Descrambling support
    */
 
+  uint16_t s_dvb_forcecaid;
   struct th_descrambler_list s_descramblers;
   uint8_t s_scrambled_seen;
   uint8_t s_scrambled_pass;

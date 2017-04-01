@@ -149,9 +149,15 @@ const idclass_t iptv_input_class = {
   }
 };
 
+typedef struct {
+  uint32_t active:1;
+  uint32_t weight:1;
+  uint32_t warm:1;
+} iptv_is_free_t;
+
 static mpegts_mux_instance_t *
 iptv_input_is_free ( mpegts_input_t *mi, mpegts_mux_t *mm,
-                     int active, int weight, int *lweight )
+                     iptv_is_free_t *conf, int weight, int *lweight )
 {
   int h = 0, l = 0, w, rw = INT_MAX;
   mpegts_mux_instance_t *mmi, *rmmi = NULL;
@@ -161,13 +167,15 @@ iptv_input_is_free ( mpegts_input_t *mi, mpegts_mux_t *mm,
   LIST_FOREACH(mmi, &mi->mi_mux_active, mmi_active_link)
     if (mmi->mmi_mux->mm_network == (mpegts_network_t *)in) {
       w = mpegts_mux_instance_weight(mmi);
-      if (w < rw && (!active || mmi->mmi_mux != mm)) {
+      if (w < rw && (!conf->active || mmi->mmi_mux != mm)) {
         rmmi = mmi;
         rw = w;
       }
       if (w >= weight) h++; else l++;
     }
   pthread_mutex_unlock(&mi->mi_output_lock);
+
+  tvhtrace(LS_IPTV_SUB, "is free[%p]: h = %d, l = %d, rw = %d", mm, h, l, rw);
 
   if (lweight)
     *lweight = rw == INT_MAX ? 0 : rw;
@@ -176,12 +184,15 @@ iptv_input_is_free ( mpegts_input_t *mi, mpegts_mux_t *mm,
     return NULL;
 
   /* Limit reached */
-  if (in->in_max_streams && h >= in->in_max_streams)
+  w = h;
+  if (conf->warm) w += l;
+  if (conf->weight) w++;
+  if (in->in_max_streams && w >= in->in_max_streams)
     if (rmmi->mmi_mux != mm)
       return rmmi;
   
   /* Bandwidth reached */
-  if (in->in_bw_limited)
+  if (in->in_bw_limited && l == 0)
     if (rmmi->mmi_mux != mm)
       return rmmi;
 
@@ -192,22 +203,32 @@ static int
 iptv_input_is_enabled
   ( mpegts_input_t *mi, mpegts_mux_t *mm, int flags, int weight )
 {
-  if (mpegts_input_is_enabled(mi, mm, flags, weight) == MI_IS_ENABLED_NEVER)
-    return MI_IS_ENABLED_NEVER;
-  return iptv_input_is_free(mi, mm, 0, weight, NULL) == NULL ?
-         MI_IS_ENABLED_OK : MI_IS_ENABLED_RETRY;
+  int r;
+  mpegts_mux_instance_t *mmi;
+  iptv_is_free_t conf = { .active = 0, .weight = 0, .warm = 0 };
+
+  r = mpegts_input_is_enabled(mi, mm, flags, weight);
+  if (r != MI_IS_ENABLED_OK) {
+    tvhtrace(LS_IPTV_SUB, "enabled[%p]: generic %d", mm, r);
+    return r;
+  }
+  mmi = iptv_input_is_free(mi, mm, &conf, weight, NULL);
+  tvhtrace(LS_IPTV_SUB, "enabled[%p]: free %p", mm, mmi);
+  return mmi == NULL ? MI_IS_ENABLED_OK : MI_IS_ENABLED_RETRY;
 }
 
 static int
-iptv_input_get_weight ( mpegts_input_t *mi, mpegts_mux_t *mm, int flags, int weight )
+iptv_input_get_weight
+  ( mpegts_input_t *mi, mpegts_mux_t *mm, int flags, int weight )
 {
   int w;
+  mpegts_mux_instance_t *mmi;
+  iptv_is_free_t conf = { .active = 1, .weight = 1, .warm = 0 };
 
   /* Find the "min" weight */
-  if (iptv_input_is_free(mi, mm, 1, weight, &w) == NULL)
-    w = 0;
-
-  return w;
+  mmi = iptv_input_is_free(mi, mm, &conf, weight, &w);
+  tvhtrace(LS_IPTV_SUB, "get weight[%p]: %p (%d)", mm, mmi, w);
+  return mmi == NULL ? 0 : w;
 
 }
 
@@ -238,13 +259,15 @@ iptv_input_warm_mux ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi )
 {
   iptv_mux_t *im = (iptv_mux_t*)mmi->mmi_mux;
   mpegts_mux_instance_t *lmmi;
+  iptv_is_free_t conf = { .active = 1, .weight = 0, .warm = 1 };
 
   /* Already active */
   if (im->mm_active)
     return 0;
 
   /* Do we need to stop something? */
-  lmmi = iptv_input_is_free(mi, mmi->mmi_mux, 1, mmi->mmi_start_weight, NULL);
+  lmmi = iptv_input_is_free(mi, mmi->mmi_mux, &conf, mmi->mmi_start_weight, NULL);
+  tvhtrace(LS_IPTV_SUB, "warm mux[%p]: %p (%d)", im, lmmi, mmi->mmi_start_weight);
   if (lmmi) {
     /* Stop */
     lmmi->mmi_mux->mm_stop(lmmi->mmi_mux, 1, SM_CODE_ABORTED);
@@ -560,7 +583,9 @@ iptv_input_recv_packets ( iptv_mux_t *im, ssize_t len )
       return 1;
     }
     mpegts_input_recv_packets((mpegts_input_t*)iptv_input, mmi,
-                              &im->mm_iptv_buffer, 0, &pcr);
+                              &im->mm_iptv_buffer,
+                              in->in_remove_scrambled_bits ?
+                                MPEGTS_DATA_REMOVE_SCRAMBLED : 0, &pcr);
     if (pcr.pcr_first != PTS_UNSET && pcr.pcr_last != PTS_UNSET) {
       im->im_pcr_pid = pcr.pcr_pid;
       if (im->im_pcr == PTS_UNSET) {
@@ -787,6 +812,17 @@ const idclass_t iptv_network_class = {
       .off      = offsetof(iptv_network_t, in_icon_url),
       .set      = iptv_network_class_icon_url_set,
       .opts     = PO_MULTILINE | PO_ADVANCED
+    },
+    {
+      .type     = PT_BOOL,
+      .id       = "remove_scrambled",
+      .name     = N_("Remove scrambled bits"),
+      .desc     = N_("The scrambled bits in MPEG-TS packets are always cleared. "
+                     "It is a workaround for the special streams which are "
+                     "descrambled, but these bits are not touched."),
+      .off      = offsetof(iptv_network_t, in_remove_scrambled_bits),
+      .def.i    = 1,
+      .opts     = PO_EXPERT,
     },
     {
       .id       = "autodiscovery",

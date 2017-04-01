@@ -134,7 +134,8 @@ struct mpegts_pcr {
   uint16_t pcr_pid;
 };
 
-#define MPEGTS_DATA_CC_RESTART (1<<0)
+#define MPEGTS_DATA_CC_RESTART		(1<<0)
+#define MPEGTS_DATA_REMOVE_SCRAMBLED	(1<<1)
 
 typedef int (*mpegts_table_callback_t)
   ( mpegts_table_t*, const uint8_t *buf, int len, int tableid );
@@ -578,7 +579,6 @@ struct mpegts_service
   char    *s_dvb_charset;
   uint16_t s_dvb_prefcapid;
   int      s_dvb_prefcapid_lock;
-  uint16_t s_dvb_forcecaid;
   time_t   s_dvb_created;
   time_t   s_dvb_last_seen;
   time_t   s_dvb_check_seen;
@@ -711,6 +711,7 @@ struct mpegts_input
   TAILQ_HEAD(,mpegts_packet)      mi_input_queue;
   uint64_t                        mi_input_queue_size;
   tvhlog_limit_t                  mi_input_queue_loglimit;
+  int                             mi_remove_scrambled_bits;
 
   /* Data processing/output */
   // Note: this lock (mi_output_lock) protects all the remaining
@@ -851,6 +852,9 @@ static inline mpegts_network_t *mpegts_network_find(const char *uuid)
 
 mpegts_mux_t *mpegts_network_find_mux
   (mpegts_network_t *mn, uint16_t onid, uint16_t tsid, int check);
+
+mpegts_service_t *mpegts_network_find_active_service
+  (mpegts_network_t *mn, uint16_t sid, mpegts_mux_t **rmm);
 
 void mpegts_network_class_delete ( const idclass_t *idc, int delconf );
 

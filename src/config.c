@@ -36,17 +36,8 @@
 #include "input/mpegts/scanfile.h"
 
 #include <netinet/ip.h>
-
-#ifndef IPTOS_CLASS_CS0
-#define IPTOS_CLASS_CS0                 0x00
-#define IPTOS_CLASS_CS1                 0x20
-#define IPTOS_CLASS_CS2                 0x40
-#define IPTOS_CLASS_CS3                 0x60
-#define IPTOS_CLASS_CS4                 0x80
-#define IPTOS_CLASS_CS5                 0xa0
-#define IPTOS_CLASS_CS6                 0xc0
-#define IPTOS_CLASS_CS7                 0xe0
-#endif
+#define COMPAT_IPTOS
+#include "compat.h"
 
 static void config_muxconfpath_notify ( void *o, const char *lang );
 
@@ -2353,7 +2344,7 @@ const idclass_t config_class = {
       .type   = PT_INT,
       .id     = "chiconscheme",
       .name   = N_("Channel icon name scheme"),
-      .desc   = N_("Scheme to generate the the channel icon names "
+      .desc   = N_("Scheme to generate the channel icon names "
                    "(all lower-case, service name picons etc.)."),
       .list   = config_class_chiconscheme_list,
       .doc    = prop_doc_config_channelname_scheme,
@@ -2409,7 +2400,7 @@ const idclass_t config_class = {
 
 const char *config_get_server_name ( void )
 {
-  return config.server_name;
+  return config.server_name ?: "Tvheadend";
 }
 
 const char *config_get_language ( void )
