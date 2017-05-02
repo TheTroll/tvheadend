@@ -310,6 +310,7 @@ stream_clean(elementary_stream_t *st)
 
   tvhlog_limit_reset(&st->es_cc_log);
   tvhlog_limit_reset(&st->es_pes_log);
+  tvhlog_limit_reset(&st->es_pcr_log);
 }
 
 /**
@@ -704,7 +705,8 @@ service_start(service_t *t, int instance, int weight, int flags,
   pthread_mutex_lock(&t->s_stream_mutex);
 
   t->s_status = SERVICE_RUNNING;
-  t->s_current_pts = PTS_UNSET;
+  t->s_current_pcr = PTS_UNSET;
+  t->s_candidate_pcr = PTS_UNSET;
 
   /**
    * Initialize stream
@@ -739,13 +741,19 @@ service_find_instance
   idnode_list_mapping_t *ilm;
   service_instance_t *si, *next;
   profile_t *pro = prch ? prch->prch_pro : NULL;
-  int enlisted, r, r1;
+  int r, r1;
 
   lock_assert(&global_lock);
 
   /* Build list */
-  TAILQ_FOREACH(si, sil, si_link)
+  TAILQ_FOREACH(si, sil, si_link) {
     si->si_mark = 1;
+    if (flags & SUBSCRIPTION_SWSERVICE) {
+      TAILQ_FOREACH(next, sil, si_link)
+        if (next != si && si->si_s == next->si_s && si->si_error)
+          next->si_error = MAX(next->si_error, si->si_error);
+    }
+  }
 
   r = 0;
   if (ch) {
@@ -753,7 +761,6 @@ service_find_instance
       *error = SM_CODE_SVC_NOT_ENABLED;
       return NULL;
     }
-    enlisted = 0;
     LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
       s = (service_t *)ilm->ilm_in1;
       if (s->s_is_enabled(s, flags)) {
@@ -763,27 +770,29 @@ service_find_instance
             (pro->pro_svfilter == PROFILE_SVF_HD && service_is_hdtv(s)) ||
             (pro->pro_svfilter == PROFILE_SVF_UHD && service_is_uhdtv(s))) {
           r1 = s->s_enlist(s, ti, sil, flags, weight);
-          if (r1 == 0)
-            enlisted++;
-          else if (r == 0)
+          if (r1 && r == 0)
             r = r1;
         }
       }
     }
-    if (enlisted == 0) {
+    /* find a valid instance */
+    TAILQ_FOREACH(si, sil, si_link)
+      if (!si->si_error) break;
+    if (si == NULL) {
       LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
         s = (service_t *)ilm->ilm_in1;
         if (s->s_is_enabled(s, flags)) {
           r1 = s->s_enlist(s, ti, sil, flags, weight);
-          if (r1 == 0)
-            enlisted++;
-          else if (r == 0)
+          if (r1 && r == 0)
             r = r1;
         }
       }
     }
-    if (enlisted)
-      r = 0;
+    TAILQ_FOREACH(si, sil, si_link)
+      if (!si->si_error) {
+        r = 0;
+        break;
+      }
   } else {
     r = s->s_enlist(s, ti, sil, flags, weight);
   }
@@ -1385,7 +1394,7 @@ service_set_streaming_status_flags_(service_t *t, int set)
 
   t->s_streaming_status = set;
 
-  tvhdebug(LS_SERVICE, "%s: Status changed to %s%s%s%s%s%s%s%s%s",
+  tvhdebug(LS_SERVICE, "%s: Status changed to %s%s%s%s%s%s%s%s%s%s",
 	 service_nicename(t),
 	 set & TSS_INPUT_HARDWARE ? "[Hardware input] " : "",
 	 set & TSS_INPUT_SERVICE  ? "[Input on service] " : "",
@@ -1393,6 +1402,7 @@ service_set_streaming_status_flags_(service_t *t, int set)
 	 set & TSS_PACKETS        ? "[Reassembled packets] " : "",
 	 set & TSS_NO_DESCRAMBLER ? "[No available descrambler] " : "",
 	 set & TSS_NO_ACCESS      ? "[No access] " : "",
+	 set & TSS_CA_CHECK       ? "[CA check] " : "",
 	 set & TSS_TUNING         ? "[Tuning failed] " : "",
 	 set & TSS_GRACEPERIOD    ? "[Graceperiod expired] " : "",
 	 set & TSS_TIMEOUT        ? "[Data timeout] " : "");
@@ -1448,7 +1458,6 @@ refresh:
   descrambler_service_start(t);
 }
 
-
 /**
  * Generate a message containing info about all components
  */
@@ -1478,6 +1487,7 @@ service_build_stream_start(service_t *t)
 
     memcpy(ssc->ssc_lang, st->es_lang, 4);
     ssc->ssc_audio_type = st->es_audio_type;
+    ssc->ssc_audio_version = st->es_audio_version;
     ssc->ssc_composition_id = st->es_composition_id;
     ssc->ssc_ancillary_id = st->es_ancillary_id;
     ssc->ssc_pid = st->es_pid;
@@ -1977,8 +1987,11 @@ void service_save ( service_t *t, htsmsg_t *m )
     if(st->es_lang[0])
       htsmsg_add_str(sub, "language", st->es_lang);
 
-    if (SCT_ISAUDIO(st->es_type))
+    if (SCT_ISAUDIO(st->es_type)) {
       htsmsg_add_u32(sub, "audio_type", st->es_audio_type);
+      if (st->es_audio_version)
+        htsmsg_add_u32(sub, "audio_version", st->es_audio_version);
+    }
 
     if(st->es_type == SCT_CA) {
       caid_t *c;
@@ -2177,6 +2190,8 @@ void service_load ( service_t *t, htsmsg_t *c )
       if (SCT_ISAUDIO(type)) {
         if(!htsmsg_get_u32(c, "audio_type", &u32))
           st->es_audio_type = u32;
+        if(!htsmsg_get_u32(c, "audio_version", &u32))
+          st->es_audio_version = u32;
       }
 
       if(!htsmsg_get_u32(c, "position", &u32))

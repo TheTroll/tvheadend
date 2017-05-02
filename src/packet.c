@@ -52,16 +52,19 @@ pkt_destroy(th_pkt_t *pkt)
  * suppoed to take care of)
  */
 th_pkt_t *
-pkt_alloc(const void *data, size_t datalen, int64_t pts, int64_t dts)
+pkt_alloc(streaming_component_type_t type, const void *data, size_t datalen,
+          int64_t pts, int64_t dts, int64_t pcr)
 {
   th_pkt_t *pkt;
 
   pkt = calloc(1, sizeof(th_pkt_t));
   if (pkt) {
+    pkt->pkt_type = type;
     if(datalen)
       pkt->pkt_payload = pktbuf_alloc(data, datalen);
     pkt->pkt_dts = dts;
     pkt->pkt_pts = pts;
+    pkt->pkt_pcr = pcr;
     pkt->pkt_refcount = 1;
     memoryinfo_alloc(&pkt_memoryinfo, sizeof(*pkt));
   }
@@ -148,14 +151,14 @@ pkt_ref_inc_poly(th_pkt_t *pkt, int n)
  */
 void
 pkt_trace_(const char *file, int line, int subsys, th_pkt_t *pkt,
-           int index, streaming_component_type_t type, const char *fmt, ...)
+           const char *fmt, ...)
 {
   char buf[512], _dts[22], _pts[22], _type[2];
   va_list args;
 
   va_start(args, fmt);
-  if (pkt->pkt_frametype) {
-    _type[0] = pkt_frametype_to_char(pkt->pkt_frametype);
+  if (SCT_ISVIDEO(pkt->pkt_type) && pkt->v.pkt_frametype) {
+    _type[0] = pkt_frametype_to_char(pkt->v.pkt_frametype);
     _type[1] = '\0';
   } else {
     _type[0] = '\0';
@@ -166,8 +169,8 @@ pkt_trace_(const char *file, int line, int subsys, th_pkt_t *pkt,
            " dur %d len %zu err %i%s",
            fmt ? fmt : "",
            fmt ? " (" : "",
-           index,
-           streaming_component_type2txt(type),
+           pkt->pkt_componentindex,
+           streaming_component_type2txt(pkt->pkt_type),
            _type[0] ? " type " : "", _type,
            pts_to_string(pkt->pkt_dts, _dts),
            pts_to_string(pkt->pkt_pts, _pts),
@@ -214,6 +217,22 @@ pktref_enqueue(struct th_pktref_queue *q, th_pkt_t *pkt)
 
 
 /**
+ * Reference count is transfered to queue
+ */
+void
+pktref_enqueue_sorted(struct th_pktref_queue *q, th_pkt_t *pkt,
+                      int (*cmp)(const void *, const void *))
+{
+  th_pktref_t *pr = malloc(sizeof(th_pktref_t));
+  if (pr) {
+    pr->pr_pkt = pkt;
+    TAILQ_INSERT_SORTED(q, pr, pr_link, cmp);
+    memoryinfo_alloc(&pktref_memoryinfo, sizeof(*pr));
+  }
+}
+
+
+/**
  *
  */
 void
@@ -226,6 +245,20 @@ pktref_remove(struct th_pktref_queue *q, th_pktref_t *pr)
     free(pr);
     memoryinfo_free(&pktref_memoryinfo, sizeof(*pr));
   }
+}
+
+/**
+ *
+ */
+th_pkt_t *
+pktref_first(struct th_pktref_queue *q)
+{
+  th_pktref_t *pr;
+
+  pr = TAILQ_FIRST(q);
+  if (pr)
+    return pr->pr_pkt;
+  return NULL;
 }
 
 /**

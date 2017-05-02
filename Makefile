@@ -1,6 +1,8 @@
 #
 #  Tvheadend streaming server.
 #  Copyright (C) 2007-2009 Andreas Öman
+#  Copyright (C) 2012-2015 Adam Sutton
+#  Copyright (C) 2012-2017 Jaroslav Kysela
 #
 #  This program is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -165,7 +167,8 @@ vpath %.h $(ROOTDIR)
 # Other config
 #
 
-BUNDLE_FLAGS-${CONFIG_ZLIB} = -z
+BUNDLE_FLAGS-${CONFIG_ZLIB} += -z
+BUNDLE_FLAGS-${CONFIG_PNGQUANT} += -q
 BUNDLE_FLAGS = ${BUNDLE_FLAGS-yes}
 
 #
@@ -758,11 +761,14 @@ ${BUILDDIR}/libffmpeg_stamp: ${BUILDDIR}/ffmpeg/build/ffmpeg/lib/libavcodec.a
 	@touch $@
 
 ${BUILDDIR}/ffmpeg/build/ffmpeg/lib/libavcodec.a: Makefile.ffmpeg
+ifeq ($(CONFIG_BINTRAY_CACHE),yes)
+	$(MAKE) -f Makefile.ffmpeg libcacheget
+endif
 	$(MAKE) -f Makefile.ffmpeg
 
 # Static HDHOMERUN library
 
-ifeq ($(CONFIG_LIBHDHOMERUN_STATIC),yes)
+ifeq ($(CONFIG_HDHOMERUN_STATIC),yes)
 src/input/mpegts/tvhdhomerun/tvhdhomerun_private.h ${SRCS-HDHOMERUN}: ${BUILDDIR}/libhdhomerun_stamp
 endif
 
@@ -770,6 +776,9 @@ ${BUILDDIR}/libhdhomerun_stamp: ${BUILDDIR}/hdhomerun/libhdhomerun/libhdhomerun.
 	@touch $@
 
 ${BUILDDIR}/hdhomerun/libhdhomerun/libhdhomerun.a: Makefile.hdhomerun
+ifeq ($(CONFIG_BINTRAY_CACHE),yes)
+	$(MAKE) -f Makefile.hdhomerun libcacheget
+endif
 	$(MAKE) -f Makefile.hdhomerun
 
 # linuxdvb git tree

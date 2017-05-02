@@ -860,16 +860,16 @@ scleanup:
           extra_size = 7;
       }
 
-      n = pkt_alloc(NULL, packet.size + extra_size, packet.pts, packet.pts);
+      n = pkt_alloc(ts->ts_type, NULL, packet.size + extra_size, packet.pts, packet.pts, packet.pts);
       memcpy(pktbuf_ptr(n->pkt_payload) + extra_size, packet.data, packet.size);
 
       n->pkt_componentindex = ts->ts_index;
-      n->pkt_channels       = octx->channels;
-      n->pkt_sri            = rate_to_sri(octx->sample_rate);
+      n->a.pkt_channels     = octx->channels;
+      n->a.pkt_sri          = rate_to_sri(octx->sample_rate);
       n->pkt_duration       = packet.duration;
 
       if (extra_size && ts->ts_type == SCT_AAC)
-        create_adts_header(n->pkt_payload, n->pkt_sri, octx->channels);
+        create_adts_header(n->pkt_payload, n->a.pkt_sri, octx->channels);
 
       if (octx->extradata_size)
         n->pkt_meta = pktbuf_alloc(octx->extradata, octx->extradata_size);
@@ -979,25 +979,25 @@ send_video_packet(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt,
   if ((ts->ts_type == SCT_H264 || ts->ts_type == SCT_HEVC) &&
       octx->extradata_size &&
       (ts->ts_first || octx->coded_frame->pict_type == AV_PICTURE_TYPE_I)) {
-    n = pkt_alloc(NULL, octx->extradata_size + epkt->size, epkt->pts, epkt->dts);
+    n = pkt_alloc(ts->ts_type, NULL, octx->extradata_size + epkt->size, epkt->pts, epkt->dts, epkt->dts);
     memcpy(pktbuf_ptr(n->pkt_payload), octx->extradata, octx->extradata_size);
     memcpy(pktbuf_ptr(n->pkt_payload) + octx->extradata_size, epkt->data, epkt->size);
     ts->ts_first = 0;
   } else {
-    n = pkt_alloc(epkt->data, epkt->size, epkt->pts, epkt->dts);
+    n = pkt_alloc(ts->ts_type, epkt->data, epkt->size, epkt->pts, epkt->dts, epkt->dts);
   }
 
   switch (octx->coded_frame->pict_type) {
   case AV_PICTURE_TYPE_I:
-    n->pkt_frametype = PKT_I_FRAME;
+    n->v.pkt_frametype = PKT_I_FRAME;
     break;
 
   case AV_PICTURE_TYPE_P:
-    n->pkt_frametype = PKT_P_FRAME;
+    n->v.pkt_frametype = PKT_P_FRAME;
     break;
 
   case AV_PICTURE_TYPE_B:
-    n->pkt_frametype = PKT_B_FRAME;
+    n->v.pkt_frametype = PKT_B_FRAME;
     break;
 
   default:
@@ -1007,9 +1007,9 @@ send_video_packet(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt,
   n->pkt_duration       = pkt->pkt_duration;
   n->pkt_commercial     = pkt->pkt_commercial;
   n->pkt_componentindex = pkt->pkt_componentindex;
-  n->pkt_field          = pkt->pkt_field;
-  n->pkt_aspect_num     = pkt->pkt_aspect_num;
-  n->pkt_aspect_den     = pkt->pkt_aspect_den;
+  n->v.pkt_field        = pkt->v.pkt_field;
+  n->v.pkt_aspect_num   = pkt->v.pkt_aspect_num;
+  n->v.pkt_aspect_den   = pkt->v.pkt_aspect_den;
 
   if(octx->coded_frame && octx->coded_frame->pts != AV_NOPTS_VALUE) {
     if(n->pkt_dts != PTS_UNSET)
@@ -1152,7 +1152,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   if (!vs->vid_first_sent) {
     /* notify global headers that we're live */
     /* the video packets might be delayed */
-    pkt2 = pkt_alloc(NULL, 0, pkt->pkt_pts, pkt->pkt_dts);
+    pkt2 = pkt_alloc(ts->ts_type, NULL, 0, pkt->pkt_pts, pkt->pkt_dts, pkt->pkt_dts);
     pkt2->pkt_componentindex = pkt->pkt_componentindex;
     sm = streaming_msg_create_pkt(pkt2);
     streaming_target_deliver2(ts->ts_target, sm);
@@ -1875,6 +1875,30 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
   AVCodec *icodec, *ocodec;
   transcoder_props_t *tp = &t->t_props;
   int sct;
+  char *str, *token, *saveptr, codec_list[sizeof(tp->tp_src_vcodec)];
+  int codec_match=0;
+
+  strncpy(codec_list, tp->tp_src_vcodec, sizeof(tp->tp_src_vcodec)-1);
+
+  tvhtrace(LS_TRANSCODE, "src_vcodec=\"%s\" ssc_type=%d (%s)\n",
+		  tp->tp_src_vcodec,
+		  ssc->ssc_type,
+		  streaming_component_type2txt(ssc->ssc_type));
+
+  if (codec_list[0] != '\0') {
+    for (str=codec_list; ; str = NULL) {
+      token = strtok_r(str," ,|;" , &saveptr);
+      if (token == NULL)
+        break; //no match found, use profile settings
+      if(!strcasecmp(token, streaming_component_type2txt(ssc->ssc_type))) { //match found
+	codec_match=1;
+	break;
+      }
+    }
+    if (!codec_match)
+      return transcoder_init_stream(t, ssc); //copy codec
+  }
+
 
   if (tp->tp_vcodec[0] == '\0')
     return 0;
@@ -2206,6 +2230,8 @@ transcoder_set_properties(streaming_target_t *st,
   tp->tp_resolution = props->tp_resolution;
 
   memcpy(tp->tp_language, props->tp_language, 4);
+
+  strncpy(tp->tp_src_vcodec, props->tp_src_vcodec, sizeof(tp->tp_src_vcodec)-1);
 }
 
 

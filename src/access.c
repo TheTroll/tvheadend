@@ -298,6 +298,8 @@ access_get_lang(access_t *a, const char *lang)
 const char *
 access_get_theme(access_t *a)
 {
+  if (a == NULL)
+    return "blue";
   if (a->aa_theme == NULL || a->aa_theme[0] == '\0') {
     if (config.theme_ui == NULL || config.theme_ui[0] == '\0')
       return "blue";
@@ -329,13 +331,13 @@ access_destroy(access_t *a)
  *
  */
 static int
-netmask_verify(struct access_ipmask_queue *ais, struct sockaddr *src)
+netmask_verify(struct access_ipmask_queue *ais, struct sockaddr_storage *src)
 {
   access_ipmask_t *ai;
   int isv4v6 = 0;
   uint32_t v4v6 = 0;
   
-  if (src->sa_family == AF_INET6) {
+  if (src->ss_family == AF_INET6) {
     struct in6_addr *in6 = &(((struct sockaddr_in6 *)src)->sin6_addr);
     uint32_t *a32 = (uint32_t*)in6->s6_addr;
     if (a32[0] == 0 && a32[1] == 0 && ntohl(a32[2]) == 0x0000FFFFu) {
@@ -346,7 +348,7 @@ netmask_verify(struct access_ipmask_queue *ais, struct sockaddr *src)
 
   TAILQ_FOREACH(ai, ais, ai_link) {
 
-    if (ai->ai_family == AF_INET && src->sa_family == AF_INET) {
+    if (ai->ai_family == AF_INET && src->ss_family == AF_INET) {
 
       struct sockaddr_in *in4 = (struct sockaddr_in *)src;
       uint32_t b = ntohl(in4->sin_addr.s_addr);
@@ -362,7 +364,7 @@ netmask_verify(struct access_ipmask_queue *ais, struct sockaddr *src)
 
       continue;
 
-    } else if (ai->ai_family == AF_INET6 && src->sa_family == AF_INET6) {
+    } else if (ai->ai_family == AF_INET6 && src->ss_family == AF_INET6) {
 
       struct in6_addr *in6 = &(((struct sockaddr_in6 *)src)->sin6_addr);
       uint8_t *a8 = (uint8_t*)in6->s6_addr;
@@ -397,7 +399,7 @@ netmask_verify(struct access_ipmask_queue *ais, struct sockaddr *src)
  *
  */
 static inline int
-access_ip_blocked(struct sockaddr *src)
+access_ip_blocked(struct sockaddr_storage *src)
 {
   ipblock_entry_t *ib;
 
@@ -686,7 +688,7 @@ access_set_lang_ui(access_t *a)
  *
  */
 access_t *
-access_get(struct sockaddr *src, const char *username, verify_callback_t verify, void *aux)
+access_get(struct sockaddr_storage *src, const char *username, verify_callback_t verify, void *aux)
 {
   access_t *a = access_alloc();
   access_entry_t *ae;
@@ -703,7 +705,7 @@ access_get(struct sockaddr *src, const char *username, verify_callback_t verify,
       return access_full(a);
   } else {
     a->aa_representative = malloc(50);
-    tcp_get_str_from_ip((struct sockaddr*)src, a->aa_representative, 50);
+    tcp_get_str_from_ip(src, a->aa_representative, 50);
     if(!passwd_verify2(username, verify, aux,
                        superuser_username, superuser_password))
       return access_full(a);
@@ -786,7 +788,7 @@ access_get_by_username(const char *username)
  *
  */
 access_t *
-access_get_by_addr(struct sockaddr *src)
+access_get_by_addr(struct sockaddr_storage *src)
 {
   access_t *a = access_alloc();
   access_entry_t *ae;

@@ -42,6 +42,7 @@ typedef struct transcoder_prop {
   int32_t  tp_resolution;
 
   long     tp_nrprocessors;
+  char     tp_src_vcodec[128];
 } transcoder_props_t;
 
 /* VDPAU */

@@ -16,7 +16,9 @@
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-include $(dir $(lastword $(MAKEFILE_LIST)))../.config.mk
+TOPDIR   := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
+
+include $(TOPDIR)/../.config.mk
 
 SPEC     ?= tvheadend.spec.in
 
@@ -35,6 +37,7 @@ else
 REF       = $(COMMIT1)
 COMMITR   = $(COMMIT1)
 endif
+DEFINES   = --define '_topdir $(TOPDIR)'
 
 tvheadend.spec: $(SPEC)
 	@sed -e 's/@VERSION@/$(VERSION)/g' \
@@ -43,18 +46,29 @@ tvheadend.spec: $(SPEC)
 	     -e 's/@COMMIT@/$(COMMITR)/g' \
 		$< > $@
 
-~/rpmbuild/SOURCES:
-	mkdir -p $(foreach f,BUILD RPMS SOURCES SPECS SRPMS,~/rpmbuild/$(f))
+SOURCES:
+	mkdir -p $(foreach f,BUILD RPMS SOURCES SPECS SRPMS,$(f))
 
 .PHONY: srpm
-srpm: ~/rpmbuild/SOURCES tvheadend.spec
-	spectool --get-files --sourcedir tvheadend.spec
-	rpmbuild -bs tvheadend.spec
+srpm: SOURCES tvheadend.spec
+	spectool --get-files -C SOURCES tvheadend.spec
+	rpmbuild $(DEFINES) -bs tvheadend.spec
 
 .PHONY: build
-build: ~/rpmbuild/SOURCES tvheadend.spec
-	spectool --get-files --sourcedir tvheadend.spec
-	rpmbuild -ba tvheadend.spec
+build: SOURCES tvheadend.spec
+	spectool --get-files -C SOURCES tvheadend.spec
+	rpmbuild $(DEFINES) -ba tvheadend.spec
+
+.PHONY: build-doozer
+build-doozer: build
+	@rm -f ../filelist.txt
+	@for a in RPMS/$$(uname -m)/tvheadend-$(VERSION)-$(RELEASE)*.rpm \
+	          RPMS/$$(uname -m)/tvheadend-debuginfo-$(VERSION)-$(RELEASE)*.rpm; do \
+		name=$$(basename $$a); \
+		echo "doozer-versioned-artifact:rpm/$$a:rpm:application/x-rpm:$$name"; \
+		echo "rpm/$$a" >> ../filelist.txt; \
+	 done
+	
 
 .PHONY: clean.
 clean:

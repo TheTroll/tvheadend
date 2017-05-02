@@ -98,6 +98,7 @@ profile_create
   LIST_INIT(&pro->pro_dvr_configs);
   LIST_INIT(&pro->pro_accesses);
   pro->pro_contaccess = 1;
+  pro->pro_ca_timeout = 2000;
   if (idnode_insert(&pro->pro_id, uuid, pb->clazz, 0)) {
     if (uuid)
       tvherror(LS_PROFILE, "invalid uuid '%s'", uuid);
@@ -398,6 +399,29 @@ const idclass_t profile_class =
                      "can't be decrypted by a CA client that normally "
                      "should be able to decrypt the stream."),
       .off      = offsetof(profile_t, pro_contaccess),
+      .opts     = PO_EXPERT,
+      .def.i    = 1,
+      .group    = 1
+    },
+    {
+      .type     = PT_INT,
+      .id       = "catimeout",
+      .name     = N_("Descrambling timeout (ms)"),
+      .desc     = N_("Check the descrambling status after this timeout."),
+      .off      = offsetof(profile_t, pro_ca_timeout),
+      .opts     = PO_EXPERT,
+      .def.i    = 2000,
+      .group    = 1
+    },
+    {
+      .type     = PT_BOOL,
+      .id       = "swservice",
+      .name     = N_("Switch to another service"),
+      .desc     = N_("If something fails, try to switch to a different "
+                     "service on another network. Do not try to iterate "
+                     "through all inputs/tuners which are capable to "
+                     "receive the service."),
+      .off      = offsetof(profile_t, pro_swservice),
       .opts     = PO_EXPERT,
       .def.i    = 1,
       .group    = 1
@@ -736,11 +760,13 @@ profile_sharer_deliver(profile_chain_t *prch, streaming_message_t *sm)
      * time correction here
      */
     if (pkt->pkt_pts >= prch->prch_ts_delta &&
-        pkt->pkt_dts >= prch->prch_ts_delta) {
+        pkt->pkt_dts >= prch->prch_ts_delta &&
+        pkt->pkt_pcr >= prch->prch_ts_delta) {
       th_pkt_t *n = pkt_copy_shallow(pkt);
       pkt_ref_dec(pkt);
       n->pkt_pts -= prch->prch_ts_delta;
       n->pkt_dts -= prch->prch_ts_delta;
+      n->pkt_pcr -= prch->prch_ts_delta;
       sm->sm_data = n;
     } else {
       streaming_msg_free(sm);
@@ -1711,7 +1737,23 @@ typedef struct profile_transcode {
   char    *pro_vcodec_preset;
   char    *pro_acodec;
   char    *pro_scodec;
+  char    *pro_src_vcodec;
 } profile_transcode_t;
+
+
+static htsmsg_t *
+profile_class_src_vcodec_list ( void *o, const char *lang )
+{
+  static const struct strtab_str tab[] = {
+    { N_("Any"),		"" },
+    { "MPEG2VIDEO",      	"MPEG2VIDEO" },
+    { "H264",      		"H264" },
+    { "VP8",      		"VP8" },
+    { "HEVC",      		"HEVC" },
+    { "VP9",      		"VP9" },
+  };
+  return strtab2htsmsg_str(tab, 1, lang);
+}
 
 static htsmsg_t *
 profile_class_mc_list ( void *o, const char *lang )
@@ -1725,6 +1767,7 @@ profile_class_mc_list ( void *o, const char *lang )
     { N_("Raw Audio Stream"),             MC_MPEG2AUDIO },
     { N_("Matroska (mkv)/av-lib"),        MC_AVMATROSKA },
     { N_("WEBM/av-lib"),                  MC_AVWEBM },
+    { N_("MP4/av-lib"),                   MC_AVMP4 },
   };
   return strtab2htsmsg(tab, 1, lang);
 }
@@ -1938,6 +1981,21 @@ const idclass_t profile_transcode_class =
     },
     {
       .type     = PT_STR,
+      .id       = "src_vcodec",
+      .name     = N_("Source video codec"),
+      .desc     = N_("Transcode video only if source video codec mattch.  "
+                     "\"Any\" will ingnore source vcodec check and always do transcode. "
+		     "Separate codec names with coma. "
+                     "If no codec match found - transcode with \"copy\" codec, "
+		     "if match found - transcode with parameters in this profile."),
+      .off      = offsetof(profile_transcode_t, pro_src_vcodec),
+      .def.i    = SCT_UNKNOWN,
+      .list     = profile_class_src_vcodec_list,
+      .opts     = PO_ADVANCED,
+      .group    = 2
+    },
+    {
+      .type     = PT_STR,
       .id       = "vcodec",
       .name     = N_("Video codec"),
       .desc     = N_("Video codec to use for the transcode. "
@@ -2085,6 +2143,14 @@ profile_transcode_work(profile_chain_t *prch,
   props.tp_abitrate   = profile_transcode_abitrate(pro);
   strncpy(props.tp_language, pro->pro_language ?: "", 3);
 
+  if (!pro->pro_src_vcodec) {
+     strcpy(props.tp_src_vcodec, "");
+  } else if(!strncasecmp("Any",pro->pro_src_vcodec,3)) {
+     strcpy(props.tp_src_vcodec, "");
+  } else {
+     strncpy(props.tp_src_vcodec, pro->pro_src_vcodec ?: "", sizeof(props.tp_src_vcodec)-1);
+  }
+
   dst = prch->prch_gh = globalheaders_create(dst);
 
 #if ENABLE_TIMESHIFT
@@ -2123,6 +2189,7 @@ profile_transcode_mc_valid(int mc)
   case MC_AAC:
   case MC_VORBIS:
   case MC_AVMATROSKA:
+  case MC_AVMP4:
     return 1;
   default:
     return 0;
@@ -2185,6 +2252,7 @@ profile_transcode_free(profile_t *_pro)
   free(pro->pro_vcodec_preset);
   free(pro->pro_acodec);
   free(pro->pro_scodec);
+  free(pro->pro_src_vcodec);
 }
 
 static profile_t *

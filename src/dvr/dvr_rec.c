@@ -66,7 +66,7 @@ dvr_rec_subscribe(dvr_entry_t *de)
   int weight;
   profile_t *pro;
   profile_chain_t *prch;
-  struct sockaddr sa;
+  struct sockaddr_storage sa;
   access_t *aa;
   uint32_t rec_count, net_count;
   int c1, c2;
@@ -189,6 +189,8 @@ dvr_rec_unsubscribe(dvr_entry_t *de)
   assert(de->de_s != NULL);
   assert(prch != NULL);
 
+  de->de_in_unsubscribe = 1;
+
   streaming_target_deliver(prch->prch_st, streaming_msg_create(SMT_EXIT));
 
   atomic_add(&de->de_thread_shutdown, 1);
@@ -208,6 +210,8 @@ dvr_rec_unsubscribe(dvr_entry_t *de)
   free(prch);
 
   dvr_vfs_refresh_entry(de);
+
+  de->de_in_unsubscribe = 0;
 }
 
 /**
@@ -1038,6 +1042,8 @@ dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
 
     if(SCT_ISAUDIO(ssc->ssc_type)) {
       htsmsg_add_u32(e, "audio_type", ssc->ssc_audio_type);
+      if(ssc->ssc_audio_version)
+        htsmsg_add_u32(e, "audio_version", ssc->ssc_audio_version);
       if(ssc->ssc_sri)
 	snprintf(sr, sizeof(sr), "%d", sri_to_rate(ssc->ssc_sri));
       else

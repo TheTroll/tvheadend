@@ -23,6 +23,7 @@
 #include "htsmsg.h"
 
 #define ACCESS_DEFAULT_COMMENT "Default access entry"
+#define ACCESS_WIZARD_COMMENT "Wizard access entry"
 
 struct profile;
 struct dvr_config;
@@ -271,7 +272,7 @@ int access_verify_list(htsmsg_t *list, const char *item);
  */
 typedef int (*verify_callback_t)(void *aux, const char *passwd);
 
-access_t *access_get(struct sockaddr *src, const char *username,
+access_t *access_get(struct sockaddr_storage *src, const char *username,
                      verify_callback_t verify, void *aux);
 
 /**
@@ -284,7 +285,7 @@ access_get_by_username(const char *username);
  *
  */
 access_t *
-access_get_by_addr(struct sockaddr *src);
+access_get_by_addr(struct sockaddr_storage *src);
 
 /**
  *

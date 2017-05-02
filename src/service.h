@@ -70,6 +70,7 @@ typedef struct elementary_stream {
 
   char es_lang[4];           /* ISO 639 2B 3-letter language code */
   uint8_t es_audio_type;     /* Audio type */
+  uint8_t es_audio_version;  /* Audio version/layer */
 
   uint16_t es_composition_id;
   uint16_t es_ancillary_id;
@@ -126,6 +127,7 @@ typedef struct elementary_stream {
 
   tvhlog_limit_t es_cc_log;
   tvhlog_limit_t es_pes_log;
+  tvhlog_limit_t es_pcr_log;
   
   char *es_nicename;
 
@@ -425,6 +427,7 @@ typedef struct service {
 #define TSS_MUX_PACKETS      0x4
 #define TSS_PACKETS          0x8
 #define TSS_NO_ACCESS        0x10
+#define TSS_CA_CHECK         0x20
 
 
   // Errors
@@ -441,6 +444,7 @@ typedef struct service {
    */
   int s_streaming_live;
   int s_running;
+  int s_pending_restart;
 
   // Live status
 #define TSS_LIVE             0x01
@@ -481,7 +485,8 @@ typedef struct service {
 
   tvhlog_limit_t s_tei_log;
 
-  int64_t s_current_pts;
+  int64_t s_current_pcr;
+  int64_t s_candidate_pcr;
 
   /*
    * Local channel numbers per bouquet

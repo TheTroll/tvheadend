@@ -131,13 +131,24 @@ typedef struct mk_muxer {
   char *title;
 
   int webm;
+
+  struct th_pktref_queue holdq;
 } mk_muxer_t;
 
 /* --- */
 
 static int mk_mux_insert_chapter(mk_muxer_t *mk);
 
-/**
+/*
+ *
+ */
+static int mk_pktref_cmp(const void *_a, const void *_b)
+{
+  const th_pktref_t *a = _a, *b = _b;
+  return a->pr_pkt->pkt_pts - b->pr_pkt->pkt_pts;
+}
+
+/*
  *
  */
 static htsbuf_queue_t *
@@ -292,7 +303,11 @@ mk_build_tracks(mk_muxer_t *mk, streaming_start_t *ss)
 
     case SCT_MPEG2AUDIO:
       tracktype = 2;
-      codec_id = "A_MPEG/L3";
+      codec_id  = "A_MPEG/L2";
+      if (ssc->ssc_audio_version == 3)
+        codec_id = "A_MPEG/L3";
+      else if (ssc->ssc_audio_version == 1)
+        codec_id = "A_MPEG/L1";
       break;
 
     case SCT_AC3:
@@ -958,10 +973,13 @@ mk_write_frame_i(mk_muxer_t *mk, mk_track_t *t, th_pkt_t *pkt)
 {
   int64_t pts = pkt->pkt_pts, delta, nxt;
   unsigned char c_delta_flags[3];
+  int video = SCT_ISVIDEO(pkt->pkt_type);
+  int keyframe = 0, skippable = 0;
 
-  int keyframe  = pkt->pkt_frametype < PKT_P_FRAME;
-  int skippable = pkt->pkt_frametype == PKT_B_FRAME;
-  int vkeyframe = SCT_ISVIDEO(t->type) && keyframe;
+  if (video) {
+    keyframe  = pkt->v.pkt_frametype < PKT_P_FRAME;
+    skippable = pkt->v.pkt_frametype == PKT_B_FRAME;
+  }
 
   uint8_t *data = pktbuf_ptr(pkt->pkt_payload);
   size_t len = pktbuf_len(pkt->pkt_payload);
@@ -974,7 +992,7 @@ mk_write_frame_i(mk_muxer_t *mk, mk_track_t *t, th_pkt_t *pkt)
     pts = t->nextpts;
 
   if(pts != PTS_UNSET) {
-    t->nextpts = pts + (pkt->pkt_duration >> pkt->pkt_field);
+    t->nextpts = pts + (pkt->pkt_duration >> (video ? pkt->v.pkt_field : 0));
 
     nxt = ts_rescale(t->nextpts, 1000000000 / MATROSKA_TIMESCALE);
     pts = ts_rescale(pts,        1000000000 / MATROSKA_TIMESCALE);
@@ -983,7 +1001,7 @@ mk_write_frame_i(mk_muxer_t *mk, mk_track_t *t, th_pkt_t *pkt)
       mk->totduration = nxt;
 
     delta = pts - mk->cluster_tc;
-    if((vkeyframe || !mk->has_video) && (delta > 30000ll || delta < -30000ll))
+    if((keyframe || !mk->has_video) && (delta > 30000ll || delta < -30000ll))
       mk_close_cluster(mk);
 
   } else {
@@ -992,7 +1010,7 @@ mk_write_frame_i(mk_muxer_t *mk, mk_track_t *t, th_pkt_t *pkt)
 
   if(mk->cluster) {
 
-    if(vkeyframe &&
+    if(keyframe &&
        (mk->cluster->hq_size > mk->cluster_maxsize ||
         mk->cluster_last_close + sec2mono(1) < mclk()))
       mk_close_cluster(mk);
@@ -1018,7 +1036,7 @@ mk_write_frame_i(mk_muxer_t *mk, mk_track_t *t, th_pkt_t *pkt)
     delta = 0;
   }
 
-  if(mk->addcue && vkeyframe) {
+  if(mk->addcue && keyframe) {
     mk->addcue = 0;
     addcue(mk, pts, t->tracknum);
   }
@@ -1087,7 +1105,7 @@ mk_mux_write_pkt(mk_muxer_t *mk, th_pkt_t *pkt)
 {
   int i, mark;
   mk_track_t *t = NULL;
-  th_pkt_t *opkt;
+  th_pkt_t *opkt, *tpkt;
 
   for (i = 0; i < mk->ntracks; i++) {
     t = &mk->tracks[i];
@@ -1100,27 +1118,46 @@ mk_mux_write_pkt(mk_muxer_t *mk, th_pkt_t *pkt)
     return mk->error;
   }
 
+  if (pkt->pkt_type == SCT_DVBSUB && pts_diff(pkt->pkt_pcr, pkt->pkt_pts) > 90000) {
+    tvhtrace(LS_MKV, "insert pkt to holdq: pts %"PRId64", pcr %"PRId64", diff %"PRId64"\n", pkt->pkt_pcr, pkt->pkt_pts, pts_diff(pkt->pkt_pcr, pkt->pkt_pts));
+    pktref_enqueue_sorted(&mk->holdq, pkt, mk_pktref_cmp);
+    return mk->error;
+  }
+
   mark = 0;
-  if(pkt->pkt_channels != t->channels &&
-     pkt->pkt_channels) {
-    mark = 1;
-    t->channels = pkt->pkt_channels;
-  }
-  if(pkt->pkt_aspect_num != t->aspect_num &&
-     pkt->pkt_aspect_num) {
-    mark = 1;
-    t->aspect_num = pkt->pkt_aspect_num;
-  }
-  if(pkt->pkt_aspect_den != t->aspect_den &&
-     pkt->pkt_aspect_den) {
-    mark = 1;
-    t->aspect_den = pkt->pkt_aspect_den;
-  }
-  if(pkt->pkt_sri != t->sri &&
-     pkt->pkt_sri) {
-    mark = 1;
-    t->sri = pkt->pkt_sri;
-    t->ext_sri = pkt->pkt_ext_sri;
+  if(SCT_ISAUDIO(pkt->pkt_type)) {
+    while ((opkt = pktref_first(&mk->holdq)) != NULL) {
+      if (pts_diff(pkt->pkt_pts, opkt->pkt_pts) > 90000)
+        break;
+      opkt = pktref_get_first(&mk->holdq);
+      tvhtrace(LS_MKV, "hold push, pts %"PRId64", audio pts %"PRId64"\n", opkt->pkt_pts, pkt->pkt_pts);
+      tpkt = pkt_copy_shallow(opkt);
+      pkt_ref_dec(opkt);
+      tpkt->pkt_pcr = tpkt->pkt_pts;
+      mk_mux_write_pkt(mk, tpkt);
+    }
+    if(pkt->a.pkt_channels != t->channels &&
+       pkt->a.pkt_channels) {
+      mark = 1;
+      t->channels = pkt->a.pkt_channels;
+    }
+    if(pkt->a.pkt_sri != t->sri &&
+       pkt->a.pkt_sri) {
+      mark = 1;
+      t->sri = pkt->a.pkt_sri;
+      t->ext_sri = pkt->a.pkt_ext_sri;
+    }
+  } else if (SCT_ISVIDEO(pkt->pkt_type)) {
+    if(pkt->v.pkt_aspect_num != t->aspect_num &&
+       pkt->v.pkt_aspect_num) {
+      mark = 1;
+      t->aspect_num = pkt->v.pkt_aspect_num;
+    }
+    if(pkt->v.pkt_aspect_den != t->aspect_den &&
+       pkt->v.pkt_aspect_den) {
+      mark = 1;
+      t->aspect_den = pkt->v.pkt_aspect_den;
+    }
   }
   if(pkt->pkt_commercial != t->commercial &&
      pkt->pkt_commercial != COMMERCIAL_UNKNOWN) {
@@ -1422,6 +1459,8 @@ mkv_muxer_close(muxer_t *m)
     return -1;
   }
 
+  pktref_clear_queue(&mk->holdq);
+
   return 0;
 }
 
@@ -1434,6 +1473,8 @@ mkv_muxer_destroy(muxer_t *m)
 {
   mk_muxer_t *mk = (mk_muxer_t*)m;
   mk_chapter_t *ch;
+
+  pktref_clear_queue(&mk->holdq);
 
   while((ch = TAILQ_FIRST(&mk->chapters)) != NULL) {
     TAILQ_REMOVE(&mk->chapters, ch, link);
@@ -1470,6 +1511,8 @@ mkv_muxer_create(const muxer_config_t *m_cfg)
   mk->m_destroy      = mkv_muxer_destroy;
   mk->webm           = m_cfg->m_type == MC_WEBM;
   mk->fd             = -1;
+
+  TAILQ_INIT(&mk->holdq);
 
   return (muxer_t*)mk;
 }

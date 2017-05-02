@@ -34,6 +34,7 @@
 #include "imagecache.h"
 #include "access.h"
 #include "notify.h"
+#include "compat.h"
 
 struct dvr_entry_list dvrentries;
 static int dvr_in_init;
@@ -754,6 +755,11 @@ dvr_entry_set_timer(dvr_entry_t *de)
         dvr_entry_trace_time1(de, "stop", stop, "set timer - running+");
         goto recording;
       }
+    }
+
+    if (de->de_sched_state == DVR_RECORDING) {
+      dvr_stop_recording(de, de->de_last_error, 1, 0);
+      return;
     }
 
     /* Files are missing and job was completed */
@@ -2225,6 +2231,8 @@ static void
 dvr_entry_class_changed(idnode_t *self)
 {
   dvr_entry_t *de = (dvr_entry_t *)self;
+  if (de->de_in_unsubscribe)
+    return;
   if (dvr_entry_is_valid(de))
     dvr_entry_set_timer(de);
   htsp_dvr_entry_update(de);

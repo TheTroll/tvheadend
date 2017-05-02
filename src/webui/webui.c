@@ -64,6 +64,8 @@
 #define MIME_M3U "audio/x-mpegurl"
 #define MIME_E2 "application/x-e2-bouquet"
 
+typedef int (sortfcn_t)(const void *, const void *);
+
 enum {
   PLAYLIST_M3U,
   PLAYLIST_E2,
@@ -90,6 +92,25 @@ http_channel_playlist_cmp(const void *a, const void *b)
   return r;
 }
 
+static int
+http_channel_playlist_cmp2(const void *a, const void *b)
+{
+  channel_t *c1 = *(channel_t **)a, *c2 = *(channel_t **)b;
+  return strcasecmp(channel_get_name(c1), channel_get_name(c2));
+}
+
+static sortfcn_t *http_channel_playlist_sfcn(http_connection_t *hc)
+{
+  const char *sorttype = http_arg_get(&hc->hc_req_args, "sort");
+  if (sorttype) {
+    if (!strcmp(sorttype, "numname"))
+      return &http_channel_playlist_cmp;
+    if (!strcmp(sorttype, "name"))
+      return &http_channel_playlist_cmp2;
+  }
+  return &http_channel_playlist_cmp;
+}
+
 /*
  *
  */
@@ -101,6 +122,25 @@ http_channel_tag_playlist_cmp(const void *a, const void *b)
   if (r == 0)
     r = strcasecmp(ct1->ct_name, ct2->ct_name);
   return r;
+}
+
+static int
+http_channel_tag_playlist_cmp2(const void *a, const void *b)
+{
+  channel_tag_t *ct1 = *(channel_tag_t **)a, *ct2 = *(channel_tag_t **)b;
+  return strcasecmp(ct1->ct_name, ct2->ct_name);
+}
+
+static sortfcn_t *http_channel_tag_playlist_sfcn(http_connection_t *hc)
+{
+  const char *sorttype = http_arg_get(&hc->hc_req_args, "sort");
+  if (sorttype) {
+    if (!strcmp(sorttype, "idxname"))
+      return &http_channel_tag_playlist_cmp;
+    if (!strcmp(sorttype, "name"))
+      return &http_channel_tag_playlist_cmp2;
+  }
+  return &http_channel_tag_playlist_cmp;
 }
 
 /**
@@ -185,27 +225,59 @@ page_login(http_connection_t *hc, const char *remain, void *opaque)
 static int
 page_logout(http_connection_t *hc, const char *remain, void *opaque)
 {
-  if (hc->hc_access == NULL ||
-      hc->hc_access->aa_username == NULL ||
-      hc->hc_access->aa_username == '\0') {
-redirect:
-    http_redirect(hc, "/", &hc->hc_req_args, 0);
-    return 0;
-  } else {
-    const char *s = http_arg_get(&hc->hc_args, "Cookie");
-    if (s) {
-      while (*s && *s != ';')
-        s++;
-      if (*s) s++;
-      while (*s && *s <= ' ') s++;
-      if (!strncmp(s, "logout=1", 8)) {
-        hc->hc_logout_cookie = 2;
-        goto redirect;
-      }
-      hc->hc_logout_cookie = 1;
-    }
+  const char *username, *busername, *lang, *title, *text, *logout;
+  char url[512];
+
+  username = hc->hc_access ? hc->hc_access->aa_username : NULL;
+  busername = hc->hc_username ? hc->hc_username : NULL;
+
+  tvhtrace(LS_HTTP, "logout: username '%s', busername '%s'\n", username, busername);
+
+  if (http_arg_get(&hc->hc_req_args, "_logout"))
     return HTTP_STATUS_UNAUTHORIZED;
-  }
+
+  if (!http_arg_get(&hc->hc_args, "Authorization"))
+    return HTTP_STATUS_UNAUTHORIZED;
+
+  lang = tvh_gettext_get_lang(hc->hc_access ? hc->hc_access->aa_lang_ui : NULL);
+  title = tvh_gettext_lang(lang, N_("Logout"));
+  htsbuf_qprintf(&hc->hc_reply,
+                 "<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">\r\n"
+                 "<HTML><HEAD>\r\n"
+                 "<TITLE>%s</TITLE>\r\n"
+                 "</HEAD><BODY>\r\n"
+                 "<H1>%s</H1>\r\n"
+                 "<P>",
+                 title, title);
+
+  text = tvh_gettext_lang(lang, N_("Authenticated user"));
+  htsbuf_qprintf(&hc->hc_reply, "<P>%s: %s</P>\r\n", text, username ?: "---");
+
+  text = tvh_gettext_lang(lang, N_("\
+Please, follow %s link and cancel the next authorization to correctly clear \
+the cached browser credentals (login and password cache). Then click to \
+the 'Default login' (anonymous access) or 'New login' link in the error page \
+to reauthenticate."));
+  logout = tvh_gettext_lang(lang, N_("logout"));
+
+  snprintf(url, sizeof(url), "<A HREF=\"%s/logout?_logout=1\">%s</A>",
+                             tvheadend_webroot ? tvheadend_webroot : "", logout);
+
+  htsbuf_qprintf(&hc->hc_reply, text, url);
+
+  snprintf(url, sizeof(url), "<A HREF=\"%s/logout?_logout=1\" "
+                             "STYLE=\"border: 1px solid; border-radius: 4px; padding: .6em\">%s</A>",
+                             tvheadend_webroot ? tvheadend_webroot : "", logout);
+
+  text = tvh_gettext_lang(lang, N_("return"));
+
+  htsbuf_qprintf(&hc->hc_reply, "</P>\r\n"
+                                "<P STYLE=\"text-align: center; margin: 2em\">%s</P>\r\n"
+                                "<P STYLE=\"text-align: center; margin: 2em\"><A HREF=\"%s/\" STYLE=\"border: 1px solid; border-radius: 4px; padding: .6em\">%s</A></P>\r\n"
+                                "</BODY></HTML>\r\n",
+                                url, tvheadend_webroot ? tvheadend_webroot : "", text);
+  http_output_html(hc);
+  return 0;
 }
 
 /**
@@ -634,7 +706,7 @@ http_tag_playlist(http_connection_t *hc, int pltype, channel_tag_t *tag)
 
   assert(idx == count);
 
-  qsort(chlist, count, sizeof(channel_t *), http_channel_playlist_cmp);
+  qsort(chlist, count, sizeof(channel_t *), http_channel_playlist_sfcn(hc));
 
   if (pltype == PLAYLIST_M3U)
     htsbuf_append_str(hq, "#EXTM3U\n");
@@ -692,6 +764,7 @@ http_tag_list_playlist(http_connection_t *hc, int pltype)
   hq = &hc->hc_reply;
 
   profile = profile_validate_name(http_arg_get(&hc->hc_req_args, "profile"));
+
   hostpath = http_get_hostpath(hc);
 
   TAILQ_FOREACH(ct, &channel_tags, ct_link)
@@ -706,7 +779,7 @@ http_tag_list_playlist(http_connection_t *hc, int pltype)
 
   assert(idx == count);
 
-  qsort(ctlist, count, sizeof(channel_tag_t *), http_channel_tag_playlist_cmp);
+  qsort(ctlist, count, sizeof(channel_tag_t *), http_channel_tag_playlist_sfcn(hc));
 
   if (pltype == PLAYLIST_E2 || pltype == PLAYLIST_SATIP_M3U) {
     CHANNEL_FOREACH(ch)
@@ -721,7 +794,7 @@ http_tag_list_playlist(http_connection_t *hc, int pltype)
 
     assert(chidx == chcount);
 
-    qsort(chlist, chcount, sizeof(channel_t *), http_channel_playlist_cmp);
+    qsort(chlist, chcount, sizeof(channel_t *), http_channel_playlist_sfcn(hc));
   } else {
     chlist = NULL;
   }
@@ -800,7 +873,7 @@ http_channel_list_playlist(http_connection_t *hc, int pltype)
 
   assert(idx == count);
 
-  qsort(chlist, count, sizeof(channel_t *), http_channel_playlist_cmp);
+  qsort(chlist, count, sizeof(channel_t *), http_channel_playlist_sfcn(hc));
 
   htsbuf_append_str(hq, pltype == PLAYLIST_E2 ? "#NAME Tvheadend Channels\n" : "#EXTM3U\n");
   for (idx = 0; idx < count; idx++) {
@@ -1883,6 +1956,7 @@ void
 webui_init(int xspf)
 {
   const char *s;
+  http_path_t *hp;
 
   webui_xspf = xspf;
 
@@ -1895,9 +1969,11 @@ webui_init(int xspf)
   tvheadend_webroot = s;
 
   http_path_add("", NULL, page_root2, ACCESS_WEB_INTERFACE);
-  http_path_add("/", NULL, page_root, ACCESS_WEB_INTERFACE);
+  hp = http_path_add("/", NULL, page_root, ACCESS_WEB_INTERFACE);
+  hp->hp_no_verification = 1; /* redirect only */
   http_path_add("/login", NULL, page_login, ACCESS_WEB_INTERFACE);
-  http_path_add("/logout", NULL, page_logout, ACCESS_WEB_INTERFACE);
+  hp = http_path_add("/logout", NULL, page_logout, ACCESS_WEB_INTERFACE);
+  hp->hp_no_verification = 1;
 
 #if CONFIG_SATIP_SERVER
   http_path_add("/satip_server", NULL, satip_server_http_page, ACCESS_ANONYMOUS);
