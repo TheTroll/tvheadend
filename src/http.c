@@ -40,7 +40,7 @@
 #include "channels.h"
 #include "config.h"
 
-const char* proxys[] = { "10.4.0.2", "10.4.0.3", "10.4.0.4", "10.4.0.5", "10.5.0.2" };
+const char* proxys[] = { "10.1.0.2", "10.2.0.2", "10.4.0.2", "10.4.0.3", "10.4.0.4", "10.4.0.5", "10.5.0.2" };
 
 #if ENABLE_ANDROID
 #include <sys/socket.h>
