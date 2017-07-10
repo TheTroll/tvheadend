@@ -44,6 +44,7 @@ typedef struct slave_subscription {
 
 typedef struct session {
   TAILQ_ENTRY(session) link;
+  char *peer_ipstr;
   int delsys;
   int stream;
   int frontend;
@@ -169,13 +170,14 @@ result:
  *
  */
 static struct session *
-rtsp_new_session(int delsys, uint32_t nsession, int session)
+rtsp_new_session(const char *ipstr, int delsys, uint32_t nsession, int session)
 {
   struct session *rs = calloc(1, sizeof(*rs));
 
   if (rs == NULL)
     return NULL;
 
+  rs->peer_ipstr = strdup(ipstr);
   rs->nsession = nsession ?: session_number;
   snprintf(rs->session, sizeof(rs->session), "%08X", session_number);
   if (!nsession) {
@@ -197,7 +199,9 @@ rtsp_find_session(http_connection_t *hc, int stream)
   struct session *rs, *first = NULL;
 
   TAILQ_FOREACH(rs, &rtsp_sessions, link) {
-    if (hc->hc_session && !strcmp(rs->session, hc->hc_session)) {
+    if (hc->hc_session &&
+        strcmp(rs->session, hc->hc_session) == 0 &&
+        strcmp(rs->peer_ipstr, hc->hc_peer_ipstr) == 0) {
       if (stream == rs->stream)
         return rs;
       if (first == NULL)
@@ -499,7 +503,7 @@ end:
 static int
 rtsp_start
   (http_connection_t *hc, session_t *rs, char *addrbuf,
-   int newmux, int setup, int oldstate)
+   int newmux, int cmd, int oldstate)
 {
   mpegts_network_t *mn, *mn2;
   dvb_network_t *ln;
@@ -508,6 +512,7 @@ rtsp_start
   dvb_mux_conf_t dmc;
   char buf[384];
   int res = HTTP_STATUS_NOT_ALLOWED, qsize = 3000000, created = 0, weight;
+  int ocmd = cmd;
 
   pthread_mutex_lock(&global_lock);
   weight = satip_server_conf.satip_weight;
@@ -588,9 +593,10 @@ rtsp_start
       goto endclean;
     if (!rs->pids.all && rs->pids.count == 0)
       mpegts_pid_add(&rs->pids, 0, MPS_WEIGHT_RAW);
+    /* trigger play when first SETUP arrived */
     /* retrigger play when new setup arrived */
-    if (oldstate) {
-      setup = 0;
+    if (oldstate != STATE_DESCRIBE || cmd == RTSP_CMD_SETUP) {
+      cmd = RTSP_CMD_PLAY;
       rs->state = STATE_SETUP;
     }
   } else {
@@ -605,7 +611,7 @@ pids:
     if (rs->used_weight != weight && weight > 0)
       subscription_set_weight(rs->subs, rs->used_weight = weight);
   }
-  if (!setup && rs->state != STATE_PLAY) {
+  if (cmd == RTSP_CMD_PLAY && rs->state != STATE_PLAY) {
     if (rs->mux == NULL)
       goto endclean;
     satip_rtp_queue((void *)(intptr_t)rs->stream,
@@ -614,13 +620,17 @@ pids:
                     rs->udp_rtp ? rs->udp_rtp->fd : hc->hc_fd,
                     rs->udp_rtcp ? rs->udp_rtcp->fd : -1,
                     rs->frontend, rs->findex, &rs->dmc_tuned,
-                    &rs->pids, rs->perm_lock);
+                    &rs->pids,
+                    ocmd == RTSP_CMD_PLAY || oldstate == STATE_PLAY,
+                    rs->perm_lock);
     rs->tcp_data = rs->udp_rtp ? NULL : hc;
     if (!rs->pids.all && rs->pids.count == 0)
       mpegts_pid_add(&rs->pids, 0, MPS_WEIGHT_RAW);
     svc = (mpegts_service_t *)rs->subs->ths_raw_service;
     svc->s_update_pids(svc, &rs->pids);
     rs->state = STATE_PLAY;
+  } else if (ocmd == RTSP_CMD_PLAY) {
+    satip_rtp_allow_data((void *)(intptr_t)rs->stream);
   }
   rtsp_manage_descramble(rs);
   pthread_mutex_unlock(&global_lock);
@@ -875,10 +885,10 @@ rtsp_parse_cmd
   http_arg_t *arg;
 
   switch (cmd) {
-  case -1: caller = "DESCRIBE"; break;
-  case  0: caller = "PLAY"; break;
-  case  1: caller = "SETUP"; break;
-  default: caller = NULL; break;
+  case RTSP_CMD_DESCRIBE: caller = "DESCRIBE"; break;
+  case RTSP_CMD_PLAY:     caller = "PLAY";     break;
+  case RTSP_CMD_SETUP:    caller = "SETUP";    break;
+  default:                caller = NULL;       break;
   }
 
   *rrs = NULL;
@@ -902,7 +912,7 @@ rtsp_parse_cmd
   weight = atoi(http_arg_get_remove(&hc->hc_req_args, "tvhweight"));
 
   if (addpids.count > 0 || delpids.count > 0) {
-    if (cmd)
+    if (cmd == RTSP_CMD_SETUP)
       goto end;
     if (!stream)
       goto end;
@@ -920,23 +930,23 @@ rtsp_parse_cmd
     delsys = msys;
   }
 
-  if (cmd) {
+  if (cmd == RTSP_CMD_SETUP) {
     if (!rs) {
-      rs = rtsp_new_session(msys, 0, -1);
+      rs = rtsp_new_session(hc->hc_peer_ipstr, msys, 0, -1);
       if (delsys == DVB_SYS_NONE) goto end;
       if (msys == DVB_SYS_NONE) goto end;
       if (!(*valid)) goto end;
     } else if (stream != rs->stream) {
-      rs = rtsp_new_session(msys, rs->nsession, stream);
+      rs = rtsp_new_session(hc->hc_peer_ipstr, msys, rs->nsession, stream);
       if (delsys == DVB_SYS_NONE) goto end;
       if (msys == DVB_SYS_NONE) goto end;
       if (!(*valid)) goto end;
     } else {
-      if (cmd < 0 && rs->state != STATE_DESCRIBE) {
+      if (cmd == RTSP_CMD_DESCRIBE && rs->state != STATE_DESCRIBE) {
         errcode = HTTP_STATUS_CONFLICT;
         goto end;
       }
-      if (!has_args && rs->state == STATE_DESCRIBE && cmd > 0) {
+      if (!has_args && rs->state == STATE_DESCRIBE && cmd == RTSP_CMD_SETUP) {
         r = parse_transport(hc);
         if (r < 0) {
           errcode = HTTP_STATUS_BAD_TRANSFER;
@@ -949,7 +959,7 @@ rtsp_parse_cmd
       *oldstate = rs->state;
       rtsp_close_session(rs);
     }
-    if (cmd > 0) {
+    if (cmd == RTSP_CMD_SETUP) {
       r = parse_transport(hc);
       if (r < 0) {
         errcode = HTTP_STATUS_BAD_TRANSFER;
@@ -1104,11 +1114,11 @@ rtsp_parse_cmd
   rs->findex = findex;
   if (weight > 0)
     rs->weight = weight;
-  else if (cmd == 1)
+  else if (cmd == RTSP_CMD_SETUP)
     rs->weight = 0;
   rs->old_hc = hc;
 
-  if (cmd) {
+  if (cmd == RTSP_CMD_SETUP) {
     stream_id++;
     if (stream_id == 0)
       stream_id++;
@@ -1116,7 +1126,7 @@ rtsp_parse_cmd
   }
   rs->src = src;
 
-  if (cmd < 0)
+  if (cmd == RTSP_CMD_DESCRIBE)
     rs->shutdown_on_close = hc;
 
 play:
@@ -1247,10 +1257,10 @@ rtsp_describe_session(session_t *rs, htsbuf_queue_t *q)
     htsbuf_append_str(q, "c=IN IP6 ::0\r\n");
   else
     htsbuf_append_str(q, "c=IN IP4 0.0.0.0\r\n");
-  if (rs->state == STATE_PLAY) {
+  if (rs->state == STATE_PLAY || rs->state == STATE_SETUP) {
     satip_rtp_status((void *)(intptr_t)rs->stream, buf, sizeof(buf));
     htsbuf_qprintf(q, "a=fmtp:33 %s\r\n", buf);
-    htsbuf_append_str(q, "a=sendonly\r\n");
+    htsbuf_qprintf(q, "a=%s\r\n", rs->state == STATE_SETUP ? "inactive" : "sendonly");
   } else {
     htsbuf_append_str(q, "a=fmtp:33\r\n");
     htsbuf_append_str(q, "a=inactive\r\n");
@@ -1290,7 +1300,7 @@ rtsp_process_describe(http_connection_t *hc)
       pthread_mutex_unlock(&rtsp_lock);
       goto error;
     }
-    r = rtsp_parse_cmd(hc, stream, -1, &rs, &valid, &oldstate);
+    r = rtsp_parse_cmd(hc, stream, RTSP_CMD_DESCRIBE, &rs, &valid, &oldstate);
     if (r) {
       pthread_mutex_unlock(&rtsp_lock);
       goto error;
@@ -1302,9 +1312,12 @@ rtsp_process_describe(http_connection_t *hc)
       if (strcmp(hc->hc_session, rs->session))
         continue;
       rtsp_rearm_session_timer(rs);
-      if (stream > 0 && rs->stream != stream)
-        continue;
     }
+    if (stream > 0 && rs->stream != stream)
+      continue;
+    if (satip_server_conf.satip_anonymize &&
+        strcmp(hc->hc_peer_ipstr, rs->peer_ipstr))
+      continue;
     if (first) {
       rtsp_describe_header(hc->hc_session ? rs : NULL, &q);
       first = 0;
@@ -1348,7 +1361,7 @@ error:
  *
  */
 static int
-rtsp_process_play(http_connection_t *hc, int setup)
+rtsp_process_play(http_connection_t *hc, int cmd)
 {
   session_t *rs;
   int errcode = HTTP_STATUS_BAD_REQUEST, valid = 0, oldstate = 0, i, stream;
@@ -1365,11 +1378,11 @@ rtsp_process_play(http_connection_t *hc, int setup)
 
   pthread_mutex_lock(&rtsp_lock);
 
-  errcode = rtsp_parse_cmd(hc, stream, setup, &rs, &valid, &oldstate);
+  errcode = rtsp_parse_cmd(hc, stream, cmd, &rs, &valid, &oldstate);
 
   if (errcode) goto error;
 
-  if (setup && rs->rtp_peer_port != RTSP_TCP_DATA) {
+  if (cmd == RTSP_CMD_SETUP && rs->rtp_peer_port != RTSP_TCP_DATA) {
     if (udp_bind_double(&rs->udp_rtp, &rs->udp_rtcp,
                         LS_SATIPS, "rtsp", "rtcp",
                         rtsp_ip, 0, NULL,
@@ -1385,10 +1398,10 @@ rtsp_process_play(http_connection_t *hc, int setup)
     }
   }
 
-  if ((errcode = rtsp_start(hc, rs, hc->hc_peer_ipstr, valid, setup, oldstate)) != 0)
+  if ((errcode = rtsp_start(hc, rs, hc->hc_peer_ipstr, valid, cmd, oldstate)) != 0)
     goto error;
 
-  if (setup) {
+  if (cmd == RTSP_CMD_SETUP) {
     snprintf(buf, sizeof(buf), "%s;timeout=%d", rs->session, RTSP_TIMEOUT);
     http_arg_set(&args, "Session", buf);
     i = rs->rtp_peer_port;
@@ -1417,6 +1430,10 @@ rtsp_process_play(http_connection_t *hc, int setup)
   goto end;
 
 error:
+  if (rs && cmd == RTSP_CMD_SETUP) {
+    rtsp_close_session(rs);
+    rtsp_free_session(rs);
+  }
   pthread_mutex_unlock(&rtsp_lock);
 error2:
   http_error(hc, errcode);
@@ -1481,7 +1498,7 @@ rtsp_process_request(http_connection_t *hc, htsbuf_queue_t *spill)
     return rtsp_process_describe(hc);
   case RTSP_CMD_SETUP:
   case RTSP_CMD_PLAY:
-    return rtsp_process_play(hc, hc->hc_cmd == RTSP_CMD_SETUP);
+    return rtsp_process_play(hc, hc->hc_cmd);
   case RTSP_CMD_TEARDOWN:
     return rtsp_process_teardown(hc);
   default:
@@ -1600,6 +1617,7 @@ rtsp_free_session(session_t *rs)
   mtimer_disarm(&rs->timer);
   pthread_mutex_unlock(&global_lock);
   mpegts_pid_done(&rs->pids);
+  free(rs->peer_ipstr);
   free(rs);
 }
 

@@ -581,7 +581,10 @@ tvheadend.status_conns = function(panel, index) {
             fields: [
                 { name: 'id', sortType: stype },
                 { name: 'type', sortType: stype },
+                { name: 'server', sortType: stype },
+                { name: 'server_port' },
                 { name: 'peer', sortType: stype },
+                { name: 'peer_port' },
                 { name: 'user', sortType: stype },
                 {
                     name: 'started',
@@ -613,8 +616,14 @@ tvheadend.status_conns = function(panel, index) {
             }, {
                 width: 50,
                 id: 'peer',
-                header: _("IP Address"),
+                header: _("Client Address"),
                 dataIndex: 'peer',
+                sortable: true
+            }, {
+                width: 50,
+                id: 'peer_port',
+                header: _("Client Port"),
+                dataIndex: 'peer_port',
                 sortable: true
             }, {
                 width: 50,
@@ -628,6 +637,18 @@ tvheadend.status_conns = function(panel, index) {
                 header: _("Started"),
                 dataIndex: 'started',
                 renderer: renderDate,
+                sortable: true
+            }, {
+                width: 50,
+                id: 'server',
+                header: _("Server Address"),
+                dataIndex: 'server',
+                sortable: true
+            }, {
+                width: 50,
+                id: 'server_port',
+                header: _("Server Port"),
+                dataIndex: 'server_port',
                 sortable: true
             }]);
 

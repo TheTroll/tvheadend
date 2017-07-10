@@ -86,7 +86,7 @@ const idclass_t imagecache_class = {
       .type   = PT_BOOL,
       .id     = "enabled",
       .name   = N_("Enabled"),
-      .desc   = N_("Select whether or not to enable caching. Note: "
+      .desc   = N_("Select whether or not to enable caching. Note, "
                    "even with this disabled you can still specify "
                    "local (file://) icons and these will be served by "
                    "the built-in webserver."),
@@ -642,11 +642,10 @@ imagecache_get_id ( const char *url )
  * Get data
  */
 int
-imagecache_open ( uint32_t id )
+imagecache_filename ( uint32_t id, char *name, size_t len )
 {
   imagecache_image_t skel, *i;
   char *fn;
-  int fd = -1;
 
   lock_assert(&global_lock);
 
@@ -657,9 +656,10 @@ imagecache_open ( uint32_t id )
 
   /* Local file */
   if (!strncasecmp(i->url, "file://", 7)) {
-    fn = strdupa(i->url + 7);
+    fn = tvh_strdupa(i->url + 7);
     http_deescape(fn);
-    fd = open(fn, O_RDONLY);
+    strncpy(name, fn, len);
+    name[len-1] = '\0';
   }
 
   /* Remote file */
@@ -688,9 +688,10 @@ imagecache_open ( uint32_t id )
       if (e)
         return -1;
     }
-    fd = hts_settings_open_file(0, "imagecache/data/%d", i->id);
+    if (hts_settings_buildpath(name, len, "imagecache/data/%d", i->id))
+      return -1;
   }
 #endif
 
-  return fd;
+  return 0;
 }

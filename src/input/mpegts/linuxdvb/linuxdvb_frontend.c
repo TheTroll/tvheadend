@@ -40,6 +40,14 @@ linuxdvb_frontend_monitor ( void *aux );
 static void *
 linuxdvb_frontend_input_thread ( void *aux );
 
+/*
+ *
+ */
+static inline int sig_multiply(int value, int multiplier)
+{
+  return ((value * MAX(1, multiplier)) + 99) / 100;
+}
+
 /* **************************************************************************
  * Class definition
  * *************************************************************************/
@@ -49,6 +57,17 @@ linuxdvb_frontend_class_changed ( idnode_t *in )
 {
   linuxdvb_adapter_t *la = ((linuxdvb_frontend_t*)in)->lfe_adapter;
   linuxdvb_adapter_changed(la);
+}
+
+const void *
+linuxdvb_frontend_class_active_get ( void *obj )
+{
+  int *active;
+  linuxdvb_frontend_t *lfe = (linuxdvb_frontend_t*)obj;
+  active = (int *)mpegts_input_class_active_get(obj);
+  if (!(*active) && lfe->lfe_adapter->la_exclusive)
+    *active = lfe->lfe_adapter->la_is_enabled(lfe->lfe_adapter);
+  return active;
 }
 
 CLASS_DOC(linuxdvb_frontend)
@@ -97,6 +116,14 @@ const idclass_t linuxdvb_frontend_class =
       .off      = offsetof(linuxdvb_frontend_t, lfe_number),
     },
     {
+      .type     = PT_STR,
+      .id       = "sysfs_device",
+      .name     = N_("Device path in sysfs"),
+      .desc     = N_("The device path in sysfs filesystem (/sys)."),
+      .opts     = PO_RDONLY | PO_NOSAVE | PO_MULTILINE,
+      .off      = offsetof(linuxdvb_frontend_t, lfe_sysfs),
+    },
+    {
       .type     = PT_INT,
       .id       = "pids_max",
       .name     = N_("Maximum PIDs"),
@@ -104,6 +131,15 @@ const idclass_t linuxdvb_frontend_class =
       .off      = offsetof(linuxdvb_frontend_t, lfe_pids_max),
       .opts     = PO_ADVANCED,
       .def.i    = 32
+    },
+    {
+      .type     = PT_BOOL,
+      .id       = "pids_use_all",
+      .name     = N_("Allow all PIDs"),
+      .desc     = N_("Allow all PIDs (no filter) when the 'Maximum PIDs' limit is reached."),
+      .off      = offsetof(linuxdvb_frontend_t, lfe_pids_use_all),
+      .opts     = PO_ADVANCED,
+      .def.i    = 1
     },
     {
       .type     = PT_BOOL,
@@ -161,6 +197,26 @@ const idclass_t linuxdvb_frontend_class =
                      "algorithm based on the signal status faster."),
       .opts     = PO_ADVANCED,
       .off      = offsetof(linuxdvb_frontend_t, lfe_status_period),
+    },
+    {
+      .type     = PT_U32,
+      .id       = "sig_multiplier",
+      .name     = N_("Signal multiplier"),
+      .desc     = N_("The signal level reported by the driver is multiplied "
+                     "with this value and divided by 100."),
+      .opts     = PO_ADVANCED,
+      .off      = offsetof(linuxdvb_frontend_t, lfe_sig_multiplier),
+      .def.u32  = 100,
+    },
+    {
+      .type     = PT_U32,
+      .id       = "snr_multiplier",
+      .name     = N_("SNR multiplier"),
+      .desc     = N_("The SNR level reported by the driver is multiplied "
+                     "with this value and divided by 100."),
+      .opts     = PO_ADVANCED,
+      .off      = offsetof(linuxdvb_frontend_t, lfe_snr_multiplier),
+      .def.u32  = 100,
     },
     {
       .type     = PT_BOOL,
@@ -533,10 +589,13 @@ linuxdvb_frontend_is_enabled
 
   if (lfe->lfe_fe_path == NULL)
     return MI_IS_ENABLED_NEVER;
-  if (!mpegts_input_is_enabled(mi, mm, flags, weight))
-    return MI_IS_ENABLED_NEVER;
+  w = mpegts_input_is_enabled(mi, mm, flags, weight);
+  if (w != MI_IS_ENABLED_OK)
+    return w;
   if (access(lfe->lfe_fe_path, R_OK | W_OK))
     return MI_IS_ENABLED_NEVER;
+  if (mm == NULL)
+    return MI_IS_ENABLED_OK;
   if (lfe->lfe_in_setup)
     return MI_IS_ENABLED_RETRY;
   if (lfe->lfe_type != DVB_TYPE_S)
@@ -944,12 +1003,16 @@ linuxdvb_frontend_monitor ( void *aux )
     if(ioctl_check(lfe, 1) && fe_properties[0].u.st.len > 0) {
       if(fe_properties[0].u.st.stat[0].scale == FE_SCALE_RELATIVE) {
         mmi->tii_stats.signal_scale = SIGNAL_STATUS_SCALE_RELATIVE;
-        mmi->tii_stats.signal = fe_properties[0].u.st.stat[0].uvalue;
+        mmi->tii_stats.signal = sig_multiply(fe_properties[0].u.st.stat[0].uvalue, lfe->lfe_sig_multiplier);
         gotprop = 1;
       }
       else if(fe_properties[0].u.st.stat[0].scale == FE_SCALE_DECIBEL) {
         mmi->tii_stats.signal_scale = SIGNAL_STATUS_SCALE_DECIBEL;
-        mmi->tii_stats.signal = fe_properties[0].u.st.stat[0].svalue;
+        mmi->tii_stats.signal = sig_multiply(fe_properties[0].u.st.stat[0].svalue, lfe->lfe_sig_multiplier);
+        gotprop = 1;
+      }
+      else if(fe_properties[0].u.st.stat[0].scale == FE_SCALE_NOT_AVAILABLE) {
+        mmi->tii_stats.signal_scale = SIGNAL_STATUS_SCALE_UNKNOWN;
         gotprop = 1;
       }
       else {
@@ -964,7 +1027,7 @@ linuxdvb_frontend_monitor ( void *aux )
       /* try old API */
       if (!ioctl(lfe->lfe_fe_fd, FE_READ_SIGNAL_STRENGTH, &u16)) {
         mmi->tii_stats.signal_scale = SIGNAL_STATUS_SCALE_RELATIVE;
-        mmi->tii_stats.signal = u16;
+        mmi->tii_stats.signal = sig_multiply(u16, lfe->lfe_sig_multiplier);
       }
       else {
         ioctl_bad(lfe, 2);
@@ -1019,12 +1082,12 @@ linuxdvb_frontend_monitor ( void *aux )
     if(ioctl_check(lfe, 6) && fe_properties[3].u.st.len > 0) {
       if(fe_properties[3].u.st.stat[0].scale == FE_SCALE_RELATIVE) {
         mmi->tii_stats.snr_scale = SIGNAL_STATUS_SCALE_RELATIVE;
-        mmi->tii_stats.snr = fe_properties[3].u.st.stat[0].uvalue;
+        mmi->tii_stats.snr = sig_multiply(fe_properties[3].u.st.stat[0].uvalue, lfe->lfe_snr_multiplier);
         gotprop = 1;
       }
       else if(fe_properties[3].u.st.stat[0].scale == FE_SCALE_DECIBEL) {
         mmi->tii_stats.snr_scale = SIGNAL_STATUS_SCALE_DECIBEL;
-        mmi->tii_stats.snr = fe_properties[3].u.st.stat[0].svalue;
+        mmi->tii_stats.snr = sig_multiply(fe_properties[3].u.st.stat[0].svalue, lfe->lfe_snr_multiplier);
         gotprop = 1;
       }
       else if(fe_properties[3].u.st.stat[0].scale == FE_SCALE_NOT_AVAILABLE) {
@@ -1043,7 +1106,7 @@ linuxdvb_frontend_monitor ( void *aux )
       /* try old API */
       if (!ioctl(lfe->lfe_fe_fd, FE_READ_SNR, &u16)) {
         mmi->tii_stats.snr_scale = SIGNAL_STATUS_SCALE_RELATIVE;
-        mmi->tii_stats.snr = u16;
+        mmi->tii_stats.snr = sig_multiply(u16, lfe->lfe_snr_multiplier);
       }
       else {
         ioctl_bad(lfe, 7);
@@ -1105,7 +1168,7 @@ linuxdvb_frontend_monitor ( void *aux )
     ioctl_bad(lfe, 0);
     if (ioctl_check(lfe, 1) && !ioctl(lfe->lfe_fe_fd, FE_READ_SIGNAL_STRENGTH, &u16)) {
       mmi->tii_stats.signal_scale = SIGNAL_STATUS_SCALE_RELATIVE;
-      mmi->tii_stats.signal = u16;
+      mmi->tii_stats.signal = sig_multiply(u16, lfe->lfe_sig_multiplier);
     }
     else {
       ioctl_bad(lfe, 1);
@@ -1122,7 +1185,7 @@ linuxdvb_frontend_monitor ( void *aux )
     }
     if (ioctl_check(lfe, 3) && !ioctl(lfe->lfe_fe_fd, FE_READ_SNR, &u16)) {
       mmi->tii_stats.snr_scale = SIGNAL_STATUS_SCALE_RELATIVE;
-      mmi->tii_stats.snr = u16;
+      mmi->tii_stats.snr = sig_multiply(u16, lfe->lfe_snr_multiplier);
     }
     else {
       ioctl_bad(lfe, 3);
@@ -1244,24 +1307,30 @@ linuxdvb_update_pids ( linuxdvb_frontend_t *lfe, const char *name,
 {
   mpegts_apids_t wpid, padd, pdel;
   int i, max = MAX(14, lfe->lfe_pids_max);
+  int all = lfe->lfe_pids.all;
 
   pthread_mutex_lock(&lfe->lfe_dvr_lock);
 
-  if (!lfe->lfe_pids.all) {
+  if (!all) {
     mpegts_pid_weighted(&wpid, &lfe->lfe_pids, max);
-    mpegts_pid_compare(&wpid, tuned, &padd, &pdel);
-    mpegts_pid_done(&wpid);
-    for (i = 0; i < pdel.count; i++)
-      linuxdvb_frontend_close_pid0(lfe, name, pids, pids_size, pdel.pids[i].pid);
-    for (i = 0; i < padd.count; i++)
-      linuxdvb_frontend_open_pid0(lfe, name, pids, pids_size, padd.pids[i].pid);
-    mpegts_pid_done(&padd);
-    mpegts_pid_done(&pdel);
+    if (wpid.count > max && lfe->lfe_pids_use_all) {
+      all = 1;
+      mpegts_pid_done(&wpid);
+    } else {
+      mpegts_pid_compare(&wpid, tuned, &padd, &pdel);
+      mpegts_pid_done(&wpid);
+      for (i = 0; i < pdel.count; i++)
+        linuxdvb_frontend_close_pid0(lfe, name, pids, pids_size, pdel.pids[i].pid);
+      for (i = 0; i < padd.count; i++)
+       linuxdvb_frontend_open_pid0(lfe, name, pids, pids_size, padd.pids[i].pid);
+      mpegts_pid_done(&padd);
+      mpegts_pid_done(&pdel);
+    }
   }
 
-  if (lfe->lfe_pids.all && !linuxdvb_pid_exists(pids, pids_size, MPEGTS_FULLMUX_PID))
+  if (all && !linuxdvb_pid_exists(pids, pids_size, MPEGTS_FULLMUX_PID))
     linuxdvb_frontend_open_pid0(lfe, name, pids, pids_size, MPEGTS_FULLMUX_PID);
-  else if (!lfe->lfe_pids.all && linuxdvb_pid_exists(pids, pids_size, MPEGTS_FULLMUX_PID))
+  else if (!all && linuxdvb_pid_exists(pids, pids_size, MPEGTS_FULLMUX_PID))
     linuxdvb_frontend_close_pid0(lfe, name, pids, pids_size, MPEGTS_FULLMUX_PID);
 
   mpegts_pid_done(tuned);
@@ -1985,9 +2054,10 @@ linuxdvb_frontend_create
 {
   const idclass_t *idc;
   const char *str, *uuid = NULL, *muuid = NULL;
-  char id[16], lname[256];
+  char id[16], lname[256], buf[256];
   linuxdvb_frontend_t *lfe;
   htsmsg_t *scconf;
+  ssize_t r;
 
   /* Tuner slave */
   snprintf(id, sizeof(id), "master for #%d", number);
@@ -2052,8 +2122,21 @@ linuxdvb_frontend_create
   lfe->lfe_ibuf_size = 188000;
   lfe->lfe_status_period = 1000;
   lfe->lfe_pids_max = 32;
+  lfe->lfe_pids_use_all = 1;
+  lfe->lfe_sig_multiplier = 100;
+  lfe->lfe_snr_multiplier = 100;
   lfe = (linuxdvb_frontend_t*)mpegts_input_create0((mpegts_input_t*)lfe, idc, uuid, conf);
   if (!lfe) return NULL;
+
+  /* Sysfs path */
+  snprintf(lname, sizeof(lname), "/sys/class/dvb/dvb%d.frontend%d", la->la_dvb_number, number);
+  r = readlink(lname, buf, sizeof(buf));
+  if (r > 0) {
+    if (r == sizeof(buf)) r--;
+    buf[r] = '\0';
+    if (strncmp(str = buf, "../../", 6) == 0) str += 6;
+    lfe->lfe_sysfs = strdup(str);
+  }
 
   /* Callbacks */
   lfe->mi_get_weight   = linuxdvb_frontend_get_weight;
@@ -2151,6 +2234,7 @@ linuxdvb_frontend_delete ( linuxdvb_frontend_t *lfe )
   LIST_REMOVE(lfe, lfe_link);
 
   /* Free memory */
+  free(lfe->lfe_sysfs);
   free(lfe->lfe_fe_path);
   free(lfe->lfe_dmx_path);
   free(lfe->lfe_dvr_path);

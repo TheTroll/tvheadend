@@ -26,9 +26,12 @@ struct mpegts_mux;
 
 extern const idclass_t caclient_class;
 extern const idclass_t caclient_cwc_class;
+extern const idclass_t caclient_cccam_class;
 extern const idclass_t caclient_capmt_class;
-extern const idclass_t caclient_ccw_des_class;
-extern const idclass_t caclient_ccw_aes_class;
+extern const idclass_t caclient_ccw_csa_cbc_class;
+extern const idclass_t caclient_ccw_des_ncb_class;
+extern const idclass_t caclient_ccw_aes_ecb_class;
+extern const idclass_t caclient_ccw_aes128_ecb_class;
 
 TAILQ_HEAD(caclient_entry_queue, caclient);
 
@@ -76,11 +79,12 @@ void caclient_init(void);
 void caclient_done(void);
 
 void tsdebugcw_service_start(struct service *t);
-void tsdebugcw_new_keys(struct service *t, int type, uint8_t *odd, uint8_t *even);
+void tsdebugcw_new_keys(struct service *t, int type, uint16_t pid, uint8_t *odd, uint8_t *even);
 void tsdebugcw_go(void);
 void tsdebugcw_init(void);
 
 caclient_t *cwc_create(void);
+caclient_t *cccam_create(void);
 caclient_t *capmt_create(void);
 caclient_t *constcw_create(void);
 caclient_t *tsdebugcw_create(void);

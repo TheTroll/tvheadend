@@ -177,6 +177,15 @@ linuxdvb_ca_class_get_title ( idnode_t *in, const char *lang )
   return buf;
 }
 
+static const void *
+linuxdvb_ca_class_active_get ( void *obj )
+{
+  static int active;
+  linuxdvb_ca_t *lca = (linuxdvb_ca_t*)obj;
+  active = !!lca->lca_enabled;
+  return &active;
+}
+
 const idclass_t linuxdvb_ca_class =
 {
   .ic_class      = "linuxdvb_ca",
@@ -184,6 +193,13 @@ const idclass_t linuxdvb_ca_class =
   .ic_changed    = linuxdvb_ca_class_changed,
   .ic_get_title  = linuxdvb_ca_class_get_title,
   .ic_properties = (const property_t[]) {
+    {
+      .type     = PT_BOOL,
+      .id       = "active",
+      .name     = N_("Active"),
+      .opts     = PO_RDONLY | PO_NOSAVE | PO_NOUI,
+      .get      = linuxdvb_ca_class_active_get,
+    },
     {
       .type     = PT_BOOL,
       .id       = "enabled",
@@ -493,21 +509,20 @@ linuxdvb_ca_ca_info_callback(void *arg, uint8_t slot_id, uint16_t session_num,
                              uint32_t ca_id_count, uint16_t *ca_ids)
 {
     linuxdvb_ca_t * lca = arg;
-    uint32_t i;
+    uint32_t i, j;
     char buf[256];
-    size_t c = 0;
+    size_t c;
 
     dvbcam_unregister_cam(lca, 0);
     dvbcam_register_cam(lca, 0, ca_ids, ca_id_count);
 
-
-    for(i=0; i< ca_id_count; i++) {
-        tvh_strlcatf(buf, sizeof(buf), c, " %04X", ca_ids[i]);
-        tvh_strlcatf(buf, sizeof(buf), c, " (%s)",
-                     caid2name(ca_ids[i]));
+    for (i = 0; i < ca_id_count; ) {
+      for (j = 0, c = 0; j < 4 && i < ca_id_count; i++, j++)
+          tvh_strlcatf(buf, sizeof(buf), c, " %04X (%s)",
+                       ca_ids[i], caid2name(ca_ids[i]));
+      tvhinfo(LS_EN50221, "CAM slot %u supported CAIDs: %s", slot_id, buf);
     }
 
-    tvhinfo(LS_EN50221, "CAM slot %u supported CAIDs: %s", slot_id, buf);
     return 0;
 }
 

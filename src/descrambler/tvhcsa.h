@@ -30,8 +30,6 @@ struct elementary_stream;
 #include "ffdecsa/FFdecsa.h"
 #endif
 
-#include "libaesdec/libaesdec.h"
-
 typedef struct tvhcsa
 {
 
@@ -61,8 +59,8 @@ typedef struct tvhcsa
 #else
   void *csa_keys;
 #endif
-  void *csa_aes_keys;
-  
+  void *csa_priv;
+
 } tvhcsa_t;
 
 #if ENABLE_TVHCSA

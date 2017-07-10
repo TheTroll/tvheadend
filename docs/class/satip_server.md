@@ -6,7 +6,7 @@ clients.
 
 ---
 
-###Menu Bar/Buttons
+### Menu Bar/Buttons
 
 The following functions are available:
 
@@ -19,7 +19,7 @@ Button                      | Function
 
 ---
 
-###How to Configure Tvheadend as a SAT\>IP Server (Basic Guide)
+### How to Configure Tvheadend as a SAT\>IP Server (Basic Guide)
 
 **1. Define the RTSP Port**
 
@@ -58,5 +58,10 @@ requested parameters will win (also applies to unknown muxes).
 Hopefully (and if everything went to plan) your client should have 
 now detected Tvheadend as a SAT\>IP server. If not, restart or force 
 it to perform a service discovery.
+
+### Custom M3U Playlist
+
+You may put your custom m3u playlist which is advertised to clients
+in your tvheadend configuration directory - filename *satip.m3u*.
 
 ---

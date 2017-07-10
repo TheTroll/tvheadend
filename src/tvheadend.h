@@ -273,6 +273,7 @@ typedef enum {
   SCT_NONE = -1,
   SCT_UNKNOWN = 0,
   SCT_RAW = 1,
+  SCT_PCR,
   SCT_MPEG2VIDEO,
   SCT_MPEG2AUDIO,
   SCT_H264,
@@ -289,7 +290,8 @@ typedef enum {
   SCT_VORBIS,
   SCT_HEVC,
   SCT_VP9,
-  SCT_LAST = SCT_VP9
+  SCT_HBBTV,
+  SCT_LAST = SCT_HBBTV
 } streaming_component_type_t;
 
 #define SCT_MASK(t) (1 << (t))
@@ -701,7 +703,7 @@ int tvhthread_create
    void *(*start_routine) (void *), void *arg,
    const char *name);
 
-int tvhtread_renice(int value);
+int tvhthread_renice(int value);
 
 int tvh_mutex_timedlock(pthread_mutex_t *mutex, int64_t usec);
 
@@ -828,6 +830,7 @@ int      tvh_gzip_deflate_fd_header ( int fd, const uint8_t *data, size_t orig, 
 /* URL decoding */
 char to_hex(char code);
 char *url_encode(const char *str);
+void http_deescape(char *str);
 
 int mpegts_word_count(const uint8_t *tsb, int len, uint32_t mask);
 

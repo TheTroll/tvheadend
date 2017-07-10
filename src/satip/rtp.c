@@ -56,6 +56,8 @@ typedef struct satip_rtp_session {
   int fd_rtcp;
   int frontend;
   int source;
+  int allow_data;
+  int disable_rtcp;
   dvb_mux_conf_t dmc;
   mpegts_apids_t pids;
   TAILQ_HEAD(, satip_rtp_table) pmt_tables;
@@ -220,8 +222,6 @@ satip_rtp_loop(satip_rtp_session_t *rtp, uint8_t *data, int len)
   satip_rtp_table_t *tbl;
 
   assert((len % 188) == 0);
-  if (len > 0)
-    rtp->sig_lock = 1;
   for ( ; len >= 188 ; data += 188, len -= 188) {
     pid = ((data[1] & 0x1f) << 8) | data[2];
     if (pid != last_pid && !rtp->pids.all) {
@@ -307,8 +307,6 @@ satip_rtp_tcp_loop(satip_rtp_session_t *rtp, uint8_t *data, int len)
   satip_rtp_table_t *tbl;
 
   assert((len % 188) == 0);
-  if (len > 0)
-    rtp->sig_lock = 1;
   for ( ; len >= 188 ; data += 188, len -= 188) {
     pid = ((data[1] & 0x1f) << 8) | data[2];
     if (pid != last_pid && !rtp->pids.all) {
@@ -363,7 +361,7 @@ satip_rtp_thread(void *aux)
 
   tcp_get_str_from_ip(&rtp->peer, peername, sizeof(peername));
   tvhdebug(LS_SATIPS, "RTP streaming to %s:%d open", peername,
-           tcp ? IP_PORT(rtp->peer) : rtp->port);
+           tcp ? ntohs(IP_PORT(rtp->peer)) : rtp->port);
 
   pthread_mutex_lock(&sq->sq_mutex);
   while (rtp->sq && !fatal) {
@@ -387,14 +385,19 @@ satip_rtp_thread(void *aux)
     switch (sm->sm_type) {
     case SMT_MPEGTS:
       pb = sm->sm_data;
-      subscription_add_bytes_out(subs, pktbuf_len(pb));
-      pthread_mutex_lock(&rtp->lock);
-      if (tcp)
-        r = satip_rtp_tcp_loop(rtp, pktbuf_ptr(pb), pktbuf_len(pb));
-      else
-        r = satip_rtp_loop(rtp, pktbuf_ptr(pb), pktbuf_len(pb));
-      pthread_mutex_unlock(&rtp->lock);
-      if (r) fatal = 1;
+      r = pktbuf_len(pb);
+      subscription_add_bytes_out(subs, r);
+      if (r > 0)
+        atomic_set(&rtp->sig_lock, 1);
+      if (atomic_get(&rtp->allow_data)) {
+        pthread_mutex_lock(&rtp->lock);
+        if (tcp)
+          r = satip_rtp_tcp_loop(rtp, pktbuf_ptr(pb), r);
+        else
+          r = satip_rtp_loop(rtp, pktbuf_ptr(pb), r);
+        pthread_mutex_unlock(&rtp->lock);
+        if (r) fatal = 1;
+      }
       break;
     case SMT_SIGNAL_STATUS:
       satip_rtp_signal_status(rtp, sm->sm_data);
@@ -452,7 +455,7 @@ void satip_rtp_queue(void *id, th_subscription_t *subs,
                      struct sockaddr_storage *peer, int port,
                      int fd_rtp, int fd_rtcp,
                      int frontend, int source, dvb_mux_conf_t *dmc,
-                     mpegts_apids_t *pids, int perm_lock)
+                     mpegts_apids_t *pids, int allow_data, int perm_lock)
 {
   satip_rtp_session_t *rtp = calloc(1, sizeof(*rtp));
   int dscp;
@@ -471,6 +474,7 @@ void satip_rtp_queue(void *id, th_subscription_t *subs,
   rtp->subs = subs;
   rtp->sq = sq;
   rtp->tcp_lock = tcp_lock;
+  atomic_set(&rtp->allow_data, allow_data);
   mpegts_pid_init(&rtp->pids);
   mpegts_pid_copy(&rtp->pids, pids);
   TAILQ_INIT(&rtp->pmt_tables);
@@ -489,10 +493,11 @@ void satip_rtp_queue(void *id, th_subscription_t *subs,
     socket_set_dscp(rtp->fd_rtcp, dscp, NULL, 0);
 
   if (perm_lock) {
+    int tmp = ((satip_server_conf.satip_iptv_sig_level * 0xffff) + 0x8000) / 245;
     rtp->sig.signal_scale = SIGNAL_STATUS_SCALE_RELATIVE;
-    rtp->sig.signal = 0xa000;
+    rtp->sig.signal = MINMAX(tmp, 0, 0xffff);
     rtp->sig.snr_scale = SIGNAL_STATUS_SCALE_RELATIVE;
-    rtp->sig.snr = 28000;
+    rtp->sig.snr = MAX(0xffff, (rtp->sig.signal * 3) / 2);
   }
 
   tvhtrace(LS_SATIPS, "rtp queue %p", rtp);
@@ -500,6 +505,17 @@ void satip_rtp_queue(void *id, th_subscription_t *subs,
   pthread_mutex_lock(&satip_rtp_lock);
   TAILQ_INSERT_TAIL(&satip_rtp_sessions, rtp, link);
   tvhthread_create(&rtp->tid, NULL, satip_rtp_thread, rtp, "satip-rtp");
+  pthread_mutex_unlock(&satip_rtp_lock);
+}
+
+void satip_rtp_allow_data(void *id)
+{
+  satip_rtp_session_t *rtp;
+
+  pthread_mutex_lock(&satip_rtp_lock);
+  rtp = satip_rtp_find(id);
+  if (rtp)
+    atomic_set(&rtp->allow_data, 1);
   pthread_mutex_unlock(&satip_rtp_lock);
 }
 
@@ -537,7 +553,8 @@ void satip_rtp_update_pmt_pids(void *id, mpegts_apids_t *pmt_pids)
           break;
       if (!tbl) {
         tbl = calloc(1, sizeof(*tbl));
-        dvb_table_parse_init(&tbl->tbl, "satip-pmt", LS_TBL_SATIP, pid, rtp);
+        dvb_table_parse_init(&tbl->tbl, "satip-pmt", LS_TBL_SATIP, pid,
+                             DVB_PMT_BASE, DVB_PMT_MASK, rtp);
         tbl->pid = pid;
         TAILQ_INSERT_TAIL(&rtp->pmt_tables, tbl, link);
       }
@@ -651,28 +668,33 @@ satip_status_build(satip_rtp_session_t *rtp, char *buf, int len)
   const char *bw, *tmode, *gi, *plp, *t2id, *sm, *c2tft, *ds, *specinv;
   int r, level = 0, lock = 0, quality = 0;
 
-  lock = rtp->sig_lock;
-  switch (rtp->sig.signal_scale) {
-  case SIGNAL_STATUS_SCALE_RELATIVE:
-    level = MINMAX((rtp->sig.signal * 245) / 0xffff, 0, 240);
-    break;
-  case SIGNAL_STATUS_SCALE_DECIBEL:
-    level = MINMAX((rtp->sig.signal + 90000) / 375, 0, 240);
-    break;
-  default:
-    level = lock ? 10 : 0;
-    break;
-  }
-  switch (rtp->sig.snr_scale) {
-  case SIGNAL_STATUS_SCALE_RELATIVE:
-    quality = MINMAX((rtp->sig.snr * 16) / 0xffff, 0, 15);
-    break;
-  case SIGNAL_STATUS_SCALE_DECIBEL:
-    quality = MINMAX(rtp->sig.snr / 2000, 0, 15);
-    break;
-  default:
-    quality = lock ? 1 : 0;
-    break;
+  lock = atomic_get(&rtp->sig_lock);
+  if (satip_server_conf.satip_force_sig_level > 0) {
+    level = MINMAX(satip_server_conf.satip_force_sig_level, 1, 240);
+    quality = MAX((level + 15) / 15, 15);
+  } else {
+    switch (rtp->sig.signal_scale) {
+    case SIGNAL_STATUS_SCALE_RELATIVE:
+      level = MINMAX((rtp->sig.signal * 245) / 0xffff, 0, 240);
+      break;
+    case SIGNAL_STATUS_SCALE_DECIBEL:
+      level = MINMAX((rtp->sig.signal + 90000) / 375, 0, 240);
+      break;
+    default:
+      level = lock ? 120 : 0;
+      break;
+    }
+    switch (rtp->sig.snr_scale) {
+    case SIGNAL_STATUS_SCALE_RELATIVE:
+      quality = MINMAX((rtp->sig.snr * 16) / 0xffff, 0, 15);
+      break;
+    case SIGNAL_STATUS_SCALE_DECIBEL:
+      quality = MINMAX(rtp->sig.snr / 2000, 0, 15);
+      break;
+    default:
+      quality = lock ? 10 : 0;
+      break;
+    }
   }
 
   mpegts_pid_dump(&rtp->pids, pids, sizeof(pids), 0, 0);
@@ -880,7 +902,7 @@ satip_rtcp_thread(void *aux)
     } while (us > 0);
     pthread_mutex_lock(&satip_rtp_lock);
     TAILQ_FOREACH(rtp, &satip_rtp_sessions, link) {
-      if (rtp->sq == NULL) continue;
+      if (rtp->sq == NULL || rtp->disable_rtcp) continue;
       len = satip_rtcp_build(rtp, msg);
       if (len <= 0) continue;
       if (tvhtrace_enabled()) {
@@ -899,9 +921,13 @@ satip_rtcp_thread(void *aux)
       }
       if (r < 0) {
         err = errno;
-        tcp_get_str_from_ip(&rtp->peer2, addrbuf, sizeof(addrbuf));
-        tvhwarn(LS_SATIPS, "RTCP send to error %s:%d : %s",
-                addrbuf, IP_PORT(rtp->peer2), strerror(err));
+        if (err != ECONNREFUSED) {
+          tcp_get_str_from_ip(&rtp->peer2, addrbuf, sizeof(addrbuf));
+          tvhwarn(LS_SATIPS, "RTCP send to error %s:%d : %s",
+                  addrbuf, ntohs(IP_PORT(rtp->peer2)), strerror(err));
+        } else {
+          rtp->disable_rtcp = 1;
+        }
       }
     }
     pthread_mutex_unlock(&satip_rtp_lock);

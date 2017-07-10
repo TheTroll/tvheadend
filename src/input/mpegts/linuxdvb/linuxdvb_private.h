@@ -116,6 +116,7 @@ struct linuxdvb_frontend
   char                     *lfe_fe_path;
   char                     *lfe_dmx_path;
   char                     *lfe_dvr_path;
+  char                     *lfe_sysfs;
 
   /*
    * Reception
@@ -127,6 +128,7 @@ struct linuxdvb_frontend
   tvh_cond_t                lfe_dvr_cond;
   mpegts_apids_t            lfe_pids;
   int                       lfe_pids_max;
+  int                       lfe_pids_use_all;
  
   /*
    * Tuning
@@ -155,6 +157,8 @@ struct linuxdvb_frontend
   uint32_t                  lfe_status_period;
   int                       lfe_old_status;
   int                       lfe_lna;
+  uint32_t                  lfe_sig_multiplier;
+  uint32_t                  lfe_snr_multiplier;
 
   /*
    * Satconf (DVB-S only)
@@ -396,6 +400,8 @@ static inline void linuxdvb_adapter_changed ( linuxdvb_adapter_t *la )
 
 int  linuxdvb_adapter_current_weight ( linuxdvb_adapter_t *la );
 
+const void *linuxdvb_frontend_class_active_get ( void *obj );
+
 linuxdvb_frontend_t *
 linuxdvb_frontend_create
   ( htsmsg_t *conf, linuxdvb_adapter_t *la, int number,
@@ -458,7 +464,7 @@ linuxdvb_diseqc_t *linuxdvb_rotor_create0
 linuxdvb_diseqc_t *linuxdvb_en50494_create0
   ( const char *name, htsmsg_t *conf, linuxdvb_satconf_ele_t *ls, int port );
 
-void linuxdvb_lnb_destroy     ( linuxdvb_lnb_t    *lnb );
+void linuxdvb_lnb_destroy     ( linuxdvb_lnb_t *lnb );
 void linuxdvb_switch_destroy  ( linuxdvb_diseqc_t *ld );
 void linuxdvb_rotor_destroy   ( linuxdvb_diseqc_t *ld );
 void linuxdvb_en50494_destroy ( linuxdvb_diseqc_t *ld );
@@ -479,10 +485,10 @@ static inline int linuxdvb_unicable_is_en50494( const char *str )
 
 void linuxdvb_en50494_init (void);
 
-int linuxdvb_diseqc_raw_send (int fd, uint8_t len, ...);
+int linuxdvb_diseqc_raw_send (int fd, int len, ...);
 int
 linuxdvb_diseqc_send
-  (int fd, uint8_t framing, uint8_t addr, uint8_t cmd, uint8_t len, ...);
+  (int fd, uint8_t framing, uint8_t addr, uint8_t cmd, int len, ...);
 int linuxdvb_diseqc_set_volt ( linuxdvb_satconf_t *ls, int volt );
 
 /*

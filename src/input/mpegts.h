@@ -330,12 +330,15 @@ struct mpegts_network
   mpegts_mux_queue_t mn_scan_pend;    // Pending muxes
   mpegts_mux_queue_t mn_scan_active;  // Active muxes
   mtimer_t           mn_scan_timer;   // Timer for activity
+  mtimer_t           mn_bouquet_timer;
 
   /*
    * Functions
    */
   void              (*mn_delete)       (mpegts_network_t*, int delconf);
   void              (*mn_display_name) (mpegts_network_t*, char *buf, size_t len);
+  int               (*mn_bouquet_source) (mpegts_network_t*, char *buf, size_t len);
+  int               (*mn_bouquet_comment) (mpegts_network_t*, char *buf, size_t len);
   htsmsg_t *        (*mn_config_save)  (mpegts_network_t*, char *filename, size_t fsize);
   mpegts_mux_t*     (*mn_create_mux)
     (mpegts_network_t*, void *origin, uint16_t onid, uint16_t tsid,
@@ -352,6 +355,7 @@ struct mpegts_network
   uint16_t mn_satip_source;
   int      mn_autodiscovery;
   int      mn_skipinitscan;
+  int      mn_bouquet;
   char    *mn_charset;
   int      mn_idlescan;
   int      mn_ignore_chnum;
@@ -523,20 +527,22 @@ struct mpegts_mux
   /*
    * Configuration
    */
-  char *mm_crid_authority;
-  int   mm_enabled;
-  int   mm_epg;
-  char *mm_charset;
-  int   mm_pmt_ac3;
-  int   mm_eit_tsid_nocheck;
+  char    *mm_crid_authority;
+  int      mm_enabled;
+  int      mm_epg;
+  char    *mm_charset;
+  int      mm_pmt_ac3;
+  int      mm_eit_tsid_nocheck;
+  uint16_t mm_sid_filter;
 
   /*
    * TSDEBUG
    */
 #if ENABLE_TSDEBUG
-  int   mm_tsdebug_fd;
-  int   mm_tsdebug_fd2;
-  off_t mm_tsdebug_pos;
+  pthread_mutex_t mm_tsdebug_lock;
+  int             mm_tsdebug_fd;
+  int             mm_tsdebug_fd2;
+  off_t           mm_tsdebug_pos;
   TAILQ_HEAD(, tsdebug_packet) mm_tsdebug_packets;
 #endif
 };
@@ -821,6 +827,7 @@ const void *mpegts_input_class_network_get  ( void *o );
 int         mpegts_input_class_network_set  ( void *o, const void *p );
 htsmsg_t   *mpegts_input_class_network_enum ( void *o, const char *lang );
 char       *mpegts_input_class_network_rend ( void *o, const char *lang );
+const void *mpegts_input_class_active_get   ( void *o );
 
 int mpegts_mps_weight(elementary_stream_t *st);
 
@@ -864,6 +871,10 @@ int mpegts_network_set_nid          ( mpegts_network_t *mn, uint16_t nid );
 int mpegts_network_set_network_name ( mpegts_network_t *mn, const char *name );
 void mpegts_network_scan ( mpegts_network_t *mn );
 void mpegts_network_get_type_str( mpegts_network_t *mn, char *buf, size_t buflen );
+
+void mpegts_network_bouquet_trigger0(mpegts_network_t *mn, int timeout);
+static inline void mpegts_network_bouquet_trigger(mpegts_network_t *mn, int timeout)
+{ if (mn->mn_bouquet) mpegts_network_bouquet_trigger0(mn, timeout); }
 
 htsmsg_t * mpegts_network_wizard_get ( mpegts_input_t *mi, const idclass_t *idc,
                                        mpegts_network_t *mn, const char *lang );
@@ -996,27 +1007,36 @@ int mpegts_input_close_pid
 void mpegts_input_close_pids
   ( mpegts_input_t *mi, mpegts_mux_t *mm, void *owner, int all );
 
+#if ENABLE_TSDEBUG
+
+void tsdebug_started_mux(mpegts_input_t *mi, mpegts_mux_t *mm);
+void tsdebug_stopped_mux(mpegts_input_t *mi, mpegts_mux_t *mm);
+void tsdebug_check_tspkt(mpegts_mux_t *mm, uint8_t *pkt, int len);
+
 static inline void
 tsdebug_write(mpegts_mux_t *mm, uint8_t *buf, size_t len)
 {
-#if ENABLE_TSDEBUG
   if (mm && mm->mm_tsdebug_fd2 >= 0)
     if (write(mm->mm_tsdebug_fd2, buf, len) != len)
       tvherror(LS_TSDEBUG, "unable to write input data (%i)", errno);
-#endif
 }
 
 static inline ssize_t
 sbuf_tsdebug_read(mpegts_mux_t *mm, sbuf_t *sb, int fd)
 {
-#if ENABLE_TSDEBUG
   ssize_t r = sbuf_read(sb, fd);
   tsdebug_write(mm, sb->sb_data + sb->sb_ptr - r, r);
   return r;
-#else
-  return sbuf_read(sb, fd);
-#endif
 }
+
+#else
+
+static inline void tsdebug_started_mux(mpegts_input_t *mi, mpegts_mux_t *mm) { return; }
+static inline void tsdebug_stopped_mux(mpegts_input_t *mi, mpegts_mux_t *mm) { return; }
+static inline void tsdebug_write(mpegts_mux_t *mm, uint8_t *buf, size_t len) { return; }
+static inline ssize_t sbuf_tsdebug_read(mpegts_mux_t *mm, sbuf_t *sb, int fd) { return sbuf_read(sb, fd); }
+
+#endif
 
 void mpegts_table_dispatch
   (const uint8_t *sec, size_t r, void *mt);
@@ -1113,6 +1133,8 @@ static inline mpegts_service_t *mpegts_service_find_by_uuid(const char *uuid)
 void mpegts_service_unref ( service_t *s );
 
 void mpegts_service_delete ( service_t *s, int delconf );
+
+int64_t mpegts_service_channel_number ( service_t *s );
 
 /*
  * MPEG-TS event handler

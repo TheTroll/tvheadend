@@ -115,6 +115,7 @@ tvhlog_subsys_t tvhlog_subsystems[] = {
   [LS_TBL_PASS]      = { "tbl-pass",      N_("Passthrough Muxer SI Tables") },
   [LS_TBL_SATIP]     = { "tbl-satip",     N_("SAT>IP Server SI Tables") },
   [LS_FASTSCAN]      = { "fastscan",      N_("Fastscan DVB") },
+  [LS_PCR]           = { "pcr",           N_("PCR Clocks") },
   [LS_PARSER]        = { "parser",        N_("MPEG-TS Parser") },
   [LS_TS]            = { "TS",            N_("Transport Stream") },
   [LS_GLOBALHEADERS] = { "globalheaders", N_("Global Headers") }, 
@@ -137,6 +138,7 @@ tvhlog_subsys_t tvhlog_subsystems[] = {
   [LS_CSA]           = { "csa",           N_("CSA (descrambling)") },
   [LS_CAPMT]         = { "capmt",         N_("CAPMT CA Client") },
   [LS_CWC]           = { "cwc",           N_("CWC CA Client") },
+  [LS_CCCAM]         = { "cccam",         N_("CWC CCCam Client") },
   [LS_DVBCAM]        = { "dvbcam",        N_("DVB CAM Client") },
   [LS_DVR]           = { "dvr",           N_("Digital Video Recorder") },
   [LS_EPG]           = { "epg",           N_("Electronic Program Guide") },
@@ -281,12 +283,8 @@ tvhlog_process
 
   /* Comet (debug must still be enabled??) */
   if (msg->notify && msg->severity < LOG_TRACE) {
-    htsmsg_t *m = htsmsg_create_map();
     snprintf(buf, sizeof(buf), "%s %s", t, msg->msg);
-    htsmsg_add_str(m, "notificationClass", "logmessage");
-    htsmsg_add_str(m, "logtxt", buf);
-    comet_mailbox_add_message(m, msg->severity >= LOG_DEBUG, 0);
-    htsmsg_destroy(m);
+    comet_mailbox_add_logmsg(buf, msg->severity >= LOG_DEBUG, 0);
   }
 
   /* Console */
@@ -724,10 +722,9 @@ const idclass_t tvhlog_conf_class = {
     {
       .type   = PT_STR,
       .id     = "path",
-      .name   = N_("Debug log path"),
-      /* Should this really be called Debug log path? Don't you need to
-       * enter a filename here not just a path? */
-      .desc   = N_("Enter a filename you want to save the debug log to."),
+      .name   = N_("Filename (including path)"),
+      .desc   = N_("Enter the filename (including path) where "
+                   "Tvheadend should write the log."),
       .get    = tvhlog_class_path_get,
       .set    = tvhlog_class_path_set,
       .group  = 1,

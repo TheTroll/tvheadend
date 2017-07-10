@@ -66,7 +66,7 @@
 
 static void *htsp_server, *htsp_server_2;
 
-#define HTSP_PROTO_VERSION 27
+#define HTSP_PROTO_VERSION 28
 
 #define HTSP_ASYNC_OFF  0x00
 #define HTSP_ASYNC_ON   0x01
@@ -642,7 +642,7 @@ htsp_serierec_convert(htsp_connection_t *htsp, htsmsg_t *in, channel_t *ch, int 
   if (!(retval = htsmsg_get_u32(in, "removal", &u32)) || add)
     htsmsg_add_u32(conf, "removal", !retval ? u32 : DVR_RET_REM_DVRCONFIG);
   if(!(retval = htsmsg_get_u32(in, "priority", &u32)) || add)
-    htsmsg_add_u32(conf, "pri", !retval ? u32 : DVR_PRIO_NORMAL);
+    htsmsg_add_u32(conf, "pri", !retval ? u32 : DVR_PRIO_DEFAULT);
   if ((str = htsmsg_get_str(in, "name")) || add)
     htsmsg_add_str(conf, "name", str ?: "");
   if ((str = htsmsg_get_str(in, "comment")) || add)
@@ -798,7 +798,7 @@ htsp_build_channel(channel_t *ch, const char *method, htsp_connection_t *htsp)
   if (channel_get_minor(chnum))
     htsmsg_add_u32(out, "channelNumberMinor", channel_get_minor(chnum));
 
-  htsmsg_add_str(out, "channelName", channel_get_name(ch));
+  htsmsg_add_str(out, "channelName", channel_get_name(ch, channel_blank_name));
   if ((icon = channel_get_icon(ch))) {
 
     /* Handle older clients */
@@ -857,6 +857,11 @@ htsp_build_channel(channel_t *ch, const char *method, htsp_connection_t *htsp)
       htsmsg_add_u32(svcmsg, "caid", 65535);
       htsmsg_add_str(svcmsg, "caname", tvh_gettext_lang(htsp->htsp_language, N_("Encrypted service")));
     }
+
+    /* HbbTv */
+    if (t->s_hbbtv)
+      htsmsg_add_msg(svcmsg, "hbbtv", htsmsg_copy(t->s_hbbtv));
+
     htsmsg_add_msg(services, NULL, svcmsg);
   }
 
@@ -1832,7 +1837,7 @@ htsp_method_addDvrEntry(htsp_connection_t *htsp, htsmsg_t *in)
     ch = e ? e->channel : ch;
   }
   if(htsmsg_get_u32(in, "priority", &priority))
-    priority = DVR_PRIO_NORMAL;
+    priority = DVR_PRIO_DEFAULT;
   if(htsmsg_get_u32(in, "retention", &retention))
     retention = DVR_RET_REM_DVRCONFIG;
   if(htsmsg_get_u32(in, "removal", &removal))
@@ -2523,7 +2528,8 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
   LIST_INSERT_HEAD(&htsp->htsp_subscriptions, hs, hs_link);
 
   tvhdebug(LS_HTSP, "%s - subscribe to %s using profile %s",
-           htsp->htsp_logname, channel_get_name(ch), profile_get_name(pro));
+           htsp->htsp_logname, channel_get_name(ch, channel_blank_name),
+           profile_get_name(pro));
   hs->hs_s = subscription_create_from_channel(&hs->hs_prch, NULL, weight,
 					      htsp->htsp_logname,
 					      SUBSCRIPTION_PACKET |
@@ -2741,7 +2747,7 @@ htsp_method_file_open(htsp_connection_t *htsp, htsmsg_t *in)
 {
   const char *str, *s2;
   const char *filename = NULL;
-
+  char buf[PATH_MAX];
 
   if((str = htsmsg_get_str(in, "file")) == NULL)
     return htsp_error(htsp, N_("Invalid arguments"));
@@ -2767,7 +2773,9 @@ htsp_method_file_open(htsp_connection_t *htsp, htsmsg_t *in)
     return htsp_file_open(htsp, filename, 0, de);
 
   } else if ((s2 = tvh_strbegins(str, "imagecache/")) != NULL) {
-    int fd = imagecache_open(atoi(s2));
+    int fd = -1;
+    if (!imagecache_filename(atoi(s2), buf, sizeof(buf)))
+      fd = tvh_open(buf, O_RDONLY, 0);
     if (fd < 0)
       return htsp_error(htsp, N_("Failed to open image"));
     return htsp_file_open(htsp, str, fd, NULL);

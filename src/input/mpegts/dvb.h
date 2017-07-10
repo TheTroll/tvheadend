@@ -78,6 +78,9 @@ struct lang_str;
 #define DVB_TOT_BASE                  0x73
 #define DVB_TOT_MASK                  0xFF
 
+#define DVB_HBBTV_BASE                0x74
+#define DVB_HBBTV_MASK                0xFF
+
 #define DVB_FASTSCAN_NIT_BASE         0xBC
 #define DVB_FASTSCAN_SDT_BASE         0xBD
 #define DVB_FASTSCAN_MASK             0xFF
@@ -168,6 +171,19 @@ struct lang_str;
 #define DVB_DESC_FREESAT_LCN          0xD3
 #define DVB_DESC_FREESAT_REGIONS      0xD4
 
+/* HBBTV */
+#define DVB_DESC_APP		      0x00
+#define DVB_DESC_APP_NAME             0x01
+#define DVB_DESC_APP_TRANSPORT        0x02
+#define DVB_DESC_APP_EXT_AUTH         0x05
+#define DVB_DESC_APP_REC	      0x06
+#define DVB_DESC_APP_ICONS            0x0B
+#define DVB_DESC_APP_STORAGE          0x10
+#define DVB_DESC_APP_GRAPHICS_CONSTR  0x14
+#define DVB_DESC_APP_SIMPLE_LOCATION  0x15
+#define DVB_DESC_APP_USAGE	      0x16
+#define DVB_DESC_APP_SIMPLE_BOUNDARY  0x17
+
 /* Descriptors defined in A/65:2009 */
 
 #define ATSC_DESC_STUFFING            0x80
@@ -228,7 +244,7 @@ do {\
   lptr = 2 + off + ptr;\
   ptr += 2 + off + llen;\
   len -= 2 + off + llen;\
-  if (len < 0) {tvhtrace(mt->mt_subsys, "%s: len < 0", mt->mt_name); return -1; }\
+  if (len < 0) {tvhtrace(mt->mt_subsys, "%s: len < 0", mt->mt_name);goto dvberr;}\
 } while(0)
 
 #define DVB_LOOP_EACH(ptr, len, min)\
@@ -239,13 +255,9 @@ do {\
   DVB_LOOP_EACH(lptr, llen, min)
 
 #define DVB_DESC_EACH(mt, ptr, len, dtag, dlen, dptr)\
-  DVB_LOOP_EACH(ptr, len, 2)\
-    if      (!(dtag  = ptr[0]))      {tvhtrace(mt->mt_subsys, "%s: 1", mt->mt_name);return -1;}\
-    else if ((dlen  = ptr[1]) < 0)   {tvhtrace(mt->mt_subsys, "%s: 2", mt->mt_name);return -1;}\
-    else if (!(dptr  = ptr+2))       {tvhtrace(mt->mt_subsys, "%s: 3", mt->mt_name);return -1;}\
-    else if ( (len -= 2 + dlen) < 0) {tvhtrace(mt->mt_subsys, "%s: 4", mt->mt_name);return -1;}\
-    else if (!(ptr += 2 + dlen))     {tvhtrace(mt->mt_subsys, "%s: 5", mt->mt_name);return -1;}\
-    else
+  DVB_LOOP_EACH(ptr, len, 2) { \
+    dtag = ptr[0], dlen = ptr[1], dptr = ptr+2, ptr += 2+dlen; \
+    if ((len -= 2+dlen) < 0) {tvhtrace(mt->mt_subsys, "%s: dlen < 0", mt->mt_name);goto dvberr;}\
 
 #define DVB_DESC_FOREACH(mt, ptr, len, off, lptr, llen, dtag, dlen, dptr)\
   DVB_LOOP_INIT(mt, ptr, len, off, lptr, llen);\
@@ -259,6 +271,8 @@ do {\
 
 typedef struct mpegts_psi_section
 {
+  uint8_t ps_table;  // SI table ID
+  uint8_t ps_mask;   // mask
   int8_t  ps_cc;
   int8_t  ps_cco;
   int     ps_offset;
@@ -328,7 +342,8 @@ typedef void (*mpegts_psi_parse_callback_t)
   ( mpegts_psi_table_t *, const uint8_t *buf, int len );
 
 void dvb_table_parse_init
-  ( mpegts_psi_table_t *mt, const char *name, int subsys, int pid, void *opaque );
+  ( mpegts_psi_table_t *mt, const char *name, int subsys, int pid,
+    uint8_t table, uint8_t mask, void *opaque );
 
 void dvb_table_parse_done ( mpegts_psi_table_t *mt);
 

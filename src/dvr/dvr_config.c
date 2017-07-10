@@ -188,6 +188,7 @@ dvr_config_create(const char *name, const char *uuid, htsmsg_t *conf)
   cfg->dvr_pathname = strdup("$t$n.$x");
   cfg->dvr_cleanup_threshold_free = 1000; // keep 1000 MiB of free space on disk by default
   cfg->dvr_cleanup_threshold_used = 0;    // disabled
+  cfg->dvr_autorec_max_count = 50;
 
   /* Muxer config */
   cfg->dvr_muxcnf.m_cache  = MC_CACHE_SYSTEM;
@@ -797,6 +798,9 @@ PROP_DOC(postremove)
 PROP_DOC(pathname)
 PROP_DOC(cache_scheme)
 PROP_DOC(runningstate)
+PROP_DOC(dvrconfig_whitespace)
+PROP_DOC(dvrconfig_unsafe)
+PROP_DOC(dvrconfig_windows)
 
 const idclass_t dvr_config_class = {
   .ic_class      = "dvrconfig",
@@ -881,6 +885,17 @@ const idclass_t dvr_config_class = {
       .list     = profile_class_get_list,
       .opts     = PO_ADVANCED,
       .group    = 1,
+    },
+    {
+      .type     = PT_U32,
+      .id       = "pri",
+      .name     = N_("Priority"),
+      .desc     = N_("Priority of the entry, higher-priority entries will "
+                     "take precedence and cancel lower-priority events."),
+      .list     = dvr_entry_class_pri_list,
+      .def.i    = DVR_PRIO_NORMAL,
+      .off      = offsetof(dvr_config_t, dvr_pri),
+      .opts     = PO_SORTKEY | PO_ADVANCED | PO_DOC_NLIST,
     },
     {
       .type     = PT_INT,
@@ -985,7 +1000,7 @@ const idclass_t dvr_config_class = {
       .id       = "epg-update-window",
       .name     = N_("EPG update window"),
       .desc     = N_("Maximum allowed difference between event start time when "
-                     "the EPG event is changed."),
+                     "the EPG event is changed in seconds."),
       .off      = offsetof(dvr_config_t, dvr_update_window),
       .list     = dvr_config_entry_class_update_window_list,
       .def.u32  = 24*3600,
@@ -1012,6 +1027,7 @@ const idclass_t dvr_config_class = {
       .desc     = N_("The maximum number of entries that can be matched."),
       .off      = offsetof(dvr_config_t, dvr_autorec_max_count),
       .opts     = PO_ADVANCED,
+      .def.i    = 50,
       .group    = 1,
     },
     {
@@ -1027,7 +1043,7 @@ const idclass_t dvr_config_class = {
       .type     = PT_STR,
       .id       = "preproc",
       .name     = N_("Pre-processor command"),
-      .desc     = N_("Script/program to be run when a recording starts "
+      .desc     = N_("Script/program to run when a recording starts "
                      "(service is subscribed but no filename available)."),
       .doc      = prop_doc_preprocessor,
       .off      = offsetof(dvr_config_t, dvr_preproc),
@@ -1038,7 +1054,7 @@ const idclass_t dvr_config_class = {
       .type     = PT_STR,
       .id       = "postproc",
       .name     = N_("Post-processor command"),
-      .desc     = N_("Script/program to be run when a recording completes."),
+      .desc     = N_("Script/program to run when a recording completes."),
       .doc      = prop_doc_postprocessor,
       .off      = offsetof(dvr_config_t, dvr_postproc),
       .opts     = PO_ADVANCED,
@@ -1048,7 +1064,7 @@ const idclass_t dvr_config_class = {
       .type     = PT_STR,
       .id       = "postremove",
       .name     = N_("Post-remove command"),
-      .desc     = N_("Script/program to be run when a recording gets removed."),
+      .desc     = N_("Script/program to run when a recording gets removed."),
       .doc      = prop_doc_postremove,
       .off      = offsetof(dvr_config_t, dvr_postremove),
       .opts     = PO_EXPERT,
@@ -1258,6 +1274,7 @@ const idclass_t dvr_config_class = {
       .desc     = N_("All characters that could possibly "
                      "cause problems for filenaming will be replaced "
                      "with an underscore. See Help for details."),
+      .doc      = prop_doc_dvrconfig_unsafe,
       .off      = offsetof(dvr_config_t, dvr_clean_title),
       .opts     = PO_EXPERT,
       .group    = 6,
@@ -1267,6 +1284,7 @@ const idclass_t dvr_config_class = {
       .id       = "whitespace-in-title",
       .name     = N_("Replace whitespace in title with '-'"),
       .desc     = N_("Replaces all whitespace in the title with '-'."),
+      .doc      = prop_doc_dvrconfig_whitespace,
       .off      = offsetof(dvr_config_t, dvr_whitespace_in_title),
       .opts     = PO_EXPERT,
       .group    = 6,
@@ -1278,6 +1296,7 @@ const idclass_t dvr_config_class = {
       .desc     = N_("Characters not supported in Windows filenames "
                      "(e.g. for an SMB/CIFS share) will be stripped out "
                      "or converted."),
+      .doc      = prop_doc_dvrconfig_windows,
       .off      = offsetof(dvr_config_t, dvr_windows_compatible_filenames),
       .opts     = PO_ADVANCED,
       .group    = 6,
@@ -1311,6 +1330,12 @@ dvr_config_init(void)
   dvr_config_t *cfg;
 
   dvr_iov_max = sysconf(_SC_IOV_MAX);
+  if( dvr_iov_max == -1 )
+#ifdef IOV_MAX
+    dvr_iov_max = IOV_MAX;
+#else
+    dvr_iov_max = 16;
+#endif
 
   /* Default settings */
 

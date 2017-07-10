@@ -54,7 +54,7 @@ static const void *description_get(wizard_page_t *page, const char **doc)
     htsbuf_queue_init(&q, 0);
     for (; *doc; doc++) {
       if (*doc[0] == '\xff') {
-        htsbuf_append_str(&q, tvh_gettext_lang(config.language_ui, *doc + 1));
+        htsbuf_append_str(&q, tvh_gettext_lang(config.language_ui, *doc + 2));
       } else {
         htsbuf_append_str(&q, *doc);
       }
@@ -749,14 +749,18 @@ static void muxes_changed(idnode_t *in)
     mn = mpegts_network_find(w->networkid[idx]);
     if (mn == NULL || !mn->mn_wizard)
       continue;
+#if ENABLE_MPEGTS_DVB
     if (idnode_is_instance(&mn->mn_id, &dvb_network_class) && w->muxes[idx][0]) {
       dvb_network_scanfile_set((dvb_network_t *)mn, w->muxes[idx]);
     }
+#endif
 #if ENABLE_IPTV
-      else if (idnode_is_instance(&mn->mn_id, &iptv_auto_network_class) &&
+    if (idnode_is_instance(&mn->mn_id, &iptv_auto_network_class) &&
                w->iptv_url[idx][0]) {
       htsmsg_t *m = htsmsg_create_map();
       htsmsg_add_str(m, "url", w->iptv_url[idx]);
+      htsmsg_add_u32(m, "max_streams", 1);
+      htsmsg_add_bool(m, "bouquet", 1);
       idnode_load(&mn->mn_id, m);
       idnode_changed(&mn->mn_id);
       htsmsg_destroy(m);
@@ -844,7 +848,18 @@ static int muxes_set_idvalue##num(void *o, const void *v) \
   wizard_muxes_t *w = p->aux; \
   snprintf(w->networkid[num-1], sizeof(w->networkid[num-1]), "%s", (const char *)v); \
   return 1; \
-} \
+}
+
+MUXES_FCN(1)
+MUXES_FCN(2)
+MUXES_FCN(3)
+MUXES_FCN(4)
+MUXES_FCN(5)
+MUXES_FCN(6)
+
+#if ENABLE_MPEGTS_DVB
+
+#define MUXES_FCN_DVB(num) \
 static const void *muxes_get_value##num(void *o) \
 { \
   wizard_page_t *p = o; \
@@ -869,12 +884,14 @@ static htsmsg_t *muxes_get_list##num(void *o, const char *lang) \
 }
 
 
-MUXES_FCN(1)
-MUXES_FCN(2)
-MUXES_FCN(3)
-MUXES_FCN(4)
-MUXES_FCN(5)
-MUXES_FCN(6)
+MUXES_FCN_DVB(1)
+MUXES_FCN_DVB(2)
+MUXES_FCN_DVB(3)
+MUXES_FCN_DVB(4)
+MUXES_FCN_DVB(5)
+MUXES_FCN_DVB(6)
+
+#endif
 
 #if ENABLE_IPTV
 
@@ -916,6 +933,7 @@ wizard_page_t *wizard_muxes(const char *lang)
     NETWORK_GROUP(6),
     {}
   };
+#if ENABLE_MPEGTS_DVB
   static const property_t nprops[] = {
     MUXES(1),
     MUXES(2),
@@ -924,6 +942,7 @@ wizard_page_t *wizard_muxes(const char *lang)
     MUXES(5),
     MUXES(6),
   };
+#endif
 #if ENABLE_IPTV
   static const property_t iptvprops[] = {
     MUXES_IPTV(1),
@@ -960,14 +979,16 @@ wizard_page_t *wizard_muxes(const char *lang)
     if (mn->mn_wizard) {
       mn->mn_display_name(mn, w->network[midx], sizeof(w->network[midx]));
       idnode_uuid_as_str(&mn->mn_id, w->networkid[midx]);
+#if ENABLE_MPEGTS_DVB
       if (idnode_is_instance(&mn->mn_id, &dvb_network_class)) {
         w->props[idx++] = nprops[midx * 3 + 0];
         w->props[idx++] = nprops[midx * 3 + 1];
         w->props[idx++] = nprops[midx * 3 + 2];
         midx++;
       }
+#endif
 #if ENABLE_IPTV
-        else if (idnode_is_instance(&mn->mn_id, &iptv_auto_network_class)) {
+      if (idnode_is_instance(&mn->mn_id, &iptv_auto_network_class)) {
         snprintf(w->iptv_url[midx], sizeof(w->iptv_url[midx]), "%s", ((iptv_network_t *)mn)->in_url ?: "");
         w->props[idx++] = iptvprops[midx * 3 + 0];
         w->props[idx++] = iptvprops[midx * 3 + 1];

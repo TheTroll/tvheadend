@@ -22,6 +22,7 @@
 #include "settings.h"
 #include "config.h"
 #include "input/mpegts/iptv/iptv_private.h"
+#include "webui/webui.h"
 #include "satip/server.h"
 
 #define UPNP_MAX_AGE 1800
@@ -115,7 +116,7 @@ satip_server_http_xml(http_connection_t *hc)
   htsbuf_queue_t q;
   mpegts_network_t *mn;
   int dvbt = 0, dvbs = 0, dvbc = 0, atsc = 0;
-  int srcs = 0, delim = 0, tuners = 0, i;
+  int srcs = 0, delim = 0, tuners = 0, i, satipm3u = 0;
   struct xml_type_xtab *p;
   http_arg_list_t args;
 
@@ -186,6 +187,9 @@ satip_server_http_xml(http_connection_t *hc)
   else
     snprintf(buf2, sizeof(buf2), " %s", satip_server_conf.satip_uuid  + 26);
 
+  if (!hts_settings_buildpath(buf, sizeof(buf), "satip.m3u"))
+    satipm3u = access(buf, R_OK) == 0;
+
   snprintf(buf, sizeof(buf), MSG,
            config_get_server_name(),
            buf2, tvheadend_version,
@@ -197,7 +201,9 @@ satip_server_http_xml(http_connection_t *hc)
            http_server_ip, http_server_port,
            devicelist ?: "",
            satip_server_conf.satip_nom3u ? "" :
-             "<satip:X_SATIPM3U xmlns:satip=\"urn:ses-com:satip\">/playlist/satip/channels</satip:X_SATIPM3U>\n");
+             (satipm3u ?
+               "<satip:X_SATIPM3U xmlns:satip=\"urn:ses-com:satip\">/satip_server/satip.m3u</satip:X_SATIPM3U>\n" :
+               "<satip:X_SATIPM3U xmlns:satip=\"urn:ses-com:satip\">/playlist/satip/channels</satip:X_SATIPM3U>\n"));
 
   free(devicelist);
 
@@ -220,12 +226,25 @@ satip_server_http_xml(http_connection_t *hc)
 #undef MSG
 }
 
+static int
+satip_server_satip_m3u(http_connection_t *hc)
+{
+  char path[PATH_MAX];
+
+  if (hts_settings_buildpath(path, sizeof(path), "satip.m3u"))
+    return HTTP_STATUS_SERVICE;
+
+  return http_serve_file(hc, path, 0, MIME_M3U, NULL, NULL, NULL);
+}
+
 int
 satip_server_http_page(http_connection_t *hc,
                        const char *remain, void *opaque)
 {
   if (strcmp(remain, "desc.xml") == 0)
     return satip_server_http_xml(hc);
+  if (strcmp(remain, "satip.m3u") == 0)
+    return satip_server_satip_m3u(hc);
   return 0;
 }
 
@@ -553,7 +572,8 @@ struct satip_server_conf satip_server_conf = {
   .idnode.in_class = &satip_server_class,
   .satip_descramble = 1,
   .satip_weight = 100,
-  .satip_allow_remote_weight = 1
+  .satip_allow_remote_weight = 1,
+  .satip_iptv_sig_level = 220,
 };
 
 static void satip_server_class_changed(idnode_t *self)
@@ -616,6 +636,15 @@ const idclass_t satip_server_class = {
       .group  = 1,
     },
     {
+      .type   = PT_BOOL,
+      .id     = "satip_anonymize",
+      .name   = N_("Anonymize"),
+      .desc   = N_("Show only information for sessions which "
+                   "are initiated from an IP address of the requester."),
+      .off    = offsetof(struct satip_server_conf, satip_anonymize),
+      .group  = 1,
+    },
+    {
       .type   = PT_INT,
       .id     = "satip_weight",
       .name   = N_("Subscription weight"),
@@ -649,7 +678,7 @@ const idclass_t satip_server_class = {
       .type   = PT_BOOL,
       .id     = "satip_rewrite_pmt",
       .name   = N_("Rewrite PMT"),
-      .desc   = N_("Rewrite Program Association Table (PMT) packets "
+      .desc   = N_("Rewrite Program Map Table (PMT) packets "
                    "to only include information about the currently "
                    "streamed service."),
       .off    = offsetof(struct satip_server_conf, satip_rewrite_pmt),
@@ -684,6 +713,25 @@ const idclass_t satip_server_class = {
       .name   = N_("Disable X_SATIPM3U tag"),
       .desc   = N_("Do not send X_SATIPM3U information in the XML description to clients."),
       .off    = offsetof(struct satip_server_conf, satip_nom3u),
+      .opts   = PO_EXPERT,
+      .group  = 1,
+    },
+    {
+      .type   = PT_U32,
+      .id     = "satip_iptv_sig_level",
+      .name   = N_("IPTV signal level"),
+      .desc   = N_("Signal level for IPTV sources (0-240)."),
+      .off    = offsetof(struct satip_server_conf, satip_iptv_sig_level),
+      .opts   = PO_EXPERT,
+      .group  = 1,
+      .def.u32 = 220,
+    },
+    {
+      .type   = PT_U32,
+      .id     = "force_sig_level",
+      .name   = N_("Force signal level"),
+      .desc   = N_("Force signal level for all streaming (1-240, 0=do not use)."),
+      .off    = offsetof(struct satip_server_conf, satip_force_sig_level),
       .opts   = PO_EXPERT,
       .group  = 1,
     },

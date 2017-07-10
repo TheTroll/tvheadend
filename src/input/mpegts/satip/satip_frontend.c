@@ -186,6 +186,17 @@ const idclass_t satip_frontend_class =
       .off      = offsetof(satip_frontend_t, sf_play2),
     },
     {
+      .type     = PT_INT,
+      .id       = "grace_period",
+      .name     = N_("Grace period"),
+      .desc     = N_("Force the grace period for which SAT>IP client waits "
+                     "for the data from server. After this grace period, "
+                     "the tuner is handled as dead. The default value is "
+                     "5 seconds (for DVB-S/S2: 10 seconds)."),
+      .opts     = PO_ADVANCED,
+      .off      = offsetof(satip_frontend_t, sf_grace_period),
+    },
+    {
       .type     = PT_BOOL,
       .id       = "teardown_delay",
       .name     = N_("Force teardown delay"),
@@ -221,6 +232,17 @@ const idclass_t satip_frontend_class =
   }
 };
 
+static htsmsg_t *
+satip_frontend_dvbt_delsys_list ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("All"),     DVB_SYS_NONE },
+    { N_("DVB-T"),   DVB_SYS_DVBT },
+    { N_("DVB-T2"),  DVB_SYS_DVBT2 },
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
 const idclass_t satip_frontend_dvbt_class =
 {
   .ic_super      = &satip_frontend_class,
@@ -235,6 +257,15 @@ const idclass_t satip_frontend_dvbt_class =
       .set      = satip_frontend_class_override_set,
       .list     = satip_frontend_class_override_enum,
       .off      = offsetof(satip_frontend_t, sf_type_override),
+    },
+    {
+      .type     = PT_INT,
+      .id       = "delsys",
+      .name     = N_("Delivery system"),
+      .desc     = N_("Limit delivery system."),
+      .opts     = PO_EXPERT,
+      .list     = satip_frontend_dvbt_delsys_list,
+      .off      = offsetof(satip_frontend_t, sf_delsys),
     },
     {}
   }
@@ -309,6 +340,17 @@ satip_frontend_dvbs_class_master_enum( void * self, const char *lang )
   return m;
 }
 
+static htsmsg_t *
+satip_frontend_dvbs_delsys_list ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("All"),     DVB_SYS_NONE },
+    { N_("DVB-S"),   DVB_SYS_DVBS },
+    { N_("DVB-S2"),  DVB_SYS_DVBS2 },
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
 const idclass_t satip_frontend_dvbs_class =
 {
   .ic_super      = &satip_frontend_class,
@@ -345,6 +387,15 @@ const idclass_t satip_frontend_dvbs_class =
       .set      = satip_frontend_dvbs_class_master_set,
       .list     = satip_frontend_dvbs_class_master_enum,
       .off      = offsetof(satip_frontend_t, sf_master),
+    },
+    {
+      .type     = PT_INT,
+      .id       = "delsys",
+      .name     = N_("Delivery system"),
+      .desc     = N_("Limit delivery system."),
+      .opts     = PO_EXPERT,
+      .list     = satip_frontend_dvbs_delsys_list,
+      .off      = offsetof(satip_frontend_t, sf_delsys),
     },
     {
       .id       = "networks",
@@ -386,6 +437,17 @@ const idclass_t satip_frontend_dvbs_slave_class =
   }
 };
 
+static htsmsg_t *
+satip_frontend_dvbc_delsys_list ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("All"),     DVB_SYS_NONE },
+    { N_("DVB-C"),   DVB_SYS_DVBC_ANNEX_A },
+    { N_("DVB-C2"),  DVB_SYS_DVBC_ANNEX_C },
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
 const idclass_t satip_frontend_dvbc_class =
 {
   .ic_super      = &satip_frontend_class,
@@ -400,6 +462,15 @@ const idclass_t satip_frontend_dvbc_class =
       .set      = satip_frontend_class_override_set,
       .list     = satip_frontend_class_override_enum,
       .off      = offsetof(satip_frontend_t, sf_type_override),
+    },
+    {
+      .type     = PT_INT,
+      .id       = "delsys",
+      .name     = N_("Delivery system"),
+      .desc     = N_("Limit delivery system."),
+      .opts     = PO_EXPERT,
+      .list     = satip_frontend_dvbc_delsys_list,
+      .off      = offsetof(satip_frontend_t, sf_delsys),
     },
     {}
   }
@@ -449,7 +520,7 @@ static int
 satip_frontend_get_grace ( mpegts_input_t *mi, mpegts_mux_t *mm )
 {
   satip_frontend_t *lfe = (satip_frontend_t*)mi;
-  int r = 5;
+  int r = lfe->sf_grace_period > 0 ? MINMAX(lfe->sf_grace_period, 1, 60) : 5;
   if (lfe->sf_positions || lfe->sf_master)
     r = MINMAX(satip_satconf_get_grace(lfe, mm) ?: 10, r, 60);
   return r;
@@ -521,15 +592,27 @@ satip_frontend_is_enabled
   satip_frontend_t *lfe = (satip_frontend_t*)mi;
   satip_frontend_t *lfe2;
   satip_satconf_t *sfc;
+  int r;
 
   lock_assert(&global_lock);
 
-  if (!mpegts_input_is_enabled(mi, mm, flags, weight))
-    return MI_IS_ENABLED_NEVER;
+  r = mpegts_input_is_enabled(mi, mm, flags, weight);
+  if (r != MI_IS_ENABLED_OK)
+    return r;
   if (lfe->sf_device->sd_dbus_allow <= 0)
     return MI_IS_ENABLED_NEVER;
+  if (mm == NULL)
+    return MI_IS_ENABLED_OK;
   if (lfe->sf_type != DVB_TYPE_S)
     return MI_IS_ENABLED_OK;
+  /* delivery system specific check */
+  lfe2 = lfe->sf_master ? satip_frontend_find_by_number(lfe->sf_device, lfe->sf_master) : lfe;
+  if (lfe2 == NULL) lfe2 = lfe;
+  if (lfe2->sf_delsys != DVB_SYS_NONE) {
+    dvb_mux_conf_t *dmc = &((dvb_mux_t *)mm)->lm_tuning;
+    if (dmc->dmc_fe_delsys != lfe2->sf_delsys)
+      return MI_IS_ENABLED_NEVER;
+  }
   /* check if the position is enabled */
   sfc = satip_satconf_get_position(lfe, mm, NULL, 1, flags, weight);
   if (!sfc) return MI_IS_ENABLED_NEVER;
@@ -1070,6 +1153,9 @@ satip_frontend_wake_other_waiting
   if (tr == NULL)
     return;
 
+  if (atomic_add(&lfe->sf_device->sd_wake_ref, 1) > 0)
+    goto end;
+
   hash1 = tr->sf_netposhash;
 
   TAILQ_FOREACH(lfe2, &lfe->sf_device->sd_frontends, sf_link) {
@@ -1078,12 +1164,16 @@ satip_frontend_wake_other_waiting
     if ((lfe->sf_master && lfe2->sf_number != lfe->sf_master) ||
         (lfe2->sf_master && lfe->sf_number != lfe2->sf_master))
       continue;
-    pthread_mutex_lock(&lfe2->sf_dvr_lock);
+    while (pthread_mutex_trylock(&lfe2->sf_dvr_lock))
+      tvh_usleep(1000);
     hash2 = lfe2->sf_req ? lfe2->sf_req->sf_netposhash : 0;
     if (hash2 != 0 && hash1 != hash2 && lfe2->sf_running)
       tvh_write(lfe2->sf_dvr_pipe.wr, "o", 1);
     pthread_mutex_unlock(&lfe2->sf_dvr_lock);
   }
+
+end:
+  atomic_dec(&lfe->sf_device->sd_wake_ref, 1);
 }
 
 static void

@@ -362,6 +362,7 @@ SRCS-MPEGTS = \
 	src/input/mpegts/mpegts_pid.c \
 	src/input/mpegts/mpegts_input.c \
 	src/input/mpegts/tsdemux.c \
+	src/input/mpegts/dvb_psi_hbbtv.c \
 	src/input/mpegts/dvb_psi_lib.c \
 	src/input/mpegts/mpegts_network.c \
 	src/input/mpegts/mpegts_mux.c \
@@ -501,6 +502,12 @@ SRCS-CWC = \
 SRCS-${CONFIG_CWC} += $(SRCS-CWC)
 I18N-C += $(SRCS-CWC)
 
+# CCCAM
+SRCS-CCCAM = \
+	src/descrambler/cccam.c
+SRCS-${CONFIG_CCCAM} += $(SRCS-CCCAM)
+I18N-C += $(SRCS-CCCAM)
+
 # CAPMT
 SRCS-CAPMT = \
 	src/descrambler/capmt.c
@@ -522,6 +529,7 @@ I18N-C += $(SRCS-DVBCAM)
 
 # TSDEBUGCW
 SRCS-TSDEBUG = \
+	src/input/mpegts/mpegts_tsdebug.c \
 	src/descrambler/tsdebugcw.c
 SRCS-${CONFIG_TSDEBUG} += $(SRCS-TSDEBUG)
 I18N-C += $(SRCS-TSDEBUG)
@@ -542,8 +550,10 @@ ${BUILDDIR}/src/descrambler/ffdecsa/ffdecsa_mmx.o  : CFLAGS += -mmmx
 ${BUILDDIR}/src/descrambler/ffdecsa/ffdecsa_sse2.o : CFLAGS += -msse2
 endif
 
-# libaesdec
-SRCS-${CONFIG_SSL} += src/descrambler/libaesdec/libaesdec.c
+# crypto algorithms
+SRCS-${CONFIG_SSL} += src/descrambler/algo/libaesdec.c
+SRCS-${CONFIG_SSL} += src/descrambler/algo/libaes128dec.c
+SRCS-${CONFIG_SSL} += src/descrambler/algo/libdesdec.c
 
 # DBUS
 SRCS-${CONFIG_DBUS_1}  += src/dbus.c
@@ -569,11 +579,11 @@ I18N-DOCS  += $(wildcard docs/markdown/inc/*.md)
 I18N-DOCS  += $(wildcard docs/class/*.md)
 I18N-DOCS  += $(wildcard docs/property/*.md)
 I18N-DOCS  += $(wildcard docs/wizard/*.md)
-MD-ROOT     = $(patsubst docs/markdown/%.md,%,$(wildcard docs/markdown/*.md))
-MD-ROOT    += $(patsubst docs/markdown/inc/%.md,inc/%,$(wildcard docs/markdown/inc/*.md))
-MD-CLASS    = $(patsubst docs/class/%.md,%,$(wildcard docs/class/*.md))
-MD-PROP     = $(patsubst docs/property/%.md,%,$(wildcard docs/property/*.md))
-MD-WIZARD   = $(patsubst docs/wizard/%.md,%,$(wildcard docs/wizard/*.md))
+MD-ROOT     = $(patsubst docs/markdown/%.md,%,$(sort $(wildcard docs/markdown/*.md)))
+MD-ROOT    += $(patsubst docs/markdown/inc/%.md,inc/%,$(sort $(wildcard docs/markdown/inc/*.md)))
+MD-CLASS    = $(patsubst docs/class/%.md,%,$(sort $(wildcard docs/class/*.md)))
+MD-PROP     = $(patsubst docs/property/%.md,%,$(sort $(wildcard docs/property/*.md)))
+MD-WIZARD   = $(patsubst docs/wizard/%.md,%,$(sort $(wildcard docs/wizard/*.md)))
 
 #
 # Internationalization
@@ -662,7 +672,9 @@ $(ROOTDIR)/src/version.c: FORCE
 FORCE:
 
 # Include dependency files if they exist.
+ifeq ($(filter clean distclean, $(MAKECMDGOALS)),)
 -include $(DEPS)
+endif
 
 # Some hardcoded deps
 src/webui/extjs.c: make_webui
@@ -671,10 +683,16 @@ src/webui/extjs.c: make_webui
 include ${ROOTDIR}/support/${OSENV}.mk
 
 # Build files
+DATE_FMT = %Y-%m-%dT%H:%M:%S%z
+ifdef SOURCE_DATE_EPOCH
+	BUILD_DATE ?= $(shell date -u -d "@$(SOURCE_DATE_EPOCH)" "+$(DATE_FMT)"  2>/dev/null || date -u -r "$(SOURCE_DATE_EPOCH)" "+$(DATE_FMT)" 2>/dev/null || date -u "+$(DATE_FMT)")
+else
+	BUILD_DATE ?= $(shell date "+$(DATE_FMT)")
+endif
 $(BUILDDIR)/timestamp.c: FORCE
 	@mkdir -p $(dir $@)
 	@echo '#include "build.h"' > $@
-	@echo 'const char* build_timestamp = "'`date -Iseconds`'";' >> $@
+	@echo 'const char* build_timestamp = "'$(BUILD_DATE)'";' >> $@
 
 $(BUILDDIR)/timestamp.o: $(BUILDDIR)/timestamp.c
 	$(pCC) -c -o $@ $<
@@ -783,7 +801,7 @@ endif
 
 # linuxdvb git tree
 $(ROOTDIR)/data/dvb-scan/.stamp:
-	@echo "Receiving data/dvb-scan/dvb-t from https://github.com/tvheadend/dtv-scan-tables.git#tvheadend"
+	@echo "Receiving data/dvb-scan from https://github.com/tvheadend/dtv-scan-tables.git#tvheadend"
 	@rm -rf $(ROOTDIR)/data/dvb-scan/*
 	@$(ROOTDIR)/support/getmuxlist $(ROOTDIR)/data/dvb-scan
 	@touch $@
