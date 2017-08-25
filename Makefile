@@ -204,6 +204,7 @@ SRCS-1 = \
 	src/tvhlog.c \
 	src/idnode.c \
 	src/prop.c \
+	src/proplib.c \
 	src/utils.c \
 	src/wrappers.c \
 	src/access.c \
@@ -480,6 +481,7 @@ DEPS-LIBAV = \
 	src/tvhlog.c
 SRCS-LIBAV = \
 	src/libav.c \
+	src/input/mpegts/iptv/iptv_libav.c \
 	src/muxer/muxer_libav.c \
 	src/plumbing/transcoding.c \
 	src/plumbing/vdpau.c
@@ -798,6 +800,13 @@ ifeq ($(CONFIG_BINTRAY_CACHE),yes)
 	$(MAKE) -f Makefile.hdhomerun libcacheget
 endif
 	$(MAKE) -f Makefile.hdhomerun
+
+.PHONY: ffmpeg_rebuild
+ffmpeg_rebuild:
+	-rm ${BUILDDIR}/ffmpeg/build/ffmpeg/lib/libavcodec.a
+	-rm ${BUILDDIR}/libffmpeg_stamp
+	-rm ${BUILDDIR}/ffmpeg/ffmpeg-*/.tvh_build
+	$(MAKE) all
 
 # linuxdvb git tree
 $(ROOTDIR)/data/dvb-scan/.stamp:

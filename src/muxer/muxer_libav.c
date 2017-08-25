@@ -499,9 +499,12 @@ lav_muxer_write_pkt(muxer_t *m, streaming_message_type_t smt, void *data)
 
     packet.stream_index = st->index;
  
-    packet.pts      = av_rescale_q(pkt->pkt_pts     , mpeg_tc, st->time_base);
-    packet.dts      = av_rescale_q(pkt->pkt_dts     , mpeg_tc, st->time_base);
-    packet.duration = av_rescale_q(pkt->pkt_duration, mpeg_tc, st->time_base);
+    packet.pts      = av_rescale_q_rnd(pkt->pkt_pts, mpeg_tc, st->time_base,
+                                       AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
+    packet.dts      = av_rescale_q_rnd(pkt->pkt_dts, mpeg_tc, st->time_base,
+                                       AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
+    packet.duration = av_rescale_q_rnd(pkt->pkt_duration, mpeg_tc, st->time_base,
+                                       AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
 
     if(!SCT_ISVIDEO(pkt->pkt_type) || pkt->v.pkt_frametype < PKT_P_FRAME)
       packet.flags |= AV_PKT_FLAG_KEY;
@@ -592,6 +595,8 @@ lav_muxer_destroy(muxer_t *m)
     lm->lm_oc = NULL;
   }
 
+  muxer_config_free(&lm->m_config);
+  muxer_hints_free(lm->m_hints);
   free(lm);
 }
 
@@ -600,7 +605,8 @@ lav_muxer_destroy(muxer_t *m)
  * Create a new libavformat based muxer
  */
 muxer_t*
-lav_muxer_create(const muxer_config_t *m_cfg)
+lav_muxer_create(const muxer_config_t *m_cfg,
+                 const muxer_hints_t *hints)
 {
   const char *mux_name;
   lav_muxer_t *lm;

@@ -1140,6 +1140,7 @@ http_stream_service(http_connection_t *hc, service_t *service, int weight)
   th_subscription_t *s;
   profile_t *pro;
   profile_chain_t prch;
+  muxer_hints_t *hints;
   const char *str;
   size_t qsize;
   const char *name;
@@ -1174,8 +1175,10 @@ http_stream_service(http_connection_t *hc, service_t *service, int weight)
   else
     qsize = 1500000;
 
+  hints = muxer_hints_create(http_arg_get(&hc->hc_args, "User-Agent"));
+
   profile_chain_init(&prch, pro, service);
-  if (!profile_chain_open(&prch, NULL, 0, qsize)) {
+  if (!profile_chain_open(&prch, NULL, hints, 0, qsize)) {
 
     s = subscription_create_from_service(&prch, NULL, weight, "HTTP",
                                          prch.prch_flags | SUBSCRIPTION_STREAMING |
@@ -1290,6 +1293,7 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
   th_subscription_t *s;
   profile_t *pro;
   profile_chain_t prch;
+  muxer_hints_t *hints;
   char *str;
   size_t qsize;
   const char *name;
@@ -1342,8 +1346,10 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
     }
   }
 
+  hints = muxer_hints_create(http_arg_get(&hc->hc_args, "User-Agent"));
+
   profile_chain_init(&prch, pro, ch);
-  if (!profile_chain_open(&prch, NULL, 0, qsize)) {
+  if (!profile_chain_open(&prch, NULL, hints, 0, qsize)) {
 
     s = subscription_create_from_channel(&prch,
                  NULL, weight, "HTTP",
@@ -2007,10 +2013,10 @@ webui_init(int xspf)
 
   http_path_add("", NULL, page_root2, ACCESS_WEB_INTERFACE);
   hp = http_path_add("/", NULL, page_root, ACCESS_WEB_INTERFACE);
-  hp->hp_no_verification = 1; /* redirect only */
+  hp->hp_flags = HTTP_PATH_NO_VERIFICATION; /* redirect only */
   http_path_add("/login", NULL, page_login, ACCESS_WEB_INTERFACE);
   hp = http_path_add("/logout", NULL, page_logout, ACCESS_WEB_INTERFACE);
-  hp->hp_no_verification = 1;
+  hp->hp_flags = HTTP_PATH_NO_VERIFICATION;
 
 #if CONFIG_SATIP_SERVER
   http_path_add("/satip_server", NULL, satip_server_http_page, ACCESS_ANONYMOUS);
