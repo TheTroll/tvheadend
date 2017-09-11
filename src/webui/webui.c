@@ -331,7 +331,7 @@ page_static_file(http_connection_t *hc, const char *_remain, void *opaque)
   if (!gzip && fb_gzipped(fp))
     gzip = "gzip";
 
-  pthread_mutex_lock(&hc->hc_fd_lock);
+  http_send_begin(hc);
   http_send_header(hc, 200, content, size, gzip, NULL, 10, 0, NULL, NULL);
   while (!fb_eof(fp)) {
     ssize_t c = fb_read(fp, buf, sizeof(buf));
@@ -344,7 +344,7 @@ page_static_file(http_connection_t *hc, const char *_remain, void *opaque)
       break;
     }
   }
-  pthread_mutex_unlock(&hc->hc_fd_lock);
+  http_send_end(hc);
   fb_close(fp);
 
   return ret;
@@ -1482,10 +1482,10 @@ page_xspf(http_connection_t *hc, const char *remain, void *opaque)
   pthread_mutex_unlock(&global_lock);
 
   len = strlen(buf);
-  pthread_mutex_lock(&hc->hc_fd_lock);
+  http_send_begin(hc);
   http_send_header(hc, 200, "application/xspf+xml", len, 0, NULL, 10, 0, NULL, NULL);
   tvh_write(hc->hc_fd, buf, len);
-  pthread_mutex_unlock(&hc->hc_fd_lock);
+  http_send_end(hc);
 
   free(hostpath);
   return 0;
@@ -1525,10 +1525,10 @@ page_m3u(http_connection_t *hc, const char *remain, void *opaque)
   pthread_mutex_unlock(&global_lock);
 
   len = strlen(buf);
-  pthread_mutex_lock(&hc->hc_fd_lock);
+  http_send_begin(hc);
   http_send_header(hc, 200, MIME_M3U, len, 0, NULL, 10, 0, NULL, NULL);
   tvh_write(hc->hc_fd, buf, len);
-  pthread_mutex_unlock(&hc->hc_fd_lock);
+  http_send_end(hc);
 
   free(hostpath);
   return 0;
@@ -1689,7 +1689,7 @@ http_serve_file(http_connection_t *hc, const char *fname,
     }
   }
 
-  pthread_mutex_lock(&hc->hc_fd_lock);
+  http_send_begin(hc);
   http_send_header(hc, range ? HTTP_STATUS_PARTIAL_CONTENT : HTTP_STATUS_OK,
        content, content_len, NULL, NULL, 10, 
        range ? range_buf : NULL, disposition, NULL);
@@ -1715,7 +1715,7 @@ http_serve_file(http_connection_t *hc, const char *fname,
         stats(hc, r, opaque);
     }
   }
-  pthread_mutex_unlock(&hc->hc_fd_lock);
+  http_send_end(hc);
   close(fd);
 
   return ret;
@@ -1738,32 +1738,19 @@ page_dvrfile_preop(http_connection_t *hc, off_t file_start,
                    size_t content_len, void *opaque)
 {
   page_dvrfile_priv_t *priv = opaque;
-  char *str, *basename;
   dvr_entry_t *de;
 
   pthread_mutex_lock(&global_lock);
   priv->tcp_id = http_stream_preop(hc);
   priv->sub = NULL;
   if (priv->tcp_id && !hc->hc_no_output && content_len > 64*1024) {
-    priv->sub = subscription_create(NULL, 1, "HTTP",
-                                    SUBSCRIPTION_NONE, NULL,
-                                    hc->hc_peer_ipstr, hc->hc_peer_port, hc->hc_username,
-                                    http_arg_get(&hc->hc_args, "User-Agent"));
+    priv->sub = subscription_create_from_file("HTTP", priv->charset,
+                                              priv->fname, hc->hc_peer_ipstr, 
+                                              hc->hc_peer_port, hc->hc_username,
+                                              http_arg_get(&hc->hc_args, "User-Agent"));
     if (priv->sub == NULL) {
       http_stream_postop(priv->tcp_id);
       priv->tcp_id = NULL;
-    } else {
-      str = intlconv_to_utf8safestr(priv->charset, priv->fname, strlen(priv->fname) * 3);
-      if (str == NULL)
-        str = intlconv_to_utf8safestr(intlconv_charset_id("ASCII", 1, 1),
-                                      priv->fname, strlen(priv->fname) * 3);
-      if (str == NULL)
-        str = strdup("error");
-      basename = malloc(strlen(str) + 7 + 1);
-      strcpy(basename, "file://");
-      strcat(basename, str);
-      priv->sub->ths_dvrfile = basename;
-      free(str);
     }
   }
   /* Play count + 1 when write access */
@@ -1943,10 +1930,10 @@ http_redir(http_connection_t *hc, const char *remain, void *opaque)
         }
       }
       snprintf(buf, sizeof(buf), "tvh_locale={};tvh_locale_lang='';");
-      pthread_mutex_lock(&hc->hc_fd_lock);
+      http_send_begin(hc);
       http_send_header(hc, 200, "text/javascript; charset=UTF-8", strlen(buf), 0, NULL, 10, 0, NULL, NULL);
       tvh_write(hc->hc_fd, buf, strlen(buf));
-      pthread_mutex_unlock(&hc->hc_fd_lock);
+      http_send_end(hc);
       return 0;
     }
     if (!strcmp(components[0], "theme.css")) {

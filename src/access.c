@@ -1185,7 +1185,8 @@ access_entry_class_save(idnode_t *self, char *filename, size_t fsize)
   htsmsg_t *c = htsmsg_create_map();
   access_entry_update_rights((access_entry_t *)self);
   idnode_save(&ae->ae_id, c);
-  snprintf(filename, fsize, "accesscontrol/%s", idnode_uuid_as_str(&ae->ae_id, ubuf));
+  if (filename)
+    snprintf(filename, fsize, "accesscontrol/%s", idnode_uuid_as_str(&ae->ae_id, ubuf));
   return c;
 }
 
@@ -1980,7 +1981,8 @@ passwd_entry_class_save(idnode_t *self, char *filename, size_t fsize)
   char ubuf[UUID_HEX_SIZE];
   htsmsg_t *c = htsmsg_create_map();
   idnode_save(&pw->pw_id, c);
-  snprintf(filename, fsize, "passwd/%s", idnode_uuid_as_str(&pw->pw_id, ubuf));
+  if (filename)
+    snprintf(filename, fsize, "passwd/%s", idnode_uuid_as_str(&pw->pw_id, ubuf));
   return c;
 }
 
@@ -2156,7 +2158,8 @@ ipblock_entry_class_save(idnode_t *self, char *filename, size_t fsize)
   htsmsg_t *c = htsmsg_create_map();
   char ubuf[UUID_HEX_SIZE];
   idnode_save(&ib->ib_id, c);
-  snprintf(filename, fsize, "ipblock/%s", idnode_uuid_as_str(&ib->ib_id, ubuf));
+  if (filename)
+    snprintf(filename, fsize, "ipblock/%s", idnode_uuid_as_str(&ib->ib_id, ubuf));
   return c;
 }
 

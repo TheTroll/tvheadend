@@ -54,6 +54,7 @@
 static void service_data_timeout(void *aux);
 static void service_class_delete(struct idnode *self);
 static htsmsg_t *service_class_save(struct idnode *self, char *filename, size_t fsize);
+static void service_class_load(struct idnode *self, htsmsg_t *conf);
 static int service_make_nicename0(service_t *t, char *buf, size_t len, int adapter);
 
 struct service_queue service_all;
@@ -172,6 +173,7 @@ const idclass_t service_class = {
   .ic_perm_def   = ACCESS_ADMIN,
   .ic_delete     = service_class_delete,
   .ic_save       = service_class_save,
+  .ic_load       = service_class_load,
   .ic_get_title  = service_class_get_title,
   .ic_properties = (const property_t[]){
     {
@@ -705,12 +707,11 @@ service_start(service_t *t, int instance, int weight, int flags,
 
   pthread_mutex_lock(&t->s_stream_mutex);
   service_build_filter(t);
+  if (service_has_no_audio(t, 1))
+    t->s_pcr_boundary = 6*90000;
   pthread_mutex_unlock(&t->s_stream_mutex);
 
   descrambler_caid_changed(t);
-
-  if (service_has_no_audio(t, 1))
-    t->s_pcr_boundary = 4*90000;
 
   if((r = t->s_start_feed(t, instance, weight, flags)))
     return r;
@@ -1608,6 +1609,15 @@ service_class_save(struct idnode *self, char *filename, size_t fsize)
   if (s->s_config_save)
     return s->s_config_save(s, filename, fsize);
   return NULL;
+}
+
+/**
+ *
+ */
+static void
+service_class_load(struct idnode *self, htsmsg_t *c)
+{
+  service_load((service_t *)self, c);
 }
 
 /**

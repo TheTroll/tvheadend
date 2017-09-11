@@ -131,13 +131,16 @@ satip_device_class_save ( idnode_t *in, char *filename, size_t fsize )
   m = htsmsg_create_map();
   idnode_save(&sd->th_id, m);
 
-  l = htsmsg_create_map();
-  TAILQ_FOREACH(lfe, &sd->sd_frontends, sf_link)
-    satip_frontend_save(lfe, l);
-  htsmsg_add_msg(m, "frontends", l);
+  if (filename) {
+    l = htsmsg_create_map();
+    TAILQ_FOREACH(lfe, &sd->sd_frontends, sf_link)
+      satip_frontend_save(lfe, l);
+    htsmsg_add_msg(m, "frontends", l);
 
-  snprintf(filename, fsize, "input/satip/adapters/%s",
-           idnode_uuid_as_str(&sd->th_id, ubuf));
+    snprintf(filename, fsize, "input/satip/adapters/%s",
+             idnode_uuid_as_str(&sd->th_id, ubuf));
+  }
+
   return m;
 }
 
@@ -1251,18 +1254,24 @@ ST: urn:ses-com:device:SatIPServer:1\r\n"
 static void
 satip_discovery_static_timer_cb(void *aux)
 {
+  static int next_timeout = 10;
   int i;
 
   if (!tvheadend_is_running())
     return;
   for (i = 0; i < satip_static_clients->num; i++)
     satip_discovery_static(satip_static_clients->str[i]);
-  mtimer_arm_rel(&satip_discovery_static_timer, satip_discovery_static_timer_cb, NULL, sec2mono(3600));
+  mtimer_arm_rel(&satip_discovery_static_timer, satip_discovery_static_timer_cb,
+                 NULL, sec2mono(next_timeout));
+  if (next_timeout < 3600)
+    next_timeout = next_timeout >= 30 ? 3600 : 30;
 }
 
 static void
 satip_discovery_timer_cb(void *aux)
 {
+  static int next_timeout = 10;
+
   if (!tvheadend_is_running())
     return;
   if (!atomic_get(&upnp_running)) {
@@ -1280,7 +1289,9 @@ satip_discovery_timer_cb(void *aux)
   if (satip_discovery_service)
     satip_discovery_send_msearch((void *)1);
   mtimer_arm_rel(&satip_discovery_timer, satip_discovery_timer_cb,
-                 NULL, sec2mono(3600));
+                 NULL, sec2mono(next_timeout));
+  if (next_timeout < 3600)
+    next_timeout = next_timeout >= 30 ? 3600 : 30;
 }
 
 void
