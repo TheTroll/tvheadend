@@ -50,7 +50,6 @@ typedef struct config {
   char *chicon_path;
   int chicon_scheme;
   char *picon_path;
-  char *sdconv_path;
   int picon_scheme;
   int tvhtime_update_enabled;
   int tvhtime_ntp_enabled;
@@ -77,9 +76,5 @@ const char *config_get_server_name ( void );
 const char *config_get_http_server_name ( void );
 const char *config_get_language    ( void );
 const char *config_get_language_ui ( void );
-
-const char *config_get_chanconv_path  ( void );
-int         config_set_chanconv_path  ( const char *str )
-  __attribute__((warn_unused_result));
 
 #endif /* __TVH_CONFIG__H__ */

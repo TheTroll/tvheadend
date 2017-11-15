@@ -1645,6 +1645,10 @@ channel_tag_find_by_identifier(uint32_t id) {
   return NULL;
 }
 
+/**
+ *
+ */
+
 static void channel_tags_memoryinfo_update(memoryinfo_t *my)
 {
   channel_tag_t *ct;

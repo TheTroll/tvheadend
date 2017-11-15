@@ -1307,7 +1307,7 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
 
   if(!(pro = profile_find_by_list(hc->hc_access->aa_profiles,
                                   http_arg_get(&hc->hc_req_args, "profile"),
-                                  NULL,
+                                  "channel",
                                   SUBSCRIPTION_PACKET | SUBSCRIPTION_MPEGTS)))
     return HTTP_STATUS_NOT_ALLOWED;
 

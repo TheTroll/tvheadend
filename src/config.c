@@ -1807,7 +1807,6 @@ void config_done ( void )
   free(config.muxconf_path);
   free(config.chicon_path);
   free(config.picon_path);
-  free(config.sdconv_path);
   free(config.cors_origin);
   file_unlock(config_lock, config_lock_fd);
 }
