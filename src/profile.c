@@ -158,7 +158,8 @@ profile_class_save ( idnode_t *in, char *filename, size_t fsize )
   idnode_save(in, c);
   if (pro->pro_shield)
     htsmsg_add_bool(c, "shield", 1);
-  snprintf(filename, fsize, "profile/%s", idnode_uuid_as_str(in, ubuf));
+  if (filename)
+    snprintf(filename, fsize, "profile/%s", idnode_uuid_as_str(in, ubuf));
   if (pro->pro_conf_changed)
     pro->pro_conf_changed(pro);
   return c;
@@ -184,7 +185,7 @@ profile_class_delete(idnode_t *self)
 }
 
 static uint32_t
-profile_class_enabled_opts(void *o)
+profile_class_enabled_opts(void *o, uint32_t opts)
 {
   profile_t *pro = o;
   uint32_t r = 0;
@@ -232,7 +233,7 @@ profile_class_default_set(void *o, const void *v)
 }
 
 static uint32_t
-profile_class_name_opts(void *o)
+profile_class_name_opts(void *o, uint32_t opts)
 {
   profile_t *pro = o;
   uint32_t r = 0;
@@ -320,13 +321,6 @@ const idclass_t profile_class =
       .get      = profile_class_default_get,
       .opts     = PO_EXPERT,
       .group    = 1
-    },
-    {
-      .type     = PT_BOOL,
-      .id       = "prefersd",
-      .name     = "Prefer SD channel",
-      .off      = offsetof(profile_t, pro_prefersd),
-      .def.i    = 0,
     },
     {
       .type     = PT_STR,
@@ -810,6 +804,7 @@ profile_sharer_deliver(profile_chain_t *prch, streaming_message_t *sm)
       n->pkt_pcr -= prch->prch_ts_delta;
       sm->sm_data = n;
     } else {
+      pkt_trace(LS_PROFILE, pkt, "packet drop (delta %"PRId64")", prch->prch_ts_delta);
       streaming_msg_free(sm);
       return;
     }
@@ -2771,7 +2766,8 @@ profile_init(void)
   /* Assign the default profile if config files are corrupted */
   if (!profile_default) {
     pro = profile_find_by_name2("pass", NULL, 1);
-    assert(pro);
+    if (pro == NULL)
+      tvhabort(LS_PROFILE, "no default streaming profile! reinstall data files");
     profile_default = pro;
   }
 }

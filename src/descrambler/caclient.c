@@ -19,8 +19,12 @@
 #include "tvheadend.h"
 #include "settings.h"
 #include "caclient.h"
+#include "dvbcam.h"
 
 const idclass_t *caclient_classes[] = {
+#if ENABLE_LINUXDVB_CA
+  &caclient_dvbcam_class,
+#endif
 #if ENABLE_CWC
   &caclient_cwc_class,
 #endif
@@ -97,6 +101,10 @@ caclient_create
     tvherror(LS_CACLIENT, "unknown class %s!", s);
     return NULL;
   }
+#if ENABLE_LINUXDVB_CA
+  if (c == &caclient_dvbcam_class)
+    cac = dvbcam_create();
+#endif
 #if ENABLE_CWC
   if (c == &caclient_cwc_class)
     cac = cwc_create();
@@ -175,7 +183,8 @@ caclient_class_save ( idnode_t *in, char *filename, size_t fsize )
   char ubuf[UUID_HEX_SIZE];
   htsmsg_t *c = htsmsg_create_map();
   idnode_save(in, c);
-  snprintf(filename, fsize, "caclient/%s", idnode_uuid_as_str(in, ubuf));
+  if (filename)
+    snprintf(filename, fsize, "caclient/%s", idnode_uuid_as_str(in, ubuf));
   return c;
 }
 
@@ -183,11 +192,11 @@ static const char *
 caclient_class_get_title ( idnode_t *in, const char *lang )
 {
   caclient_t *cac = (caclient_t *)in;
-  static char buf[32];
   if (cac->cac_name && cac->cac_name[0])
     return cac->cac_name;
-  snprintf(buf, sizeof(buf), tvh_gettext_lang(lang, N_("CA client %i")), cac->cac_index);
-  return buf;
+  snprintf(prop_sbuf, PROP_SBUF_LEN,
+           tvh_gettext_lang(lang, N_("CA client %i")), cac->cac_index);
+  return prop_sbuf;
 }
 
 static void
@@ -241,9 +250,8 @@ static const void *
 caclient_class_status_get(void *o)
 {
   caclient_t *cac = o;
-  static const char *ret;
-  ret = caclient_get_status(cac);
-  return &ret;
+  prop_ptr = caclient_get_status(cac);
+  return &prop_ptr;
 }
 
 CLASS_DOC(caclient)
@@ -359,6 +367,17 @@ caclient_get_status(caclient_t *cac)
   }
 }
 
+void
+caclient_foreach(void (*cb)(caclient_t *))
+{
+  caclient_t *cac;
+
+  pthread_mutex_lock(&caclients_mutex);
+  TAILQ_FOREACH(cac, &caclients, cac_link)
+    cb(cac);
+  pthread_mutex_unlock(&caclients_mutex);
+}
+
 /*
  *  Initialize
  */
@@ -379,14 +398,35 @@ caclient_init(void)
   for (r = caclient_classes; *r; r++)
     idclass_register(*r);
 
-  if (!(c = hts_settings_load("caclient")))
-    return;
-  HTSMSG_FOREACH(f, c) {
-    if (!(e = htsmsg_field_get_map(f)))
-      continue;
-    caclient_create(f->hmf_name, e, 0);
+  if ((c = hts_settings_load("caclient"))) {
+    HTSMSG_FOREACH(f, c) {
+      if (!(e = htsmsg_field_get_map(f)))
+        continue;
+      caclient_create(f->hmf_name, e, 0);
+    }
+    htsmsg_destroy(c);
   }
-  htsmsg_destroy(c);
+
+#if ENABLE_LINUXDVB_CA
+  {
+    caclient_t *cac;
+
+    dvbcam_init();
+    pthread_mutex_lock(&caclients_mutex);
+    TAILQ_FOREACH(cac, &caclients, cac_link)
+      if (idnode_is_instance(&cac->cac_id, &caclient_dvbcam_class))
+        break;
+    pthread_mutex_unlock(&caclients_mutex);
+    if (cac == NULL) {
+      c = htsmsg_create_map();
+      htsmsg_add_str(c, "class", "caclient_dvbcam");
+      htsmsg_add_bool(c, "enabled", 1);
+      htsmsg_add_str(c, "name", "Linux DVB CAM (CI/CI+)");
+      htsmsg_add_str(c, "comment", "Hardware descrambling using Linux DVB CAM devices");
+      caclient_create(NULL, c, 1);
+    }
+  }
+#endif
 }
 
 void

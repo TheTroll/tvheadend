@@ -115,6 +115,13 @@ struct satip_tune_req {
   int                        sf_netposhash;
 };
 
+struct satip_udppkt {
+  TAILQ_ENTRY(satip_udppkt)  up_link;
+  uint8_t                   *up_data;
+  uint16_t                   up_data_len;
+  uint16_t                   up_data_seq;
+};
+
 struct satip_frontend
 {
   mpegts_input_t;
@@ -134,6 +141,7 @@ struct satip_frontend
   char                      *sf_type_override;
   int                        sf_master;
   int                        sf_udp_rtp_port;
+  int                        sf_transport_mode;
   int                        sf_play2;
   int                        sf_tdelay;
   int                        sf_grace_period;
@@ -167,6 +175,8 @@ struct satip_frontend
   int                        sf_netlimit;
   int                        sf_netgroup;
   int                        sf_netposhash;
+  TAILQ_HEAD(,satip_udppkt)  sf_udp_packets;
+  int                        sf_udp_packets_count;
  
   /*
    * Configuration

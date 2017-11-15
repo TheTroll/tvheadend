@@ -485,6 +485,7 @@ mpegts_mux_epg_list ( void *o, const char *lang )
     { N_("Only PSIP (ATSC)"),         MM_EPG_ONLY_PSIP },
     { N_("Only UK Freesat"),          MM_EPG_ONLY_UK_FREESAT },
     { N_("Only UK Freeview"),         MM_EPG_ONLY_UK_FREEVIEW },
+    { N_("Only UK Cable Virgin"),     MM_EPG_ONLY_UK_CABLE_VIRGIN },
     { N_("Only Viasat Baltic"),       MM_EPG_ONLY_VIASAT_BALTIC },
     { N_("Only Bulsatcom 39E"),       MM_EPG_ONLY_BULSATCOM_39E },
     { N_("Only OpenTV Sky UK"),       MM_EPG_ONLY_OPENTV_SKY_UK },
@@ -745,9 +746,6 @@ mpegts_mux_do_stop ( mpegts_mux_t *mm, int delconf )
   while ((s = LIST_FIRST(&mm->mm_services))) {
     service_destroy((service_t*)s, delconf);
   }
-
-  /* Stop PID timer */
-  mtimer_disarm(&mm->mm_update_pids_timer);
 }
 
 void
@@ -865,6 +863,7 @@ mpegts_mux_stop ( mpegts_mux_t *mm, int force, int reason )
     return;
 
   mi->mi_stopping_mux(mi, mmi);
+  mtimer_disarm(&mm->mm_update_pids_timer); /* Stop PID timer */
   mi->mi_stop_mux(mi, mmi);
   mi->mi_stopped_mux(mi, mmi);
 
@@ -1271,22 +1270,27 @@ mpegts_mux_create0
 }
 
 void
-mpegts_mux_save ( mpegts_mux_t *mm, htsmsg_t *c )
+mpegts_mux_save ( mpegts_mux_t *mm, htsmsg_t *c, int refs )
 {
   mpegts_service_t *ms;
-  htsmsg_t *root = htsmsg_create_map();
-  htsmsg_t *services = htsmsg_create_map();
+  htsmsg_t *root = !refs ? htsmsg_create_map() : c;
+  htsmsg_t *services = !refs ? htsmsg_create_map() : htsmsg_create_list();
   htsmsg_t *e;
   char ubuf[UUID_HEX_SIZE];
 
   idnode_save(&mm->mm_id, root);
   LIST_FOREACH(ms, &mm->mm_services, s_dvb_mux_link) {
-    e = htsmsg_create_map();
-    service_save((service_t *)ms, e);
-    htsmsg_add_msg(services, idnode_uuid_as_str(&ms->s_id, ubuf), e);
+    if (refs) {
+      htsmsg_add_str(services, NULL, idnode_uuid_as_str(&ms->s_id, ubuf));
+    } else {
+      e = htsmsg_create_map();
+      service_save((service_t *)ms, e);
+      htsmsg_add_msg(services, idnode_uuid_as_str(&ms->s_id, ubuf), e);
+    }
   }
   htsmsg_add_msg(root, "services", services);
-  htsmsg_add_msg(c, "config", root);
+  if (!refs)
+    htsmsg_add_msg(c, "config", root);
 }
 
 int

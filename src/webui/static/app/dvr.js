@@ -23,6 +23,7 @@ tvheadend.dvrDetails = function(uuid) {
         var duplicate = params[11].value;
         var autorec_caption = params[12].value;
         var timerec_caption = params[13].value;
+        var image = params[14].value;
         var content = '';
         var but;
 
@@ -54,6 +55,10 @@ tvheadend.dvrDetails = function(uuid) {
             content += '</div>'; /* x-epg-left */
             content += '<div class="x-epg-bottom">';
         }
+        if (image != null && image.length > 0) {
+          content += '<img class="x-epg-image" src="' + image + '">';
+        }
+
         content += '<hr class="x-epg-hr"/>';
         if (desc) {
             content += '<div class="x-epg-desc">' + desc + '</div>';
@@ -118,7 +123,7 @@ tvheadend.dvrDetails = function(uuid) {
             uuid: uuid,
             list: 'channel_icon,disp_title,disp_subtitle,episode,start_real,stop_real,' +
                   'duration,disp_description,status,filesize,comment,duplicate,' +
-                  'autorec_caption,timerec_caption'
+                  'autorec_caption,timerec_caption,image'
         },
         success: function(d) {
             d = json_decode(d);
@@ -191,6 +196,21 @@ tvheadend.filesizeRenderer = function(st) {
             if (v > 1000)
                 return parseInt(v / 1000) + ' KB';
             return parseInt(v) + ' B';
+        }
+    }
+}
+
+/** Render an entry differently if it is a duplicate */
+tvheadend.displayWithDuplicateRenderer = function(value, meta, record) {
+    return function() {
+        return function(value, meta, record) {
+            if (value == null)
+                return '';
+            var is_dup = record.data['duplicate'];
+            if (is_dup)
+                return "<span class='x-epg-duplicate'>" + value + "</span>";
+            else
+                return value;
         }
     }
 }
@@ -302,9 +322,16 @@ tvheadend.dvr_upcoming = function(panel, index) {
         },
         del: true,
         list: 'enabled,duplicate,disp_title,disp_subtitle,episode,channel,' +
+              'image,' +
               'start_real,stop_real,duration,pri,filesize,' +
               'sched_status,errors,data_errors,config_name,owner,creator,comment',
         columns: {
+            disp_title: {
+              renderer: tvheadend.displayWithDuplicateRenderer()
+            },
+            disp_subtitle: {
+              renderer: tvheadend.displayWithDuplicateRenderer()
+            },
             filesize: {
                 renderer: tvheadend.filesizeRenderer()
             }
@@ -724,8 +751,8 @@ tvheadend.dvr_settings = function(panel, index) {
 tvheadend.autorec_editor = function(panel, index) {
 
     var list = 'name,title,fulltext,channel,start,start_window,weekdays,' +
-               'record,tag,btype,content_type,minduration,maxduration,' +
-               'dedup,directory,config_name,comment';
+               'record,tag,btype,content_type,cat1,cat2,cat3,minduration,maxduration,' +
+               'star_rating,dedup,directory,config_name,comment';
     var elist = 'enabled,start_extra,stop_extra,' +
                 (tvheadend.accessUpdate.admin ?
                 list + ',owner,creator' : list) + ',pri,retention,removal,maxcount,maxsched';
@@ -746,6 +773,9 @@ tvheadend.autorec_editor = function(panel, index) {
             tag:          { width: 200 },
             btype:        { width: 50 },
             content_type: { width: 100 },
+            cat1:         { width: 300 },
+            cat2:         { width: 300 },
+            cat3:         { width: 300 },
             minduration:  { width: 100 },
             maxduration:  { width: 100 },
             weekdays:     { width: 160 },
@@ -763,6 +793,7 @@ tvheadend.autorec_editor = function(panel, index) {
             removal:      { width: 80 },
             maxcount:     { width: 80 },
             maxsched:     { width: 80 },
+            star_rating:  { width: 80 },
             config_name:  { width: 120 },
             owner:        { width: 100 },
             creator:      { width: 200 },
@@ -782,8 +813,8 @@ tvheadend.autorec_editor = function(panel, index) {
         },
         del: true,
         list: 'enabled,name,title,fulltext,channel,tag,start,start_window,' +
-              'weekdays,minduration,maxduration,btype,content_type,' +
-              'pri,dedup,directory,config_name,owner,creator,comment',
+              'weekdays,minduration,maxduration,btype,content_type,cat1,cat2,cat3' +
+              'star_rating,pri,dedup,directory,config_name,owner,creator,comment',
         sort: {
           field: 'name',
           direction: 'ASC'

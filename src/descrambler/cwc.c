@@ -50,7 +50,7 @@
 #define CWC_ES_PIDS           8
 #define CWC_MAX_NOKS          3
 
-#define CWS_NETMSGSIZE 500
+#define CWS_NETMSGSIZE 1024
 #define CWS_FIRSTCMDNO 0xe0
 
 typedef enum {
@@ -1637,7 +1637,7 @@ cwc_service_start(caclient_t *cac, service_t *t)
 
   LIST_INSERT_HEAD(&cwc->cwc_services, ct, cs_link);
 
-  descrambler_change_keystate((th_descrambler_t *)td, DS_READY, 0);
+  descrambler_change_keystate(td, DS_READY, 0);
 
 add:
   i = 0;
@@ -1812,9 +1812,7 @@ static const void *
 caclient_cwc_class_deskey_get(void *o)
 {
   cwc_t *cwc = o;
-  static char buf[64];
-  static const char *ret = buf;
-  snprintf(buf, sizeof(buf),
+  snprintf(prop_sbuf, PROP_SBUF_LEN,
            "%02x:%02x:%02x:%02x:%02x:%02x:%02x:"
            "%02x:%02x:%02x:%02x:%02x:%02x:%02x",
            cwc->cwc_confedkey[0x0],
@@ -1831,7 +1829,7 @@ caclient_cwc_class_deskey_get(void *o)
            cwc->cwc_confedkey[0xb],
            cwc->cwc_confedkey[0xc],
            cwc->cwc_confedkey[0xd]);
-  return &ret;
+  return &prop_sbuf_ptr;
 }
 
 const idclass_t caclient_cwc_class =

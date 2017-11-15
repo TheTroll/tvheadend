@@ -25,6 +25,7 @@
 #include "imagecache.h"
 #include "dvr/dvr.h"
 #include "lang_codes.h"
+#include "string_list.h"
 
 static htsmsg_t *
 api_epg_get_list ( const char *s )
@@ -119,6 +120,15 @@ api_epg_entry ( epg_broadcast_t *eb, const char *lang, access_t *perm, const cha
     htsmsg_add_str(m, "summary", s);
   if ((s = epg_broadcast_get_description(eb, lang)))
     htsmsg_add_str(m, "description", s);
+  if (eb->credits) {
+    htsmsg_add_msg(m, "credits", htsmsg_copy(eb->credits));
+  }
+  if (eb->category) {
+    htsmsg_add_msg(m, "category", string_list_to_htsmsg(eb->category));
+  }
+  if (eb->keyword) {
+    htsmsg_add_msg(m, "keyword", string_list_to_htsmsg(eb->keyword));
+  }
 
   if (eb->is_new)
     htsmsg_add_u32(m, "new", eb->is_new);
@@ -174,6 +184,9 @@ api_epg_entry ( epg_broadcast_t *eb, const char *lang, access_t *perm, const cha
       htsmsg_add_u32(m, "starRating", ee->star_rating);
     if (ee->age_rating)
       htsmsg_add_u32(m, "ageRating", ee->age_rating);
+
+    if (ee->copyright_year)
+      htsmsg_add_u32(m, "copyrightYear", ee->copyright_year);
 
     /* Content Type */
     m2 = NULL;
@@ -515,12 +528,12 @@ api_epg_alternative
   epg_broadcast_t *e;
   char *lang;
 
-  if (!htsmsg_get_u32(args, "eventId", &id))
+  if (htsmsg_get_u32(args, "eventId", &id))
     return -EINVAL;
 
   /* Main Job */
-  pthread_mutex_lock(&global_lock);
   lang = access_get_lang(perm, htsmsg_get_str(args, "lang"));
+  pthread_mutex_lock(&global_lock);
   e = epg_broadcast_find_by_id(id);
   if (e && e->episode)
     api_epg_episode_broadcasts(perm, l, lang, e->episode, &entries, e);
@@ -545,12 +558,12 @@ api_epg_related
   epg_episode_t *ep, *ep2;
   char *lang;
   
-  if (!htsmsg_get_u32(args, "eventId", &id))
+  if (htsmsg_get_u32(args, "eventId", &id))
     return -EINVAL;
 
   /* Main Job */
-  pthread_mutex_lock(&global_lock);
   lang = access_get_lang(perm, htsmsg_get_str(args, "lang"));
+  pthread_mutex_lock(&global_lock);
   e = epg_broadcast_find_by_id(id);
   ep = e ? e->episode : NULL;
   if (ep && ep->brand) {

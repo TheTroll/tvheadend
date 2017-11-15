@@ -330,9 +330,6 @@ epggrab_channel_t *epggrab_channel_create
 {
   epggrab_channel_t *ec;
 
-  if (htsmsg_get_str(conf, "id") == NULL)
-    return NULL;
-
   ec = calloc(1, sizeof(*ec));
   if (idnode_insert(&ec->idnode, uuid, &epggrab_channel_class, 0)) {
     if (uuid)
@@ -350,6 +347,9 @@ epggrab_channel_t *epggrab_channel_create
   if (conf)
     idnode_load(&ec->idnode, conf);
 
+  if (ec->id == NULL)
+    ec->id = strdup("");
+
   TAILQ_INSERT_TAIL(&epggrab_channel_entries, ec, all_link);
   if (RB_INSERT_SORTED(&owner->channels, ec, link, _ch_id_cmp)) {
     tvherror(LS_EPGGRAB, "removing duplicate channel id '%s' (uuid '%s')", ec->id, uuid);
@@ -366,6 +366,11 @@ epggrab_channel_t *epggrab_channel_find
 {
   char *s;
   epggrab_channel_t *ec;
+
+  if (id == NULL || id[0] == '\0') {
+    tvhwarn(LS_EPGGRAB, "%s: ignoring empty EPG id source", mod->id);
+    return NULL;
+  }
 
   SKEL_ALLOC(epggrab_channel_skel);
   s = epggrab_channel_skel->id = tvh_strdupa(id);
@@ -410,7 +415,7 @@ void epggrab_channel_destroy( epggrab_channel_t *ec, int delconf, int rb_remove 
   idnode_save_check(&ec->idnode, delconf);
 
   /* Already linked */
-  epggrab_channel_links_delete(ec, 0);
+  epggrab_channel_links_delete(ec, 1);
   if (rb_remove)
     RB_REMOVE(&ec->mod->channels, ec, link);
   TAILQ_REMOVE(&epggrab_channel_entries, ec, all_link);
@@ -551,8 +556,9 @@ epggrab_channel_class_save(idnode_t *self, char *filename, size_t fsize)
   htsmsg_t *m = htsmsg_create_map();
   char ubuf[UUID_HEX_SIZE];
   idnode_save(&ec->idnode, m);
-  snprintf(filename, fsize, "epggrab/%s/channels/%s",
-           ec->mod->saveid, idnode_uuid_as_str(&ec->idnode, ubuf));
+  if (filename)
+    snprintf(filename, fsize, "epggrab/%s/channels/%s",
+             ec->mod->saveid, idnode_uuid_as_str(&ec->idnode, ubuf));
   return m;
 }
 
@@ -617,6 +623,17 @@ epggrab_channel_class_names_set ( void *obj, const void *p )
     htsmsg_destroy(m);
   }
   return 0;
+}
+
+static void
+epggrab_channel_class_enabled_notify ( void *obj, const char *lang )
+{
+  epggrab_channel_t *ec = obj;
+  if (!ec->enabled) {
+    epggrab_channel_links_delete(ec, 1);
+  } else {
+    epggrab_channel_updated(ec);
+  }
 }
 
 static const void *
@@ -745,6 +762,7 @@ const idclass_t epggrab_channel_class = {
       .name     = N_("Enabled"),
       .desc     = N_("Enable/disable EPG data for the entry."),
       .off      = offsetof(epggrab_channel_t, enabled),
+      .notify   = epggrab_channel_class_enabled_notify,
       .group    = 1
     },
     {

@@ -273,9 +273,6 @@ descrambler_init ( void )
   ffdecsa_init();
 #endif
   caclient_init();
-#if ENABLE_LINUXDVB_CA
-  dvbcam_init();
-#endif
 
   if ((c = hts_settings_load("descrambler")) != NULL) {
     m = htsmsg_get_list(c, "caid");
@@ -402,10 +399,6 @@ descrambler_service_start ( service_t *t )
   if (t->s_dvb_forcecaid != 0xffff)
     caclient_start(t);
 
-#if ENABLE_LINUXDVB_CA
-  dvbcam_service_start(t);
-#endif
-
   if (t->s_dvb_forcecaid == 0xffff) {
     pthread_mutex_lock(&t->s_stream_mutex);
     descrambler_external(t, 1);
@@ -422,10 +415,6 @@ descrambler_service_stop ( service_t *t )
   th_descrambler_data_t *dd;
   void *p;
   int i;
-
-#if ENABLE_LINUXDVB_CA
-  dvbcam_service_stop(t);
-#endif
 
   while ((td = LIST_FIRST(&t->s_descramblers)) != NULL)
     td->td_stop(td);
@@ -476,7 +465,7 @@ descrambler_notify_deliver( mpegts_service_t *t, descramble_info_t *di )
   sm = streaming_msg_create(SMT_DESCRAMBLE_INFO);
   sm->sm_data = di;
 
-  streaming_pad_deliver(&t->s_streaming_pad, sm);
+  streaming_service_deliver((service_t *)t, sm);
 }
 
 static void
@@ -1011,12 +1000,21 @@ descrambler_descramble ( service_t *t,
 
   lock_assert(&t->s_stream_mutex);
 
-  if (dr == NULL || dr->dr_external) {
+  if (dr == NULL) {
     if ((tsb[3] & 0x80) == 0) {
       ts_recv_packet0((mpegts_service_t *)t, st, tsb, len);
       return 1;
     }
-    return dr && dr->dr_external ? 1 : -1;
+    return -1;
+  }
+
+  if (dr->dr_descramble)
+    return dr->dr_descramble(dr->dr_descrambler, tsb, len);
+
+  if (dr->dr_external) {
+    if ((tsb[3] & 0x80) == 0)
+      ts_recv_packet0((mpegts_service_t *)t, st, tsb, len);
+    return 1;
   }
 
   if (!dr->dr_key_multipid) {

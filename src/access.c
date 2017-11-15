@@ -300,10 +300,10 @@ access_get_theme(access_t *a)
 {
   if (a == NULL)
     return "blue";
-  if (a->aa_theme == NULL || a->aa_theme[0] == '\0') {
-    if (config.theme_ui == NULL || config.theme_ui[0] == '\0')
+  if (tvh_str_default(a->aa_theme, NULL) == NULL) {
+    if (tvh_str_default(config.theme_ui, NULL) == NULL)
       return "blue";
-     return config.theme_ui;
+    return config.theme_ui;
   }
   return a->aa_theme;
 }
@@ -693,7 +693,7 @@ access_get(struct sockaddr_storage *src, const char *username, verify_callback_t
 {
   access_t *a = access_alloc();
   access_entry_t *ae;
-  int nouser = (username == NULL || !strcmp(username, "no-user")) || username[0] == '\0';
+  int nouser = tvh_str_default(username, NULL) == NULL;
 
   if (!access_noacl && access_ip_blocked(src))
     return a;
@@ -1185,7 +1185,8 @@ access_entry_class_save(idnode_t *self, char *filename, size_t fsize)
   htsmsg_t *c = htsmsg_create_map();
   access_entry_update_rights((access_entry_t *)self);
   idnode_save(&ae->ae_id, c);
-  snprintf(filename, fsize, "accesscontrol/%s", idnode_uuid_as_str(&ae->ae_id, ubuf));
+  if (filename)
+    snprintf(filename, fsize, "accesscontrol/%s", idnode_uuid_as_str(&ae->ae_id, ubuf));
   return c;
 }
 
@@ -1249,9 +1250,8 @@ access_entry_class_prefix_set(void *o, const void *v)
 static const void *
 access_entry_class_prefix_get(void *o)
 {
-  static const char *ret;
-  ret = access_get_prefix(&((access_entry_t *)o)->ae_ipmasks);
-  return &ret;
+  prop_ptr = access_get_prefix(&((access_entry_t *)o)->ae_ipmasks);
+  return &prop_ptr;
 }
 
 static int
@@ -1980,7 +1980,8 @@ passwd_entry_class_save(idnode_t *self, char *filename, size_t fsize)
   char ubuf[UUID_HEX_SIZE];
   htsmsg_t *c = htsmsg_create_map();
   idnode_save(&pw->pw_id, c);
-  snprintf(filename, fsize, "passwd/%s", idnode_uuid_as_str(&pw->pw_id, ubuf));
+  if (filename)
+    snprintf(filename, fsize, "passwd/%s", idnode_uuid_as_str(&pw->pw_id, ubuf));
   return c;
 }
 
@@ -2156,7 +2157,8 @@ ipblock_entry_class_save(idnode_t *self, char *filename, size_t fsize)
   htsmsg_t *c = htsmsg_create_map();
   char ubuf[UUID_HEX_SIZE];
   idnode_save(&ib->ib_id, c);
-  snprintf(filename, fsize, "ipblock/%s", idnode_uuid_as_str(&ib->ib_id, ubuf));
+  if (filename)
+    snprintf(filename, fsize, "ipblock/%s", idnode_uuid_as_str(&ib->ib_id, ubuf));
   return c;
 }
 
@@ -2190,9 +2192,8 @@ ipblock_entry_class_prefix_set(void *o, const void *v)
 static const void *
 ipblock_entry_class_prefix_get(void *o)
 {
-  static const char *ret;
-  ret = access_get_prefix(&((ipblock_entry_t *)o)->ib_ipmasks);
-  return &ret;
+  prop_ptr = access_get_prefix(&((ipblock_entry_t *)o)->ib_ipmasks);
+  return &prop_ptr;
 }
 
 CLASS_DOC(ipblocking)

@@ -671,7 +671,7 @@ parse_mpa123(service_t *t, elementary_stream_t *st)
     default: fsize = 0;
     }
 
-    if (fsize && st->es_audio_version != layer) {
+    if (fsize && st->es_audio_version < layer) {
       st->es_audio_version = layer;
       atomic_set(&t->s_pending_restart, 1);
     }
@@ -916,7 +916,7 @@ static int
 parse_pes_header(service_t *t, elementary_stream_t *st, 
                  const uint8_t *buf, size_t len)
 {
-  int64_t dts, pts, d;
+  int64_t dts, pts, d, d2;
   int hdr, flags, hlen;
 
   if (len < 3)
@@ -939,8 +939,25 @@ parse_pes_header(service_t *t, elementary_stream_t *st,
     dts = getpts(buf + 5);
 
     d = (pts - dts) & PTS_MASK;
-    if(d > 180000) // More than two seconds of PTS/DTS delta, probably corrupt
+    if(d > 180000) {
+      /* More than two seconds of PTS/DTS delta, probably corrupt */
+      if (st->es_curpts != PTS_UNSET && st->es_frame_duration > 10) {
+        /* try to do a recovery for this:
+         * dts 2954743318 pts 2954746828
+         * dts 2954746918 pts 2419836508 ERROR
+         * dts 2954750518 pts 2419843708 ERROR
+         * dts 2954754118 pts 2954757628
+         * dts 2954757718 pts 2954761228
+         */
+        d2 = pts_diff(st->es_curdts, dts);
+        if (d2 != PTS_UNSET && d2 < 10000)
+          pts = st->es_curpts + st->es_frame_duration;
+        d = (pts - dts) & PTS_MASK;
+        if (d <= 180000)
+          goto cont;
+      }
       pts = dts = PTS_UNSET;
+    }
 
   } else if((flags & 0xc0) == 0x80) {
     if(hlen < 5)
@@ -950,6 +967,7 @@ parse_pes_header(service_t *t, elementary_stream_t *st,
   } else
     return hlen + 3;
 
+ cont:
   if(st->es_buf.sb_err) {
     st->es_curdts = PTS_UNSET;
     st->es_curpts = PTS_UNSET;
@@ -1047,7 +1065,8 @@ parser_set_stream_vparam(elementary_stream_t *st, int width, int height,
     st->es_width = width;
     st->es_height = height;
     st->es_frame_duration = duration;
-    service_request_save(st->es_service, 1);
+    service_request_save(st->es_service, 0);
+    atomic_set(&st->es_service->s_pending_restart, 1);
   }
 }
 
@@ -1843,7 +1862,7 @@ parser_deliver(service_t *t, elementary_stream_t *st, th_pkt_t *pkt)
     goto deliver;
   }
 
-  diff = st->es_type == SCT_DVBSUB ? 6*90000 : 4*90000;
+  diff = st->es_type == SCT_DVBSUB ? 8*90000 : 6*90000;
   d = pts_diff(pkt->pkt_pcr, (pkt->pkt_dts + 30000) & PTS_MASK);
 
   if (d > diff || d == PTS_UNSET) {
@@ -1875,7 +1894,7 @@ deliver:
   }
 
   /* Forward packet */
-  streaming_pad_deliver(&t->s_streaming_pad, streaming_msg_create_pkt(pkt));
+  streaming_service_deliver(t, streaming_msg_create_pkt(pkt));
 
   /* Decrease our own reference to the packet */
   pkt_ref_dec(pkt);

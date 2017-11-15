@@ -404,8 +404,9 @@ enum mpegts_mux_epg_flag
   MM_EPG_ONLY_OPENTV_SKY_AUSAT,
   MM_EPG_ONLY_BULSATCOM_39E,
   MM_EPG_ONLY_PSIP,
+  MM_EPG_ONLY_UK_CABLE_VIRGIN
 };
-#define MM_EPG_LAST MM_EPG_ONLY_PSIP
+#define MM_EPG_LAST MM_EPG_ONLY_UK_CABLE_VIRGIN
 
 enum mpegts_mux_ac3_flag
 {
@@ -917,7 +918,7 @@ static inline int mpegts_mux_release ( mpegts_mux_t *mm )
   return 0;
 }
 
-void mpegts_mux_save ( mpegts_mux_t *mm, htsmsg_t *c );
+void mpegts_mux_save ( mpegts_mux_t *mm, htsmsg_t *c, int refs );
 
 void mpegts_mux_tuning_error( const char *mux_uuid, mpegts_mux_instance_t *mmi_match );
 

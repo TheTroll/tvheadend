@@ -255,6 +255,23 @@ const idclass_t iptv_mux_class =
       .id       = "iptv_satip_dvbt_freq",
       .name     = N_("SAT>IP DVB-T frequency (Hz)"),
       .off      = offsetof(iptv_mux_t, mm_iptv_satip_dvbt_freq),
+      .desc     = N_("For example: 658000000. This frequency is 658Mhz."),
+      .opts     = PO_ADVANCED
+    },
+    {
+      .type     = PT_U32,
+      .id       = "iptv_satip_dvbc_freq",
+      .name     = N_("SAT>IP DVB-C frequency (Hz)"),
+      .off      = offsetof(iptv_mux_t, mm_iptv_satip_dvbc_freq),
+      .desc     = N_("For example: 312000000. This frequency is 312Mhz."),
+      .opts     = PO_ADVANCED
+    },
+    {
+      .type     = PT_U32,
+      .id       = "iptv_satip_dvbs_freq",
+      .name     = N_("SAT>IP DVB-S frequency (kHz)"),
+      .off      = offsetof(iptv_mux_t, mm_iptv_satip_dvbs_freq),
+      .desc     = N_("For example: 12610500. This frequency is 12610.5Mhz or 12.6105Ghz."),
       .opts     = PO_ADVANCED
     },
     {
@@ -278,10 +295,14 @@ iptv_mux_config_save ( mpegts_mux_t *mm, char *filename, size_t fsize )
   char ubuf1[UUID_HEX_SIZE];
   char ubuf2[UUID_HEX_SIZE];
   htsmsg_t *c = htsmsg_create_map();
-  mpegts_mux_save(mm, c);
-  snprintf(filename, fsize, "input/iptv/networks/%s/muxes/%s",
-           idnode_uuid_as_str(&mm->mm_network->mn_id, ubuf1),
-           idnode_uuid_as_str(&mm->mm_id, ubuf2));
+  if (filename == NULL) {
+    mpegts_mux_save(mm, c, 1);
+  } else {
+    mpegts_mux_save(mm, c, 0);
+    snprintf(filename, fsize, "input/iptv/networks/%s/muxes/%s",
+             idnode_uuid_as_str(&mm->mm_network->mn_id, ubuf1),
+             idnode_uuid_as_str(&mm->mm_id, ubuf2));
+  }
   return c;
 }
 

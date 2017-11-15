@@ -124,8 +124,6 @@ typedef struct profile {
   int pro_swservice;
   int pro_svfilter;
 
-  int pro_prefersd;
-
   void (*pro_free)(struct profile *pro);
   void (*pro_conf_changed)(struct profile *pro);
 

@@ -54,6 +54,7 @@
 static void service_data_timeout(void *aux);
 static void service_class_delete(struct idnode *self);
 static htsmsg_t *service_class_save(struct idnode *self, char *filename, size_t fsize);
+static void service_class_load(struct idnode *self, htsmsg_t *conf);
 static int service_make_nicename0(service_t *t, char *buf, size_t len, int adapter);
 
 struct service_queue service_all;
@@ -172,6 +173,7 @@ const idclass_t service_class = {
   .ic_perm_def   = ACCESS_ADMIN,
   .ic_delete     = service_class_delete,
   .ic_save       = service_class_save,
+  .ic_load       = service_class_load,
   .ic_get_title  = service_class_get_title,
   .ic_properties = (const property_t[]){
     {
@@ -705,12 +707,11 @@ service_start(service_t *t, int instance, int weight, int flags,
 
   pthread_mutex_lock(&t->s_stream_mutex);
   service_build_filter(t);
+  if (service_has_no_audio(t, 1))
+    t->s_pcr_boundary = 6*90000;
   pthread_mutex_unlock(&t->s_stream_mutex);
 
   descrambler_caid_changed(t);
-
-  if (service_has_no_audio(t, 1))
-    t->s_pcr_boundary = 4*90000;
 
   if((r = t->s_start_feed(t, instance, weight, flags)))
     return r;
@@ -1422,11 +1423,11 @@ service_servicetype_txt ( service_t *s )
 void
 service_send_streaming_status(service_t *t)
 {
+  streaming_message_t *sm;
   lock_assert(&t->s_stream_mutex);
 
-  streaming_pad_deliver(&t->s_streaming_pad,
-                        streaming_msg_create_code(SMT_SERVICE_STATUS,
-                                                  t->s_streaming_status));
+  sm = streaming_msg_create_code(SMT_SERVICE_STATUS, t->s_streaming_status);
+  streaming_service_deliver(t, sm);
 }
 
 /**
@@ -1459,6 +1460,35 @@ service_set_streaming_status_flags_(service_t *t, int set)
 }
 
 /**
+ * Restart output on a service (streams only).
+ * Happens if the stream composition changes.
+ * (i.e. an AC3 stream disappears, etc)
+ */
+void
+service_restart_streams(service_t *t)
+{
+  streaming_message_t *sm;
+  int had_components = TAILQ_FIRST(&t->s_filt_components) != NULL &&
+                       t->s_running;
+
+  service_build_filter(t);
+
+  if(TAILQ_FIRST(&t->s_filt_components) != NULL) {
+    if (had_components) {
+      sm = streaming_msg_create_code(SMT_STOP, SM_CODE_SOURCE_RECONFIGURED);
+      streaming_service_deliver(t, sm);
+    }
+    sm = streaming_msg_create_data(SMT_START, service_build_stream_start(t));
+    streaming_pad_deliver(&t->s_streaming_pad, sm);
+    t->s_running = 1;
+  } else {
+    sm = streaming_msg_create_code(SMT_STOP, SM_CODE_NO_SERVICE);
+    streaming_service_deliver(t, sm);
+    t->s_running = 0;
+  }
+}
+
+/**
  * Restart output on a service.
  * Happens if the stream composition changes.
  * (i.e. an AC3 stream disappears, etc)
@@ -1466,41 +1496,15 @@ service_set_streaming_status_flags_(service_t *t, int set)
 void
 service_restart(service_t *t)
 {
-  int had_components;
+  if (t->s_type == STYPE_STD) {
+    pthread_mutex_lock(&t->s_stream_mutex);
+    service_restart_streams(t);
+    pthread_mutex_unlock(&t->s_stream_mutex);
 
-  if(t->s_type != STYPE_STD)
-    goto refresh;
-
-  pthread_mutex_lock(&t->s_stream_mutex);
-
-  had_components = TAILQ_FIRST(&t->s_filt_components) != NULL &&
-                   t->s_running;
-
-  service_build_filter(t);
-
-  if(TAILQ_FIRST(&t->s_filt_components) != NULL) {
-    if (had_components)
-      streaming_pad_deliver(&t->s_streaming_pad,
-                            streaming_msg_create_code(SMT_STOP,
-                                                      SM_CODE_SOURCE_RECONFIGURED));
-
-    streaming_pad_deliver(&t->s_streaming_pad,
-                          streaming_msg_create_data(SMT_START,
-                                                    service_build_stream_start(t)));
-    t->s_running = 1;
-  } else {
-    streaming_pad_deliver(&t->s_streaming_pad,
-                          streaming_msg_create_code(SMT_STOP,
-                                                    SM_CODE_NO_SERVICE));
-    t->s_running = 0;
+    descrambler_caid_changed(t);
   }
 
-  pthread_mutex_unlock(&t->s_stream_mutex);
-
-  descrambler_caid_changed(t);
-
-refresh:
-  if(t->s_refresh_feed != NULL)
+  if (t->s_refresh_feed != NULL)
     t->s_refresh_feed(t);
 
   descrambler_service_start(t);
@@ -1608,6 +1612,15 @@ service_class_save(struct idnode *self, char *filename, size_t fsize)
   if (s->s_config_save)
     return s->s_config_save(s, filename, fsize);
   return NULL;
+}
+
+/**
+ *
+ */
+static void
+service_class_load(struct idnode *self, htsmsg_t *c)
+{
+  service_load((service_t *)self, c);
 }
 
 /**

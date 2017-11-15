@@ -96,6 +96,8 @@ typedef struct dvr_config {
   int dvr_skip_commercials;
   int dvr_subtitle_in_title;
   int dvr_windows_compatible_filenames;
+  char *dvr_format_tvmovies_subdir;
+  char *dvr_format_tvshows_subdir;
 
   struct dvr_entry_list dvr_entries;
   struct dvr_autorec_entry_list dvr_autorec_entries;
@@ -193,6 +195,7 @@ typedef struct dvr_entry {
 
   time_t de_start_extra;
   time_t de_stop_extra;
+  time_t de_segment_stop_extra; /* Automatic extra time for segmented prog (from EPG) */
 
   time_t de_running_start;
   time_t de_running_stop;
@@ -202,6 +205,8 @@ typedef struct dvr_entry {
   char *de_owner;
   char *de_creator;
   char *de_comment;
+  char *de_uri;                 /* Programme unique ID */
+  char *de_image;               /* Programme Image */
   htsmsg_t *de_files; /* List of all used files */
   char *de_directory; /* Can be set for autorec entries, will override any 
                          directory setting from the configuration */
@@ -209,7 +214,7 @@ typedef struct dvr_entry {
   lang_str_t *de_subtitle;   /* Subtitle in UTF-8 (from EPG) */
   lang_str_t *de_desc;       /* Description in UTF-8 (from EPG) */
   uint32_t de_content_type;  /* Content type (from EPG) (only code) */
-
+  uint16_t de_copyright_year; /* Copyright year (from EPG) */
   uint16_t de_dvb_eid;
 
   int de_pri;
@@ -224,6 +229,7 @@ typedef struct dvr_entry {
   /**
    * EPG information / links
    */
+  LIST_ENTRY(dvr_entry) de_bcast_link;
   epg_broadcast_t *de_bcast;
   char *de_episode;
 
@@ -300,6 +306,7 @@ typedef struct dvr_entry {
 
 typedef enum {
   DVR_AUTOREC_RECORD_ALL = 0,
+  DVR_AUTOREC_RECORD_UNIQUE = 14, /// Unique episode in EPG/XMLTV, typically used for movies/series, and not useful for news or sport.
   DVR_AUTOREC_RECORD_DIFFERENT_EPISODE_NUMBER = 1,
   DVR_AUTOREC_RECORD_DIFFERENT_SUBTITLE = 2,
   DVR_AUTOREC_RECORD_DIFFERENT_DESCRIPTION = 3,
@@ -313,7 +320,7 @@ typedef enum {
   DVR_AUTOREC_LRECORD_ONCE_PER_MONTH = 13,
   DVR_AUTOREC_LRECORD_ONCE_PER_WEEK = 10,
   DVR_AUTOREC_LRECORD_ONCE_PER_DAY = 11,
-  /* last free value == 14 */
+  /* first free value == 15 */
 } dvr_autorec_dedup_t;
 
 typedef enum {
@@ -346,6 +353,14 @@ typedef struct dvr_autorec_entry {
   int dae_fulltext;
   
   uint32_t dae_content_type;
+  /* These categories (mainly from xmltv) such as Cooking, Dog racing, Movie.
+   * This allows user to easily do filtering such as '"Movie" "Martial arts"'
+   * or '"Children" "Animated" "Movie"'
+   */
+  char *dae_cat1;                 /** Simple single category from drop-down selection boxes */
+  char *dae_cat2;                 /** Simple single category from drop-down selection boxes */
+  char *dae_cat3;                 /** Simple single category from drop-down selection boxes */
+  uint16_t dae_star_rating;       /** Minimum star rating: we use u16 instead of u8 since no PT_U8 type */
 
   int dae_start;        /* Minutes from midnight */
   int dae_start_window; /* Minutes (duration) */
@@ -447,7 +462,7 @@ static inline int dvr_config_is_valid(dvr_config_t *cfg)
   { return cfg->dvr_valid; }
 
 static inline int dvr_config_is_default(dvr_config_t *cfg)
-  { return cfg->dvr_config_name == NULL || cfg->dvr_config_name[0] == '\0'; }
+  { return tvh_str_default(cfg->dvr_config_name, NULL)  == NULL; }
 
 dvr_config_t *dvr_config_find_by_name(const char *name);
 
@@ -575,7 +590,7 @@ void dvr_event_removed(epg_broadcast_t *e);
 
 void dvr_event_updated(epg_broadcast_t *e);
 
-void dvr_event_running(epg_broadcast_t *e, epg_source_t esrc, epg_running_t running);
+void dvr_event_running(epg_broadcast_t *e, epg_running_t running);
 
 dvr_entry_t *dvr_entry_find_by_id(int id);
 
@@ -592,7 +607,7 @@ int64_t dvr_entry_claenup(dvr_entry_t *de, int64_t requiredBytes);
 
 void dvr_entry_set_rerecord(dvr_entry_t *de, int cmd);
 
-void dvr_entry_move(dvr_entry_t *de, int failed);
+void dvr_entry_move(dvr_entry_t *de, int to_failed);
 
 dvr_entry_t *dvr_entry_stop(dvr_entry_t *de);
 
@@ -674,6 +689,7 @@ htsmsg_t * dvr_autorec_entry_class_time_list(void *o, const char *null);
 htsmsg_t * dvr_autorec_entry_class_weekdays_get(uint32_t weekdays);
 htsmsg_t * dvr_autorec_entry_class_weekdays_list (void *o, const char *list);
 char * dvr_autorec_entry_class_weekdays_rend(uint32_t weekdays, const char *lang);
+const char *dvr_entry_class_image_url_get(const dvr_entry_t *o);
 
 void dvr_autorec_check_event(epg_broadcast_t *e);
 void dvr_autorec_check_brand(epg_brand_t *b);

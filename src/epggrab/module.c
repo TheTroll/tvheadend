@@ -77,9 +77,7 @@ static const char *epggrab_mod_class_title(idnode_t *self, const char *lang)
 {
   epggrab_module_t *mod = (epggrab_module_t *)self;
   const char *s1 = tvh_gettext_lang(lang, epggrab_module_type(mod));
-  const char *s2 = mod->name;
-  if (s2 == NULL || s2[0] == '\0')
-    s2 = mod->id;
+  const char *s2 = tvh_str_default(mod->name, mod->id);
   snprintf(prop_sbuf, PROP_SBUF_LEN, "%s: %s", s1, s2);
   return prop_sbuf;
 }
@@ -103,6 +101,34 @@ static int epggrab_mod_class_type_set(void *o, const void *v)
 {
   return 0;
 }
+
+static htsmsg_t *
+epggrab_module_ota_scrapper_config_list ( void *o, const char *lang )
+{
+  htsmsg_t *m = htsmsg_create_list();
+  htsmsg_t *e = htsmsg_create_map();
+  htsmsg_add_str(e, "key", "");
+  htsmsg_add_str(e, "val", tvh_gettext_lang(lang, N_("Use default configuration")));
+  htsmsg_add_msg(m, NULL, e);
+  htsmsg_t *config;
+  /* We load all the config so we can get the names of ones that are
+   * valid. This is a bit of overhead but we are rarely called since
+   * this is for the configuration GUI drop-down.
+   */
+  if((config = hts_settings_load_r(1, "epggrab/eit/scrape")) != NULL) {
+    htsmsg_field_t *f;
+    HTSMSG_FOREACH(f, config) {
+      e = htsmsg_create_map();
+      htsmsg_add_str(e, "key", f->hmf_name);
+      htsmsg_add_str(e, "val", f->hmf_name);
+      htsmsg_add_msg(m, NULL, e);
+    }
+    htsmsg_destroy(config);
+  }
+  return m;
+}
+
+
 
 CLASS_DOC(epggrabber_modules)
 PROP_DOC(epggrabber_priority)
@@ -217,6 +243,75 @@ const idclass_t epggrab_mod_ota_class = {
   .ic_class      = "epggrab_mod_ota",
   .ic_caption    = N_("Over-the-air EPG grabber"),
   .ic_properties = (const property_t[]){
+    {}
+  }
+};
+
+const idclass_t epggrab_mod_ota_scraper_class = {
+  .ic_super      = &epggrab_mod_ota_class,
+  .ic_class      = "epggrab_mod_ota_scraper",
+  .ic_caption    = N_("Over-the-air EPG grabber with scraping"),
+  .ic_groups     = (const property_group_t[]) {
+    {
+      .name      = N_("EPG behaviour"),
+      .number    = 1,
+    },
+    {
+      .name      = N_("Scrape behaviour"),
+      .number    = 2,
+    },
+    {}
+  },
+  .ic_properties = (const property_t[]){
+    {
+      /* The "eit" grabber is used by a number of countries so
+       * we can't ship a config file named "eit" since regex use
+       * in the UK won't be the same as in Italy.
+       *
+       * So, this option allows the user to specify the configuration
+       * file to use from the ones that we do ship without them having
+       * to mess around in the filesystem copying files.
+       *
+       * For example they can simply specify "uk" to use its
+       * configuration file.
+       */
+      .type   = PT_STR,
+      .id     = "scrape_config",
+      .name   = N_("Scraper configuration to use"),
+      .desc   = N_("Configuration containing regular expressions to use for "
+                   "scraping additional information from the broadcast guide."
+                   "This option does not access or retrieve details from the "
+                   "Internet."
+                   "This can be left blank to use the default or "
+                   "set to one of the Tvheadend configurations from the "
+                   "epggrab/eit/scrape directory such as "
+                   "\"uk\" (without the quotes)."
+                  ),
+      .off    = offsetof(epggrab_module_ota_scraper_t, scrape_config),
+      .list   = epggrab_module_ota_scrapper_config_list,
+      .group  = 2,
+    },
+    {
+      .type   = PT_BOOL,
+      .id     = "scrape_episode",
+      .name   = N_("Scrape Episode"),
+      .desc   = N_("Enable/disable scraping episode details using the grabber."),
+      .off    = offsetof(epggrab_module_ota_scraper_t, scrape_episode),
+      .group  = 2,
+    },
+    {
+      .type   = PT_BOOL,
+      .id     = "scrape_subtitle",
+      .name   = N_("Scrape Subtitle"),
+      .desc   = N_("Enable/disable scraping subtitle from the programme description. "
+                   "Some broadcasters do not send separate title, subtitle, description, "
+                   "and summary fields. This allows scraping of common subtitle formats "
+                   "from within the broadcast summary field if supported by the "
+                   "configuration file."
+                   ),
+      .off    = offsetof(epggrab_module_ota_scraper_t, scrape_subtitle),
+      .group  = 2,
+    },
     {}
   }
 };
@@ -591,14 +686,15 @@ epggrab_module_ext_t *epggrab_module_ext_create
 epggrab_module_ota_t *epggrab_module_ota_create
   ( epggrab_module_ota_t *skel,
     const char *id, int subsys, const char *saveid,
-    const char *name, int priority,
+    const char *name, int priority, int with_scraper,
     epggrab_ota_module_ops_t *ops )
 {
   if (!skel) skel = calloc(1, sizeof(epggrab_module_ota_t));
 
   /* Pass through */
   epggrab_module_create((epggrab_module_t*)skel,
-                        &epggrab_mod_ota_class,
+                        with_scraper ?
+                          &epggrab_mod_ota_scraper_class : &epggrab_mod_ota_class,
                         id, subsys, saveid, name, priority);
 
   /* Setup */

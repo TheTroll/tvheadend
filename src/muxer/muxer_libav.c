@@ -200,7 +200,9 @@ lav_muxer_support_stream(muxer_container_type_t mc,
   case MC_WEBM:
   case MC_AVWEBM:
     ret |= type == SCT_VP8;
+    ret |= type == SCT_VP9;
     ret |= type == SCT_VORBIS;
+    ret |= type == SCT_OPUS;
     break;
 
   case MC_MPEGTS:
@@ -399,6 +401,7 @@ lav_muxer_open_file(muxer_t *m, const char *filename)
   char buf[256];
   int r;
 
+  lm->lm_fd = -1;
   oc = lm->lm_oc;
   snprintf(oc->filename, sizeof(oc->filename), "%s", filename);
 
@@ -552,6 +555,7 @@ lav_muxer_add_marker(muxer_t* m)
 static int
 lav_muxer_close(muxer_t *m)
 {
+  AVFormatContext *oc;
   int ret = 0;
   lav_muxer_t *lm = (lav_muxer_t*)m;
 
@@ -561,6 +565,20 @@ lav_muxer_close(muxer_t *m)
     lm->m_errors++;
     ret = -1;
   }
+
+  oc = lm->lm_oc;
+  if (lm->lm_fd >= 0) {
+    av_freep(&oc->pb->buffer);
+#if LIBAVFORMAT_VERSION_INT >= AV_VERSION_INT(57, 80, 100)
+    avio_context_free(&oc->pb);
+#else
+    av_freep(&oc->pb);
+#endif
+    lm->lm_fd = -1;
+  } else {
+    avio_closep(&oc->pb);
+  }
+
   return ret;
 }
 
@@ -583,11 +601,6 @@ lav_muxer_destroy(muxer_t *m)
   if (lm->lm_oc) {
     for(i=0; i<lm->lm_oc->nb_streams; i++)
       av_freep(&lm->lm_oc->streams[i]->codec->extradata);
-  }
-
-  if(lm->lm_oc && lm->lm_oc->pb) {
-    av_freep(&lm->lm_oc->pb->buffer);
-    av_freep(&lm->lm_oc->pb);
   }
 
   if(lm->lm_oc) {

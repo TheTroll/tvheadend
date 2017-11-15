@@ -35,6 +35,7 @@
 #include "descrambler/caid.h"
 #include "notify.h"
 #include "htsmsg_json.h"
+#include "string_list.h"
 #include "lang_codes.h"
 #if ENABLE_TIMESHIFT
 #include "timeshift.h"
@@ -66,7 +67,7 @@
 
 static void *htsp_server, *htsp_server_2;
 
-#define HTSP_PROTO_VERSION 29
+#define HTSP_PROTO_VERSION 31
 
 #define HTSP_ASYNC_OFF  0x00
 #define HTSP_ASYNC_ON   0x01
@@ -241,6 +242,7 @@ typedef struct htsp_file {
   int hf_fd;          // Our file descriptor
   char *hf_path;      // For logging
   uint32_t  hf_de_id; // Associated dvr entry
+  th_subscription_t *hf_subscription;
 } htsp_file_t;
 
 #define HTSP_DEFAULT_QUEUE_DEPTH 500000
@@ -722,8 +724,10 @@ htsp_file_open(htsp_connection_t *htsp, const char *path, int fd, dvr_entry_t *d
   struct stat st;
 
   if (fd <= 0) {
+    pthread_mutex_unlock(&global_lock);
     fd = tvh_open(path, O_RDONLY, 0);
     tvhdebug(LS_HTSP, "Opening file %s -- %s", path, fd < 0 ? strerror(errno) : "OK");
+    pthread_mutex_lock(&global_lock);
     if(fd == -1)
       return htsp_error(htsp, N_("Unable to open file"));
   }
@@ -733,6 +737,17 @@ htsp_file_open(htsp_connection_t *htsp, const char *path, int fd, dvr_entry_t *d
   hf->hf_id = ++htsp->htsp_file_id;
   hf->hf_path = strdup(path);
   hf->hf_de_id = de ? idnode_get_short_uuid(&de->de_id) : 0;
+
+  if (de) {
+    const char *charset = de->de_config ? de->de_config->dvr_charset_id : NULL;
+
+    hf->hf_subscription =
+      subscription_create_from_file("HTSP", charset, path,
+                                    htsp->htsp_peername, htsp->htsp_peerport,
+                                    htsp->htsp_granted_access->aa_representative,
+                                    htsp->htsp_clientname);
+  }
+
   LIST_INSERT_HEAD(&htsp->htsp_files, hf, hf_link);
 
   htsmsg_t *rep = htsmsg_create_map();
@@ -770,10 +785,25 @@ static void
 htsp_file_destroy(htsp_file_t *hf)
 {
   tvhdebug(LS_HTSP, "Closed opened file %s", hf->hf_path);
+  LIST_REMOVE(hf, hf_link);
+  if (hf->hf_subscription) {
+    pthread_mutex_lock(&global_lock);
+    subscription_unsubscribe(hf->hf_subscription, UNSUBSCRIBE_FINAL);
+    pthread_mutex_unlock(&global_lock);
+  }
   free(hf->hf_path);
   close(hf->hf_fd);
-  LIST_REMOVE(hf, hf_link);
   free(hf);
+}
+
+static void
+htsp_file_update_stats(htsp_file_t *hf, size_t len)
+{
+  th_subscription_t *ts = hf->hf_subscription;
+  if (ts) {
+    subscription_add_bytes_in(ts, len);
+    subscription_add_bytes_out(ts, len);
+  }
 }
 
 /* **************************************************************************
@@ -914,6 +944,7 @@ htsp_build_dvrentry(htsp_connection_t *htsp, dvr_entry_t *de, const char *method
   const char *s = NULL, *error = NULL, *subscriptionError = NULL;
   const char *p, *last;
   int64_t fsize = -1;
+  uint32_t u32;
   char ubuf[UUID_HEX_SIZE];
 
   htsmsg_add_u32(out, "id", idnode_get_short_uuid(&de->de_id));
@@ -946,7 +977,12 @@ htsp_build_dvrentry(htsp_connection_t *htsp, dvr_entry_t *de, const char *method
           dvr_entry_get_removal_days(de) : dvr_entry_get_retention_days(de));
 
     htsmsg_add_u32(out, "removal",     dvr_entry_get_removal_days(de));
-    htsmsg_add_u32(out, "priority",    de->de_pri);
+    u32 = de->de_pri;
+    if (htsp->htsp_version < 30 && u32 > DVR_PRIO_UNIMPORTANT)
+      u32 = de->de_config->dvr_pri;
+    else if (u32 == DVR_PRIO_NOTSET)
+      u32 = DVR_PRIO_NORMAL;
+    htsmsg_add_u32(out, "priority",    u32);
     htsmsg_add_u32(out, "contentType", de->de_content_type);
 
     if (de->de_sched_state == DVR_RECORDING || de->de_sched_state == DVR_COMPLETED) {
@@ -968,6 +1004,15 @@ htsp_build_dvrentry(htsp_connection_t *htsp, dvr_entry_t *de, const char *method
       htsmsg_add_str(out, "creator", de->de_creator);
     if(de->de_comment)
       htsmsg_add_str(out, "comment", de->de_comment);
+    /* We use the accessor since it will also try to get
+     * an image from current EPG if recording does not have
+     * an associated image.
+     */
+    const char *image = dvr_entry_class_image_url_get(de);
+    if(image && *image)
+      htsmsg_add_str(out, "image", image);
+    if (de->de_copyright_year)
+      htsmsg_add_u32(out, "copyrightYear", de->de_copyright_year);
 
     last = NULL;
     if (!htsmsg_is_empty(de->de_files) && de->de_config) {
@@ -1012,7 +1057,8 @@ htsp_build_dvrentry(htsp_connection_t *htsp, dvr_entry_t *de, const char *method
     fsize = dvr_get_filesize(de, DVR_FILESIZE_UPDATE);
     if (fsize < 0)
       error = "File missing";
-    else if(de->de_last_error)
+    else if(de->de_last_error != SM_CODE_OK &&
+            de->de_last_error != SM_CODE_FORCE_OK)
       error = streaming_code2txt(de->de_last_error);
     break;
   case DVR_MISSED_TIME:
@@ -1195,6 +1241,17 @@ htsp_build_event
       htsmsg_add_str(out, "summary", str);
   } else if((str = epg_broadcast_get_summary(e, lang)))
     htsmsg_add_str(out, "description", str);
+
+  if (e->credits) {
+    htsmsg_add_msg(out, "credits", htsmsg_copy(e->credits));
+  }
+  if (e->category) {
+    htsmsg_add_msg(out, "category", string_list_to_htsmsg(e->category));
+  }
+  if (e->keyword) {
+    htsmsg_add_msg(out, "keyword", string_list_to_htsmsg(e->keyword));
+  }
+
   if (e->serieslink) {
     htsmsg_add_u32(out, "serieslinkId", e->serieslink->id);
     if (e->serieslink->uri)
@@ -1218,6 +1275,8 @@ htsp_build_event
       htsmsg_add_u32(out, "ageRating", ee->age_rating);
     if (ee->star_rating)
       htsmsg_add_u32(out, "starRating", ee->star_rating);
+    if (ee->copyright_year)
+      htsmsg_add_u32(out, "copyrightYear", ee->copyright_year);
     if (ee->first_aired)
       htsmsg_add_s64(out, "firstAired", ee->first_aired);
     epg_episode_get_epnum(ee, &epnum);
@@ -2474,9 +2533,6 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
     return htsp_error(htsp, "Stream setup error");
   }
 
-  if (pro->pro_prefersd)
-      convert_channel_to_sd(ch, &ch);
-
   if (htsp->htsp_granted_access && htsp->htsp_granted_access->aa_muxes_limit_streaming)
   {
     ilm = LIST_FIRST(&ch->ch_services);
@@ -2838,6 +2894,8 @@ htsp_method_file_read(htsp_connection_t *htsp, htsmsg_t *in)
     goto error;
   }
 
+  htsp_file_update_stats(hf, r);
+
   rep = htsmsg_create_map();
   htsmsg_add_bin(rep, "data", m, r);
   free(m);
@@ -2876,7 +2934,9 @@ htsp_method_file_close(htsp_connection_t *htsp, htsmsg_t *in)
       dvr_entry_changed_notify(de);
   }
 
+  pthread_mutex_unlock(&global_lock);
   htsp_file_destroy(hf);
+  pthread_mutex_lock(&global_lock);
   return htsmsg_create_map();
 }
 

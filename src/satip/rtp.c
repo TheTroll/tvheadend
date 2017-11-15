@@ -33,7 +33,8 @@
 
 #define RTP_PACKETS 128
 #define RTP_PAYLOAD (7*188+12)
-#define RTP_TCP_PAYLOAD (87*188+12+4) /* cca 16kB */
+#define RTP_TCP_MIN_PAYLOAD (7*188+12+4)   /* fit ethernet packet */
+#define RTP_TCP_MAX_PAYLOAD (348*188+12+4) /* cca 64kB */
 #define RTCP_PAYLOAD (1420)
 
 #define RTP_TCP_BUFFER_SIZE (64*1024*1024)
@@ -73,7 +74,7 @@ typedef struct satip_rtp_session {
   signal_status_t sig;
   int sig_lock;
   pthread_mutex_t lock;
-  pthread_mutex_t *tcp_lock;
+  http_connection_t *hc;
   uint8_t *table_data;
   int table_data_len;
   void (*no_data_cb)(void *opaque);
@@ -267,20 +268,15 @@ found:
 }
 
 static int
-satip_rtp_tcp_data(satip_rtp_session_t *rtp, uint8_t stream, uint8_t *data, size_t data_len)
+satip_rtp_tcp_data(satip_rtp_session_t *rtp, uint8_t stream,
+                   uint8_t *data, size_t data_len, int may_discard)
 {
-  int r = 0;
-
   assert(data_len <= 0xffff);
   data[0] = '$';
   data[1] = stream;
   data[2] = (data_len - 4) >> 8;
   data[3] = (data_len - 4) & 0xff;
-  pthread_mutex_lock(rtp->tcp_lock);
-  if (!tvh_write(rtp->fd_rtp, data, data_len))
-    r = errno;
-  pthread_mutex_unlock(rtp->tcp_lock);
-  return r;
+  return http_extra_send_prealloc(rtp->hc, data, data_len, may_discard);
 }
 
 static inline int
@@ -290,8 +286,9 @@ satip_rtp_flush_tcp_data(satip_rtp_session_t *rtp)
   int r = 0;
 
   if (v->iov_len)
-    r = satip_rtp_tcp_data(rtp, 0, v->iov_base, v->iov_len);
-  free(v->iov_base);
+    r = satip_rtp_tcp_data(rtp, 0, v->iov_base, v->iov_len, 1);
+  else
+    free(v->iov_base);
   v->iov_base = NULL;
   v->iov_len = 0;
   return r;
@@ -459,7 +456,7 @@ satip_rtp_thread(void *aux)
  */
 void *satip_rtp_queue(th_subscription_t *subs,
                       streaming_queue_t *sq,
-                      pthread_mutex_t *tcp_lock,
+                      http_connection_t *hc,
                       struct sockaddr_storage *peer, int port,
                       int fd_rtp, int fd_rtcp,
                       int frontend, int source, dvb_mux_conf_t *dmc,
@@ -470,7 +467,7 @@ void *satip_rtp_queue(th_subscription_t *subs,
   satip_rtp_session_t *rtp = calloc(1, sizeof(*rtp));
   size_t len;
   socklen_t socklen;
-  int dscp;
+  int dscp, payload;
 
   if (rtp == NULL)
     return NULL;
@@ -484,8 +481,9 @@ void *satip_rtp_queue(th_subscription_t *subs,
   rtp->fd_rtcp = fd_rtcp;
   rtp->subs = subs;
   rtp->sq = sq;
-  rtp->tcp_lock = tcp_lock;
-  rtp->tcp_payload = RTP_TCP_PAYLOAD;
+  rtp->hc = hc;
+  payload = satip_server_conf.satip_rtptcpsize * 188 + 12 + 4;
+  rtp->tcp_payload = MINMAX(payload, RTP_TCP_MIN_PAYLOAD, RTP_TCP_MAX_PAYLOAD);
   rtp->tcp_buffer_size = 16*1024*1024;
   rtp->no_data_cb = no_data_cb;
   rtp->no_data_opaque = no_data_opaque;
@@ -618,11 +616,9 @@ void satip_rtp_close(void *_rtp)
   tvh_cond_signal(&sq->sq_cond, 0);
   pthread_mutex_unlock(&sq->sq_mutex);
   pthread_mutex_unlock(&satip_rtp_lock);
-  if (rtp->port == RTSP_TCP_DATA)
-    pthread_mutex_lock(rtp->tcp_lock);
   pthread_join(rtp->tid, NULL);
   if (rtp->port == RTSP_TCP_DATA) {
-    pthread_mutex_unlock(rtp->tcp_lock);
+    http_extra_destroy(rtp->hc);
     free(rtp->tcp_data.iov_base);
   } else {
     udp_multisend_free(&rtp->um);
@@ -914,7 +910,7 @@ satip_rtcp_thread(void *aux)
 {
   satip_rtp_session_t *rtp;
   int64_t us;
-  uint8_t msg[RTCP_PAYLOAD+1];
+  uint8_t msg[RTCP_PAYLOAD+1], *msg1;
   char addrbuf[50];
   int r, len, err;
 
@@ -939,8 +935,15 @@ satip_rtcp_thread(void *aux)
         tvhtrace(LS_SATIPS, "RTCP send to %s:%d : %s", addrbuf, ntohs(IP_PORT(rtp->peer2)), msg + 16);
       }
       if (rtp->port == RTSP_TCP_DATA) {
-        err = satip_rtp_tcp_data(rtp, 1, msg, len);
-        r = err ? -1 : 0;
+        msg1 = malloc(len);
+        if (msg1) {
+          memcpy(msg1, msg, len);
+          err = satip_rtp_tcp_data(rtp, 1, msg1, len, 0);
+          r = err ? -1 : 0;
+        } else {
+          r = -1;
+          err = ENOMEM;
+        }
       } else {
         r = sendto(rtp->fd_rtcp, msg, len, 0,
                    (struct sockaddr*)&rtp->peer2,

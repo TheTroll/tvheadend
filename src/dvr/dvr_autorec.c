@@ -30,6 +30,7 @@
 
 #include "tvheadend.h"
 #include "settings.h"
+#include "string_list.h"
 #include "dvr.h"
 #include "epg.h"
 #include "htsp_server.h"
@@ -159,6 +160,9 @@ autorec_cmp(dvr_autorec_entry_t *dae, epg_broadcast_t *e)
      dae->dae_content_type == 0 &&
      (dae->dae_title == NULL ||
      dae->dae_title[0] == '\0') &&
+     (dae->dae_cat1 == NULL || *dae->dae_cat1 == 0) &&
+     (dae->dae_cat2 == NULL || *dae->dae_cat2 == 0) &&
+     (dae->dae_cat3 == NULL || *dae->dae_cat3 == 0) &&
      dae->dae_brand == NULL &&
      dae->dae_season == NULL &&
      dae->dae_minduration <= 0 &&
@@ -211,6 +215,15 @@ autorec_cmp(dvr_autorec_entry_t *dae, epg_broadcast_t *e)
       return 0;
   }
 
+  if (e->category) {
+    if (dae->dae_cat1 && *dae->dae_cat1 && !string_list_contains_string(e->category, dae->dae_cat1))
+      return 0;
+    if (dae->dae_cat2 && *dae->dae_cat2 && !string_list_contains_string(e->category, dae->dae_cat2))
+      return 0;
+    if (dae->dae_cat3 && *dae->dae_cat3 && !string_list_contains_string(e->category, dae->dae_cat3))
+      return 0;
+  }
+
   if(dae->dae_start >= 0 && dae->dae_start_window >= 0 &&
      dae->dae_start < 24*60 && dae->dae_start_window < 24*60) {
     struct tm a_time, ev_time;
@@ -253,6 +266,16 @@ autorec_cmp(dvr_autorec_entry_t *dae, epg_broadcast_t *e)
       return 0;
   }
 
+  /* If we have a dae_star_rating but the episode has no star
+   * rating (zero) then it will not be recorded.  So we do not
+   * have "&& e->episode->star_rating" here.  Conversely, if
+   * dae_star_rating is zero then that means "do not check
+   * star rating of episode".
+   */
+  if (e->episode && dae->dae_star_rating)
+    if (e->episode->star_rating < dae->dae_star_rating)
+      return 0;
+
   /* Do not check title if the event is from the serieslink group */
   if(dae->dae_serieslink == NULL &&
      dae->dae_title != NULL && dae->dae_title[0] != '\0') {
@@ -274,6 +297,12 @@ autorec_cmp(dvr_autorec_entry_t *dae, epg_broadcast_t *e)
           if (!regex_match(&dae->dae_title_regex, ls->str)) break;
       if (!ls && e->description)
         RB_FOREACH(ls, e->description, link)
+          if (!regex_match(&dae->dae_title_regex, ls->str)) break;
+      if (!ls && e->credits_cached)
+        RB_FOREACH(ls, e->credits_cached, link)
+          if (!regex_match(&dae->dae_title_regex, ls->str)) break;
+      if (!ls && e->keyword_cached)
+        RB_FOREACH(ls, e->keyword_cached, link)
           if (!regex_match(&dae->dae_title_regex, ls->str)) break;
     }
     if (!ls) return 0;
@@ -452,7 +481,8 @@ dvr_autorec_entry_class_save(idnode_t *self, char *filename, size_t fsize)
   htsmsg_t *m = htsmsg_create_map();
   char ubuf[UUID_HEX_SIZE];
   idnode_save(&dae->dae_id, m);
-  snprintf(filename, fsize, "dvr/autorec/%s", idnode_uuid_as_str(&dae->dae_id, ubuf));
+  if (filename)
+    snprintf(filename, fsize, "dvr/autorec/%s", idnode_uuid_as_str(&dae->dae_id, ubuf));
   return m;
 }
 
@@ -631,14 +661,11 @@ dvr_autorec_entry_class_start_window_set(void *o, const void *v)
 static const void *
 dvr_autorec_entry_class_time_get(void *o, int tm)
 {
-  static const char *ret;
-  static char buf[16];
   if (tm >= 0)
-    snprintf(buf, sizeof(buf), "%02d:%02d", tm / 60, tm % 60);
+    snprintf(prop_sbuf, PROP_SBUF_LEN, "%02d:%02d", tm / 60, tm % 60);
   else
-    strncpy(buf, N_("Any"), 16);
-  ret = buf;
-  return &ret;
+    strncpy(prop_sbuf, N_("Any"), 16);
+  return &prop_sbuf_ptr;
 }
 
 static const void *
@@ -831,8 +858,7 @@ dvr_autorec_entry_class_brand_set(void *o, const void *v)
   int save;
   epg_brand_t *brand;
 
-  if (v && *(char *)v == '\0')
-    v = NULL;
+  v = tvh_str_default(v, NULL);
   brand = v ? epg_brand_find_by_uri(v, NULL, 1, &save, NULL) : NULL;
   if (brand && dae->dae_brand != brand) {
     if (dae->dae_brand)
@@ -851,13 +877,11 @@ dvr_autorec_entry_class_brand_set(void *o, const void *v)
 static const void *
 dvr_autorec_entry_class_brand_get(void *o)
 {
-  static const char *ret;
   dvr_autorec_entry_t *dae = (dvr_autorec_entry_t *)o;
-  if (dae->dae_brand)
-    ret = dae->dae_brand->uri;
-  else
-    ret = "";
-  return &ret;
+  prop_ptr = dae->dae_brand ? dae->dae_brand->uri : NULL;
+  if (prop_ptr == NULL)
+    prop_ptr = "";
+  return &prop_ptr;
 }
 
 static int
@@ -867,8 +891,7 @@ dvr_autorec_entry_class_season_set(void *o, const void *v)
   int save;
   epg_season_t *season;
 
-  if (v && *(char *)v == '\0')
-    v = NULL;
+  v = tvh_str_default(v, NULL);
   season = v ? epg_season_find_by_uri(v, NULL, 1, &save, NULL) : NULL;
   if (season && dae->dae_season != season) {
     if (dae->dae_season)
@@ -887,14 +910,53 @@ dvr_autorec_entry_class_season_set(void *o, const void *v)
 static const void *
 dvr_autorec_entry_class_season_get(void *o)
 {
-  static const char *ret;
   dvr_autorec_entry_t *dae = (dvr_autorec_entry_t *)o;
-  if (dae->dae_season)
-    ret = dae->dae_season->uri;
-  else
-    ret = "";
-  return &ret;
+  prop_ptr = dae->dae_season ? dae->dae_season->uri : NULL;
+  if (prop_ptr == NULL)
+    prop_ptr = "";
+  return &prop_ptr;
 }
+
+/** Validate star rating is in range */
+static int
+dvr_autorec_entry_class_star_rating_set(void *o, const void *v)
+{
+  dvr_autorec_entry_t *dae = (dvr_autorec_entry_t *)o;
+  const uint16_t *val = (uint16_t*)v;
+  if (*val < 0 || *val > 100)
+    return 0;
+  dae->dae_star_rating = *val;
+  return 1;
+}
+
+static htsmsg_t *
+dvr_autorec_entry_class_star_rating_list ( void *o, const char *lang )
+{
+  htsmsg_t *m = htsmsg_create_list();
+  htsmsg_t *e = htsmsg_create_map();
+  /* No htsmsg_add_u16 so use htsmsg_add_u32 instead */
+  htsmsg_add_u32(e, "key", 0);
+  /* Instead of "Any" we use "No rating needed" since "Any" could
+   * suggest that the programme needs a rating that could be anything,
+   * whereas many programmes have no rating at all.
+   */
+  htsmsg_add_str(e, "val", tvh_gettext_lang(lang, N_("No rating needed")));
+  htsmsg_add_msg(m, NULL, e);
+
+  uint32_t i;
+  /* We create the list from highest to lowest since you're more
+   * likely to want to record something with a high rating than scroll
+   * through the list to find programmes with a poor rating.
+   */
+  for (i = 100; i > 0 ; i-=5) {
+    e = htsmsg_create_map();
+    htsmsg_add_u32(e, "key", i);
+    htsmsg_add_u32(e, "val", i);
+    htsmsg_add_msg(m, NULL, e);
+  }
+  return m;
+}
+
 
 static int
 dvr_autorec_entry_class_series_link_set(void *o, const void *v)
@@ -903,8 +965,7 @@ dvr_autorec_entry_class_series_link_set(void *o, const void *v)
   int save;
   epg_serieslink_t *sl;
 
-  if (v && *(char *)v == '\0')
-    v = NULL;
+  v = tvh_str_default(v, NULL);
   sl = v ? epg_serieslink_find_by_uri(v, NULL, 1, &save, NULL) : NULL;
   if (sl && dae->dae_serieslink != sl) {
     if (dae->dae_serieslink)
@@ -923,13 +984,11 @@ dvr_autorec_entry_class_series_link_set(void *o, const void *v)
 static const void *
 dvr_autorec_entry_class_series_link_get(void *o)
 {
-  static const char *ret;
   dvr_autorec_entry_t *dae = (dvr_autorec_entry_t *)o;
-  if (dae->dae_serieslink)
-    ret = dae->dae_serieslink->uri;
-  else
-    ret = "";
-  return &ret;
+  prop_ptr = dae->dae_serieslink ? dae->dae_serieslink->uri : NULL;
+  if (prop_ptr == NULL)
+    prop_ptr = "";
+  return &prop_ptr;
 }
 
 static htsmsg_t *
@@ -947,6 +1006,8 @@ dvr_autorec_entry_class_dedup_list ( void *o, const char *lang )
   static const struct strtab tab[] = {
     { N_("Record all"),
         DVR_AUTOREC_RECORD_ALL },
+    { N_("All: Record if EPG/XMLTV indicates it is a unique programme"),
+        DVR_AUTOREC_RECORD_UNIQUE },
     { N_("All: Record if different episode number"),
         DVR_AUTOREC_RECORD_DIFFERENT_EPISODE_NUMBER },
     { N_("All: Record if different subtitle"),
@@ -991,8 +1052,18 @@ dvr_autorec_entry_class_btype_list ( void *o, const char *lang )
   return strtab2htsmsg(tab, 1, lang);
 }
 
+static htsmsg_t *
+dvr_autorec_entry_category_list ( void *o, const char *lang )
+{
+  htsmsg_t *m = htsmsg_create_map();
+  htsmsg_add_str(m, "type",  "api");
+  htsmsg_add_str(m, "uri",   "channelcategory/list");
+  return m;
+}
+
+
 static uint32_t
-dvr_autorec_entry_class_owner_opts(void *o)
+dvr_autorec_entry_class_owner_opts(void *o, uint32_t opts)
 {
   dvr_autorec_entry_t *dae = (dvr_autorec_entry_t *)o;
   if (dae && dae->dae_id.in_access &&
@@ -1003,6 +1074,28 @@ dvr_autorec_entry_class_owner_opts(void *o)
 
 CLASS_DOC(dvrautorec)
 PROP_DOC(duplicate_handling)
+
+/* We provide several category drop-downs to make it easy for user
+ * to select several. So abstract the properties away since they
+ * are nearly identical for each entry.
+ */
+#define CATEGORY_SELECTION_PROP(NUM)                                  \
+  .type     = PT_STR,                                                 \
+  .id       = "cat" #NUM,                                             \
+  .name     = N_("Category " #NUM  " (selection)"),                   \
+  .desc     = N_("The category of the program to look for. The xmltv "\
+                 "providers often supply detailed categories such as "\
+                 "Sitcom, Movie, Track/field, etc. "                  \
+                 "This let you select from categories for current programmes. " \
+                 "It is then combined (AND) with other fields to limit to " \
+                 "programmes that match all categories. "             \
+                 "If this selection list is empty then it means your provider does not " \
+                 "supply programme categories."                       \
+                 ),                                                   \
+  .off      = offsetof(dvr_autorec_entry_t, dae_cat ## NUM),          \
+  .opts     = PO_EXPERT,                                              \
+  .list     = dvr_autorec_entry_category_list
+
 
 const idclass_t dvr_autorec_entry_class = {
   .ic_class      = "dvrautorec",
@@ -1050,6 +1143,21 @@ const idclass_t dvr_autorec_entry_class = {
                      "this accepts case-insensitive regular expressions."),
       .set      = dvr_autorec_entry_class_title_set,
       .off      = offsetof(dvr_autorec_entry_t, dae_title),
+    },
+    /* We provide a small number of selection drop-downs. This is to
+     * make it easier for users to see what categories are available and
+     * make it easy to record for example '"Movie" "Martial arts" "Western"'
+     * without user needing a regex, and allowing them to easily see what
+     * categories they have available.
+     */
+    {
+      CATEGORY_SELECTION_PROP(1)
+    },
+    {
+      CATEGORY_SELECTION_PROP(2)
+    },
+    {
+      CATEGORY_SELECTION_PROP(3)
     },
     {
       .type     = PT_BOOL,
@@ -1103,6 +1211,18 @@ const idclass_t dvr_autorec_entry_class = {
       .list     = dvr_autorec_entry_class_content_type_list,
       .off      = offsetof(dvr_autorec_entry_t, dae_content_type),
       .opts     = PO_ADVANCED,
+    },
+    {
+      .type     = PT_U16,
+      .id       = "star_rating",
+      .name     = N_("Star rating"),
+      .desc     = N_("The minimum number of stars the broadcast should have - in "
+                     "other words, only match programs that have at "
+                     "least this rating."),
+      .set      = dvr_autorec_entry_class_star_rating_set,
+      .list     = dvr_autorec_entry_class_star_rating_list,
+      .off      = offsetof(dvr_autorec_entry_t, dae_star_rating),
+      .opts     = PO_EXPERT | PO_DOC_NLIST,
     },
     {
       .type     = PT_STR,

@@ -100,7 +100,8 @@ channel_class_save ( idnode_t *self, char *filename, size_t fsize )
     tvhdebug(LS_CHANNEL, "channel '%s' save", channel_get_name(ch, channel_blank_name));
     c = htsmsg_create_map();
     idnode_save(&ch->ch_id, c);
-    snprintf(filename, fsize, "channel/config/%s", idnode_uuid_as_str(&ch->ch_id, ubuf));
+    if (filename)
+      snprintf(filename, fsize, "channel/config/%s", idnode_uuid_as_str(&ch->ch_id, ubuf));
   }
   return c;
 }
@@ -118,7 +119,7 @@ channel_class_autoname_set ( void *obj, const void *p )
   const char *s;
   int b = *(int *)p;
   if (ch->ch_autoname != b) {
-    if (b == 0 && (!ch->ch_name || *ch->ch_name == '\0')) {
+    if (b == 0 && tvh_str_default(ch->ch_name, NULL) == NULL) {
       s = channel_get_name(ch, NULL);
       if (s) {
         free(ch->ch_name);
@@ -212,9 +213,8 @@ channel_class_icon_notify ( void *obj, const char *lang )
 static const void *
 channel_class_get_icon ( void *obj )
 {
-  static const char *s;
-  s = channel_get_icon(obj);
-  return &s;
+  prop_ptr = channel_get_icon(obj);
+  return &prop_ptr;
 }
 
 static const char *
@@ -255,9 +255,8 @@ channel_class_set_name ( void *o, const void *p )
 static const void *
 channel_class_get_name ( void *o )
 {
-  static const char *s;
-  s = channel_get_name(o, channel_blank_name);
-  return &s;
+  prop_ptr = channel_get_name(o, channel_blank_name);
+  return &prop_ptr;
 }
 
 static const void *
@@ -579,6 +578,68 @@ channel_find_by_name ( const char *name )
   return ch;
 }
 
+
+/// Copy name without space and HD suffix, lowercase in to a new
+/// buffer
+static char *
+channel_make_fuzzy_name(const char *name)
+{
+  if (!name) return NULL;
+  const size_t len = strlen(name);
+  char *fuzzy_name = malloc(len + 1);
+  char *ch_fuzzy = fuzzy_name;
+  const char *ch = name;
+
+  for (; *ch ; ++ch) {
+    /* Strip trailing 'HD'. */
+    if (*ch == 'H' && *(ch+1) == 'D' && *(ch+2) == 0)
+      break;
+
+    if (!isspace(*ch)) {
+      *ch_fuzzy++ = tolower(*ch);
+    }
+  }
+  /* Terminate the string */
+  *ch_fuzzy = 0;
+  return fuzzy_name;
+}
+
+channel_t *
+channel_find_by_name_fuzzy ( const char *name )
+{
+  channel_t *ch;
+  const char *s;
+
+  if (name == NULL)
+    return NULL;
+
+  char *fuzzy_name = channel_make_fuzzy_name(name);
+
+  CHANNEL_FOREACH(ch) {
+    if (!ch->ch_enabled) continue;
+    s = channel_get_name(ch, NULL);
+    if (s == NULL) continue;
+    /* We need case insensitive since historical constraints means we
+     * often have channels with slightly different case on DVB-T vs
+     * DVB-S such as 'One' and 'ONE'.
+     */
+    if (strcasecmp(s, name) == 0) break;
+    if (strcasecmp(s, fuzzy_name) == 0) break;
+
+    /* If here, we don't have an obvious match, so we need to fixup
+     * the ch name to see if it then matches. We can use strcmp
+     * since both names are already lowercased.
+     */
+    char *s_fuzzy_name = channel_make_fuzzy_name(s);
+    const int is_match = !strcmp(s_fuzzy_name, fuzzy_name);
+    free(s_fuzzy_name);
+    if (is_match) break;
+  }
+
+  free(fuzzy_name);
+  return ch;
+}
+
 channel_t *
 channel_find_by_id ( uint32_t i )
 {
@@ -812,7 +873,7 @@ channel_get_icon ( channel_t *ch )
   uint32_t id, i, pick, prefer = config.prefer_picon ? 1 : 0;
   char c;
 
-  if (icon && *icon == '\0')
+  if (tvh_str_default(icon, NULL) == NULL)
     icon = NULL;
 
   /*
@@ -1406,7 +1467,8 @@ channel_tag_class_save(idnode_t *self, char *filename, size_t fsize)
   htsmsg_t *c = htsmsg_create_map();
   char ubuf[UUID_HEX_SIZE];
   idnode_save(&ct->ct_id, c);
-  snprintf(filename, fsize, "channel/tag/%s", idnode_uuid_as_str(&ct->ct_id, ubuf));
+  if (filename)
+    snprintf(filename, fsize, "channel/tag/%s", idnode_uuid_as_str(&ct->ct_id, ubuf));
   return c;
 }
 
@@ -1432,9 +1494,8 @@ channel_tag_class_icon_notify ( void *obj, const char *lang )
 static const void *
 channel_tag_class_get_icon ( void *obj )
 {
-  static const char *s;
-  s = channel_tag_get_icon(obj);
-  return &s;
+  prop_ptr = channel_tag_get_icon(obj);
+  return &prop_ptr;
 }
 
 /* exported for others */
@@ -1550,7 +1611,7 @@ channel_tag_find_by_name(const char *name, int create)
 {
   channel_tag_t *ct;
 
-  if (name == NULL || *name == '\0')
+  if (tvh_str_default(name, NULL) == NULL)
     return NULL;
 
   TAILQ_FOREACH(ct, &channel_tags, ct_link)
@@ -1582,69 +1643,6 @@ channel_tag_find_by_identifier(uint32_t id) {
   }
 
   return NULL;
-}
-
-/**
- *
- */
-int
-convert_channel_to_sd(channel_t* in_ch, channel_t** out_ch)
-{
-  FILE *file;
-  const char* file_path;
-  char line[258];
-  const char* in_channame;
-
-  if (!in_ch || !out_ch)
-    return 0;
-
-  file_path = config.sdconv_path;
-  file = fopen(file_path, "r");
-  if (file == NULL) {
-    tvherror(LS_CHANNEL, "Cannot open channel conversion file [%s]", file_path);
-    return 0;
-  }
-
-  in_channame = channel_get_name(in_ch, NULL);
-
-  while(fgets(line, 80, file) != NULL)
-  {
-    char* delim;
-    char* line_in_chan, *line_out_chan;
-
-    delim = strstr(line, "|");
-    if (delim)
-    {
-      *delim = '\0';
-       line_in_chan = line;
-       line_out_chan = delim+1;
-       line_out_chan = strtok(line_out_chan, "\n");
-       line_out_chan = strtok(line_out_chan, "\r");
-
-       if (line_out_chan[0] != '\0' && !strncmp(line_in_chan, in_channame, 127))
-       {
-         fclose(file);
-
-         channel_t* out = channel_find_by_name(line_out_chan);
-         if (out)
-         {
-            *out_ch = out;
-            tvhinfo(LS_CHANNEL, "[%s] request converted to [%s]", in_channame, line_out_chan);
-            return 1;
-         }
-         else
-         {
-            tvherror(LS_CHANNEL, "cannot convert [%s] to [%s]", in_channame, line_out_chan);
-            return 0;
-         }
-       }
-    }
-  }
-
-  tvhinfo(LS_CHANNEL, "[%s] has no entry in conversion list", in_channame);
-
-  fclose(file);
-  return 0;
 }
 
 static void channel_tags_memoryinfo_update(memoryinfo_t *my)

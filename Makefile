@@ -102,9 +102,12 @@ endif
 
 FFMPEG_PREFIX := $(BUILDDIR)/ffmpeg/build/ffmpeg
 FFMPEG_LIBDIR := $(FFMPEG_PREFIX)/lib
+FFMPEG_INCDIR := $(FFMPEG_PREFIX)/include
 FFMPEG_CONFIG := \
     PKG_CONFIG_LIBDIR=$(FFMPEG_LIBDIR)/pkgconfig $(PKG_CONFIG) \
-    --define-variable=prefix=$(FFMPEG_PREFIX) --static
+    --define-variable=prefix=$(FFMPEG_PREFIX) \
+    --define-variable=includedir=$(FFMPEG_INCDIR) \
+    --define-variable=libdir=$(FFMPEG_LIBDIR) --static
 
 ifeq ($(CONFIG_LIBX264_STATIC),yes)
 FFMPEG_DEPS += libx264
@@ -134,8 +137,8 @@ ifeq ($(CONFIG_LIBFDKAAC_STATIC),yes)
 FFMPEG_DEPS += libfdk-aac
 endif
 
-ifeq ($(CONFIG_LIBMFX_STATIC),yes)
-FFMPEG_DEPS += libmfx
+ifeq ($(CONFIG_LIBOPUS_STATIC),yes)
+FFMPEG_DEPS += libopus
 endif
 
 LDFLAGS += $(foreach lib,$(FFMPEG_LIBS),$(FFMPEG_LIBDIR)/$(lib).a)
@@ -207,6 +210,7 @@ SRCS-1 = \
 	src/proplib.c \
 	src/utils.c \
 	src/wrappers.c \
+	src/tvhvfs.c \
 	src/access.c \
 	src/tcp.c \
 	src/udp.c \
@@ -255,6 +259,7 @@ SRCS-1 = \
 	src/profile.c \
 	src/bouquet.c \
 	src/lock.c \
+	src/string_list.c \
 	src/wizard.c \
 	src/memoryinfo.c
 SRCS = $(SRCS-1)
@@ -282,6 +287,7 @@ SRCS-2 = \
 	src/api/api_config.c \
 	src/api/api_status.c \
 	src/api/api_idnode.c \
+	src/api/api_raw.c \
 	src/api/api_input.c \
 	src/api/api_channel.c \
 	src/api/api_service.c \
@@ -390,6 +396,7 @@ I18N-C += $(SRCS-MPEGTS-DVB)
 SRCS-MPEGTS-EPG = \
 	src/epggrab/otamux.c\
 	src/epggrab/module/eit.c \
+	src/epggrab/module/eitpatternlist.c \
 	src/epggrab/module/psip.c \
 	src/epggrab/support/freesat_huffman.c \
 	src/epggrab/module/opentv.c
@@ -481,13 +488,14 @@ DEPS-LIBAV = \
 	src/tvhlog.c
 SRCS-LIBAV = \
 	src/libav.c \
-	src/input/mpegts/iptv/iptv_libav.c \
 	src/muxer/muxer_libav.c \
 	src/plumbing/transcoding.c \
 	src/plumbing/vdpau.c
 
 LDFLAGS += -lX11 -lvdpau
-
+ifeq ($(CONFIG_IPTV),yes)
+SRCS-LIBAV += src/input/mpegts/iptv/iptv_libav.c
+endif
 SRCS-$(CONFIG_LIBAV) += $(SRCS-LIBAV)
 I18N-C += $(SRCS-LIBAV)
 

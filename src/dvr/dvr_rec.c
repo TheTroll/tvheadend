@@ -37,6 +37,7 @@
 #include "atomic.h"
 #include "intlconv.h"
 #include "notify.h"
+#include "string_list.h"
 
 #include "muxer.h"
 
@@ -53,7 +54,7 @@ const static int prio2weight[6] = {
   [DVR_PRIO_NORMAL]      = 300,
   [DVR_PRIO_LOW]         = 200,
   [DVR_PRIO_UNIMPORTANT] = 100,
-  [DVR_PRIO_NOTSET]      = 0,
+  [DVR_PRIO_NOTSET]      = 300, /* DVR_PRIO_NORMAL */
 };
 
 /**
@@ -137,9 +138,6 @@ dvr_rec_subscribe(dvr_entry_t *de)
   access_destroy(aa);
 
   pro = de->de_config->dvr_profile;
-
-  if (pro->pro_prefersd)
-      convert_channel_to_sd(de->de_channel, &de->de_channel);
 
   prch = malloc(sizeof(*prch));
   profile_chain_init(prch, pro, de->de_channel);
@@ -271,7 +269,7 @@ cleanup_filename(dvr_config_t *cfg, char *s, int dosubs)
     else if (cfg->dvr_whitespace_in_title &&
              (*s == ' ' || *s == '\t') &&
              dosubs)
-      *s = '-';	
+      *s = '-';
 
     else if (cfg->dvr_clean_title &&
              ((*s < 32) || (*s > 122) ||
@@ -382,6 +380,189 @@ dvr_sub_episode(const char *id, const char *fmt, const void *aux, char *tmp, siz
                             buf, sizeof(buf),
                             NULL, "S%02d", NULL, "E%02d", NULL);
   return dvr_do_prefix(id, fmt, buf, tmp, tmplen);
+}
+
+static const char *
+_dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen, int with_genre_subdir)
+{
+  char date_buf[512] = { 0 };
+  char episode_buf[512] = { 0 };
+  const dvr_entry_t *de = aux;
+  /* Can't be const due to call to epg_episode_number_format */
+  /*const*/ epg_episode_t *episode = de->de_bcast ? de->de_bcast->episode : 0;
+
+  *tmp = 0;
+  const char *title    = lang_str_get(de->de_title, NULL);
+  const char *subtitle = lang_str_get(de->de_subtitle, NULL);
+  const char *desc     = lang_str_get(de->de_desc, NULL);
+
+  if (subtitle && desc && strcmp(subtitle, desc) == 0) {
+    /* Subtitle and description are identical so assume they are from
+     * bad OTA EIT.  Some OTA EIT often has a (long) summary which is
+     * put in to both subtitle and description. So we really don't
+     * want this to be used as the subtitle field.
+     */
+    subtitle = NULL;
+  }
+
+  char title_buf[512] = { 0 };
+  char subtitle_buf[512] = { 0 };
+  /* Copy a cleaned version in to our buffers.
+   * Since dvr_clean_directory_separator _can_ modify source if source!=dest
+   * it means we have to remove our const when we call it.
+   */
+  if (title)
+    dvr_clean_directory_separator((char*)title,    title_buf,    sizeof title_buf);
+  if (subtitle)
+    dvr_clean_directory_separator((char*)subtitle, subtitle_buf, sizeof subtitle_buf);
+
+  int is_movie = 0;
+  /* Override options on the format tag. This is useful because my OTA
+   * for the film channel doesn't have a genre.
+   */
+  if (fmt && *fmt == '1')            /* Force to be a movie */
+    is_movie = 1;
+  else if (fmt && *fmt == '2')       /* Force to be a series (not a movie) */
+    is_movie = 0;
+  else {
+    if (de->de_bcast && de->de_bcast->category) {
+      /* We've parsed categories from xmltv. So check if it has the movie category. */
+      is_movie =
+        string_list_contains_string(de->de_bcast->category, "Movie") ||
+        string_list_contains_string(de->de_bcast->category, "movie") ||
+        string_list_contains_string(de->de_bcast->category, "Film") ||
+        string_list_contains_string(de->de_bcast->category, "film");
+    } else {
+      /* No xmltv categories parsed. So have to use less-accurate genre instead. */
+
+      /* Magic number from epg.c / EN 300 468 for movie/drama category from OTA */
+      is_movie = (de->de_content_type == 1);
+      if (is_movie) {
+        /* If here, it is a movie or a drama (not sports, etc).  But
+         * OTA doesn't differentiate movie and episode, so if it has a
+         * series/episode number then assume must be an episode,
+         * otherwise we default to movie.
+         */
+        if (episode && (episode->epnum.s_num || episode->epnum.e_num))
+            is_movie = 0;
+      }
+    }
+  }
+
+  tvhdebug(LS_DVR, "fmt = %s is_movie = %d content_type = %d", fmt ?: "<none>", is_movie, de->de_content_type);
+
+  if (is_movie) {
+    /* Include the year if available. This helps scraper differentiate
+     * between numerous remakes of the same film.
+     */
+    if (episode) {
+      if (episode->copyright_year) {
+        sprintf(date_buf, "%04d", episode->copyright_year);
+      } else {
+        /* Some providers use first_aired as really the copyright date. */
+        const time_t first_aired = episode->first_aired;
+        if (first_aired) {
+          /* Get just the year part */
+          struct tm tm;
+          if (localtime_r(&first_aired, &tm)) {
+            sprintf(date_buf, "%04d", tm.tm_year + 1900);
+          }
+        }
+      }
+    }
+  } else {
+    /* Not a movie */
+    if (episode) {
+      /* Get episode information */
+      epg_episode_number_format(episode,
+                                episode_buf, sizeof(episode_buf),
+                                NULL, "S%02d", NULL, "E%02d", NULL);
+
+      const time_t first_aired = episode->first_aired;
+      if (first_aired) {
+        /* Get as yyyy-mm-dd since programme could be one episode a day/week,
+         * unlike films which only needs the year.
+         */
+        struct tm tm;
+        if (localtime_r(&first_aired, &tm)) {
+          strftime(date_buf, sizeof date_buf, "%F", &tm);
+        }
+      }
+    }
+  }
+
+  /* Now we have all our data in place so combine it.
+   * This is based on examples in:
+   * http://kodi.wiki/view/Naming_video_files/Movies
+   * http://kodi.wiki/view/TV_Shows_(Video_Library)
+   */
+
+  size_t offset = 0;
+  const dvr_config_t *config = de->de_config;
+
+  if (is_movie) {
+    /* TV movies are probably best saved in one folder rather than
+     * multiple folders since video players such as Kodi can download
+     * artwork and information for them anyway and it makes deleting
+     * and moving them easier since they get tracked by inotify on
+     * just the one directory.
+     *
+     * Example format below:
+     *   "tvmovies/title (yyyy)"            (with genre_subdir)
+     *   "title (yyyy)"                     (without genre_subdir)
+     *   "title"                            (without genre_subdir, no airdate)
+     */
+    if (with_genre_subdir) {
+      const char *subdir = config && config->dvr_format_tvmovies_subdir && *config->dvr_format_tvmovies_subdir ?
+        config->dvr_format_tvmovies_subdir : "tvmovies";
+      tvh_strlcatf(tmp, tmplen, offset, "%s/", subdir);
+    }
+
+    if (*title_buf)          tvh_strlcatf(tmp, tmplen, offset, "%s", title_buf);
+    /* Movies don't have anything relevant in sub-titles field so
+     * anything there should be ignored. I think some channels store a
+     * translated movie name there (title=original movie name,
+     * subtitle=local language name for movie), but only use title
+     * since scrapers only handle one title.
+     */
+    // if (*subtitle_buf) tvh_strlcatf(tmp, tmplen, offset, " - %s", subtitle_buf);
+    if (*date_buf)  tvh_strlcatf(tmp, tmplen, offset, " (%s)", date_buf);
+  } else {
+    /* TV shows have to go in separate directories based on their title in
+     * order to be scraped properly.
+     * We put the episode number before the subtitle to make it easier
+     * to see if we are missing episodes when you do ls.
+     *
+     * Example formats below:
+     *   "tvshows/title/title - S01E02 - subtitle" (with genre_subdir)
+     *   "title - S01E02 - subtitle"               (without genre_subdir)
+     *   "title - subtitle_2001-05-04"             (without genre_subdir, long running show)
+     *   "title - subtitle"                        (without genre_subdir, no epg info on show)
+     */
+    if (with_genre_subdir) {
+      const char *subdir = config && config->dvr_format_tvshows_subdir && *config->dvr_format_tvshows_subdir ?
+                config->dvr_format_tvshows_subdir : "tvshows";
+      tvh_strlcatf(tmp, tmplen, offset, "%s/", subdir);
+    }
+    if (*title_buf)        tvh_strlcatf(tmp, tmplen, offset, "%s/%s", title_buf, title_buf);
+    if (*episode_buf)      tvh_strlcatf(tmp, tmplen, offset, " - %s", episode_buf);
+    if (*subtitle_buf)     tvh_strlcatf(tmp, tmplen, offset, " - %s", subtitle_buf);
+    /* Only include date if we don't have an explicit episode number. */
+    if (!*episode_buf && *date_buf) tvh_strlcatf(tmp, tmplen, offset, "_%s", date_buf);
+  }
+  return tmp;
+}
+
+static const char *
+dvr_sub_scraper_friendly_with_genre_subdir(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen)
+{
+  return _dvr_sub_scraper_friendly(id, fmt, aux, tmp, tmplen, 1);
+}
+
+static const char *
+dvr_sub_scraper_friendly_without_genre_subdir(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen)
+{
+  return _dvr_sub_scraper_friendly(id, fmt, aux, tmp, tmplen, 0);
 }
 
 static const char *
@@ -498,6 +679,12 @@ static htsstr_substitute_t dvr_subs_entry[] = {
   { .id = ".g",  .getval = dvr_sub_genre },
   { .id = ",g",  .getval = dvr_sub_genre },
   { .id = ";g",  .getval = dvr_sub_genre },
+  { .id = "q",   .getval = dvr_sub_scraper_friendly_with_genre_subdir },
+  { .id = "1q",  .getval = dvr_sub_scraper_friendly_with_genre_subdir },
+  { .id = "2q",  .getval = dvr_sub_scraper_friendly_with_genre_subdir },
+  { .id = "Q",   .getval = dvr_sub_scraper_friendly_without_genre_subdir },
+  { .id = "1Q",  .getval = dvr_sub_scraper_friendly_without_genre_subdir },
+  { .id = "2Q",  .getval = dvr_sub_scraper_friendly_without_genre_subdir },
   { .id = NULL,  .getval = NULL }
 };
 
@@ -719,7 +906,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
     return -1;
 
   cfg = de->de_config;
-  if (cfg->dvr_storage == NULL || *(cfg->dvr_storage) == '\0')
+  if (tvh_str_default(cfg->dvr_storage, NULL) == NULL)
     return -1;
 
   dir_dosubs = de->de_directory == NULL ||
@@ -787,7 +974,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
   filename[j = 0] = '\0';
   while (1) {
     dirsep = dvr_find_next_path_component(x);
-    if (dirsep == NULL || *dirsep == '\0')
+    if (tvh_str_default(dirsep, NULL) == NULL)
       break;
     *(dirsep - 1) = '\0';
     if (*x) {
@@ -1019,7 +1206,7 @@ dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
 	 "adapter: \"%s\", "
 	 "network: \"%s\", mux: \"%s\", provider: \"%s\", "
 	 "service: \"%s\"",
-		
+
 	 dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL),
 	 si->si_adapter  ?: "<N/A>",
 	 si->si_network  ?: "<N/A>",
@@ -1053,7 +1240,7 @@ dvr_rec_start(dvr_entry_t *de, const streaming_start_t *ss)
       htsmsg_add_u32(e, "audio_type", ssc->ssc_audio_type);
       if(ssc->ssc_audio_version)
         htsmsg_add_u32(e, "audio_version", ssc->ssc_audio_version);
-      if(ssc->ssc_sri)
+      if(ssc->ssc_sri < 16)
 	snprintf(sr, sizeof(sr), "%d", sri_to_rate(ssc->ssc_sri));
       else
 	strcpy(sr, "?");
@@ -1215,8 +1402,9 @@ dvr_thread_rec_start(dvr_entry_t **_de, streaming_start_t *ss,
   profile_chain_t *prch = de->de_chain;
   int ret = 0;
 
-  if (*started &&
-      muxer_reconfigure(prch->prch_muxer, ss) < 0) {
+  if (*started) {
+    if (muxer_reconfigure(prch->prch_muxer, ss) >= 0)
+      return 1;
     tvhwarn(LS_DVR, "Unable to reconfigure \"%s\"",
             dvr_get_filename(de) ?: lang_str_get(de->de_title, NULL));
 
@@ -1486,6 +1674,7 @@ dvr_thread(void *aux)
     case SMT_STOP:
        if (sm->sm_code == SM_CODE_SOURCE_RECONFIGURED) {
 	 // Subscription is restarting, wait for SMT_START
+	 muxing = 0; // reconfigure muxer
 
        } else if(sm->sm_code == 0) {
 	 // Recording is completed
@@ -1522,7 +1711,7 @@ fin:
 
     case SMT_SERVICE_STATUS:
       if (sm->sm_code & TSS_PACKETS) {
-	
+
       } else if (sm->sm_code & TSS_ERRORS) {
 
 	int code = SM_CODE_UNDEFINED_ERROR;
@@ -1621,7 +1810,7 @@ dvr_spawn_cmd(dvr_entry_t *de, const char *cmd, const char *filename, int pre)
   args = htsstr_argsplit(buf1);
   if(args[0])
     spawnv(args[0], (void *)args, NULL, 1, 1);
-    
+
   htsstr_argsplit_free(args);
 }
 

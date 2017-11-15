@@ -241,6 +241,14 @@ http_client_direction ( http_client_t *hc, int sending )
  * Main I/O routines
  */
 
+static inline void
+http_client_rbuf_cut( http_client_t *hc, size_t cut )
+{
+  size_t len = hc->hc_rpos - cut;
+  memmove(hc->hc_rbuf, hc->hc_rbuf + cut, len);
+  hc->hc_rpos = len;
+}
+
 static void
 http_client_cmd_destroy( http_client_t *hc, http_client_wcmd_t *cmd )
 {
@@ -619,7 +627,7 @@ error:
   }
   htsbuf_append_str(&q, s);
   htsbuf_append(&q, " ", 1);
-  if (path == NULL || path[0] == '\0')
+  if (tvh_str_default(path, NULL) == NULL)
     path = "/";
   htsbuf_append_str(&q, path);
   if (query && query[0] != '\0') {
@@ -1018,9 +1026,12 @@ retry:
   }
 
   if (hc->hc_rsize < r + hc->hc_rpos) {
-    if (hc->hc_rsize + r > hc->hc_io_size + 20*1024)
+    if (hc->hc_rpos + r > hc->hc_io_size + 20*1024) {
+      tvhtrace(LS_HTTPC, "%04X: overflow, buf %zd pos %zd read %zd io %zd",
+               shortid(hc), hc->hc_rsize, hc->hc_rpos, r, hc->hc_io_size);
       return http_client_flush(hc, -EMSGSIZE);
-    hc->hc_rsize += r;
+    }
+    hc->hc_rsize += hc->hc_rpos + r + 4*1024;
     hc->hc_rbuf = realloc(hc->hc_rbuf, hc->hc_rsize + 1);
   }
   memcpy(hc->hc_rbuf + hc->hc_rpos, buf, r);
@@ -1100,23 +1111,21 @@ header:
     if (res < 0)
       return http_client_flush(hc, res);
   }
-  len = hc->hc_rpos - hc->hc_hsize;
-  hc->hc_rpos = 0;
   if (hc->hc_code == HTTP_STATUS_CONTINUE) {
-    memmove(hc->hc_rbuf, hc->hc_rbuf + hc->hc_hsize, len);
-    hc->hc_rpos = len;
+    http_client_rbuf_cut(hc, hc->hc_hsize);
     goto next_header;
   }
   if (hc->hc_version == RTSP_VERSION_1_0 &&
      (hc->hc_csize == -1 || !hc->hc_csize)) {
     hc->hc_csize = -1;
     hc->hc_in_data = 0;
-    memmove(hc->hc_rbuf, hc->hc_rbuf + hc->hc_hsize, len);
-    hc->hc_rpos = len;
+    http_client_rbuf_cut(hc, hc->hc_hsize);
     return http_client_finish(hc);
   } else {
     hc->hc_in_data = 1;
   }
+  len = hc->hc_rpos - hc->hc_hsize;
+  hc->hc_rpos = 0;
   res = http_client_data_received(hc, hc->hc_rbuf + hc->hc_hsize, len, 1);
   if (res < 0)
     return http_client_flush(hc, res);
@@ -1127,15 +1136,15 @@ header:
 rtsp_data:
   /* RTSP embedded data */
   r = 0;
-  res = HTTP_CON_RECEIVING;
   hc->hc_in_data = 0;
   hc->hc_in_rtp_data = 0;
   while (hc->hc_rpos > r + 3) {
+    if (hc->hc_rbuf[r] != '$')
+      break;
     hc->hc_csize = 4 + ((hc->hc_rbuf[r+2] << 8) | hc->hc_rbuf[r+3]);
     hc->hc_chunked = 0;
     if (r + hc->hc_csize > hc->hc_rpos) {
-      memmove(hc->hc_rbuf, hc->hc_rbuf + r, hc->hc_rpos - r);
-      hc->hc_rpos -= r;
+      http_client_rbuf_cut(hc, r);
       hc->hc_in_rtp_data = 1;
       if (r == 0)
         goto retry;
@@ -1149,8 +1158,6 @@ rtsp_data:
       http_client_put(hc);
       if (res < 0)
         return res;
-    } else {
-      res = 0;
     }
     r += hc->hc_csize;
     hc->hc_in_rtp_data = 1;
@@ -1159,14 +1166,12 @@ rtsp_data:
     hc->hc_in_rtp_data = 0;
     if (res < 0)
       return http_client_flush(hc, res);
-    res = HTTP_CON_RECEIVING;
-    if (hc->hc_rpos < r + 4 || hc->hc_rbuf[r] != '$') {
-      memmove(hc->hc_rbuf, hc->hc_rbuf + r, hc->hc_rpos - r);
-      hc->hc_rpos -= r;
-      goto next_header;
-    }
   }
-  return res;
+  if (r > 0) {
+    http_client_rbuf_cut(hc, r);
+    goto next_header;
+  }
+  return HTTP_CON_RECEIVING;
 }
 
 int
@@ -1284,8 +1289,8 @@ http_client_simple_reconnect ( http_client_t *hc, const url_t *u,
 
   lock_assert(&hc->hc_mutex);
 
-  if (u->scheme == NULL || u->scheme[0] == '\0' ||
-      u->host == NULL || u->host[0] == '\0' ||
+  if (tvh_str_default(u->scheme, NULL) == NULL ||
+      tvh_str_default(u->host, NULL) == NULL ||
       u->port < 0) {
     tvherror(LS_HTTPC, "Invalid url '%s'", u->raw);
     return -EINVAL;
@@ -2019,7 +2024,7 @@ http_client_testsuite_run( void )
     } else if (strncmp(s, "Command=", 8) == 0) {
       if (strcmp(s + 8, "EXIT") == 0)
         break;
-      if (u1.host == NULL || u1.host[0] == '\0') {
+      if (tvh_str_default(u1.host, NULL) == NULL) {
         fprintf(stderr, "HTTPCTS: Define URL\n");
         goto fatal;
       }

@@ -193,7 +193,7 @@ const idclass_t mpegts_service_class =
       .id       = "dvb_ignore_eit",
       .name     = N_("Ignore EPG (EIT)"),
       .desc     = N_("Enable or disable ignoring of Event Information "
-                     "Table (EIT) data on this mux."),
+                     "Table (EIT) data for this service."),
       .off      = offsetof(mpegts_service_t, s_dvb_ignore_eit),
       .opts     = PO_EXPERT,
     },
@@ -284,8 +284,12 @@ mpegts_service_is_enabled(service_t *t, int flags)
 static htsmsg_t *
 mpegts_service_config_save ( service_t *t, char *filename, size_t fsize )
 {
-  mpegts_service_t *s = (mpegts_service_t*)t;
-  idnode_changed(&s->s_dvb_mux->mm_id);
+  if (filename == NULL) {
+    htsmsg_t *e = htsmsg_create_map();
+    service_save(t, e);
+    return e;
+  }
+  idnode_changed(&((mpegts_service_t *)t)->s_dvb_mux->mm_id);
   return NULL;
 }
 
@@ -458,7 +462,6 @@ mpegts_service_setsourceinfo(service_t *t, source_info_t *si)
 
   /* Validate */
   assert(s->s_source_type == S_MPEG_TS);
-  lock_assert(&global_lock);
 
   /* Update */
   memset(si, 0, sizeof(struct source_info));

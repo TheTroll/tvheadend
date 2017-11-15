@@ -309,18 +309,20 @@ static char *
 idnode_get_display
   ( idnode_t *self, const property_t *p, const char *lang )
 {
+  char *r = NULL;
   if (p) {
     if (p->rend)
-      return p->rend(self, lang);
+      r = p->rend(self, lang);
     else if (p->islist) {
       htsmsg_t *l = (htsmsg_t*)p->get(self);
-      if (l)
-        return htsmsg_list_2_csv(l, ',', 1);
+      if (l) {
+        r = htsmsg_list_2_csv(l, ',', 1);
+        htsmsg_destroy(l);
+      }
     } else if (p->list) {
       htsmsg_t *l = p->list(self, lang), *m;
       htsmsg_field_t *f;
       uint32_t k, v;
-      char *r = NULL;
       const char *s;
       if (l && !idnode_get_u32(self, p->id, &v))
         HTSMSG_FOREACH(f, l) {
@@ -333,10 +335,9 @@ idnode_get_display
           }
         }
       htsmsg_destroy(l);
-      return r;
     }
   }
-  return NULL;
+  return r;
 }
 
 /*
@@ -1121,7 +1122,7 @@ idnode_changedfn ( idnode_t *self )
   }
 }
 
-static htsmsg_t *
+htsmsg_t *
 idnode_savefn ( idnode_t *self, char *filename, size_t fsize )
 {
   const idclass_t *idc = self->in_class;
@@ -1131,6 +1132,20 @@ idnode_savefn ( idnode_t *self, char *filename, size_t fsize )
     idc = idc->ic_super;
   }
   return NULL;
+}
+
+void
+idnode_loadfn ( idnode_t *self, htsmsg_t *conf )
+{
+  const idclass_t *idc = self->in_class;
+  while (idc) {
+    if (idc->ic_load) {
+      idc->ic_load(self, conf);
+      return;
+    }
+    idc = idc->ic_super;
+  }
+  idnode_load(self, conf);
 }
 
 static void
@@ -1583,7 +1598,7 @@ idnode_slist_rend ( idnode_t *in, idnode_slist_t *options, const char *lang )
      tvh_strlcatf(prop_sbuf, PROP_SBUF_LEN, l, "%s%s", prop_sbuf[0] ? "," : "",
                    tvh_gettext_lang(lang, options->name));
   }
-  return prop_sbuf_ptr;
+  return strdup(prop_sbuf);
 }
 
 /* **************************************************************************
