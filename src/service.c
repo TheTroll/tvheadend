@@ -791,9 +791,9 @@ service_find_instance
         }
       }
     }
-    /* find a valid instance */
+    /* find a valid instance, no error and idle */
     TAILQ_FOREACH(si, sil, si_link)
-      if (!si->si_error) break;
+      if (si->si_weight == 0 && si->si_error == 0) break;
     if (si == NULL) {
       LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
         s = (service_t *)ilm->ilm_in1;
