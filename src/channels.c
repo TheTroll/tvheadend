@@ -562,7 +562,7 @@ const idclass_t channel_class = {
 // Note: since channel names are no longer unique this method will simply
 //       return the first entry encountered, so could be somewhat random
 channel_t *
-channel_find_by_name ( const char *name )
+channel_find_by_name_and_bouquet ( const char *name, const struct bouquet *bq )
 {
   channel_t *ch;
   const char *s;
@@ -573,13 +573,19 @@ channel_find_by_name ( const char *name )
     if (!ch->ch_enabled) continue;
     s = channel_get_name(ch, NULL);
     if (s == NULL) continue;
+    if (bq && ch->ch_bouquet != bq) continue;
     if (strcmp(s, name) == 0) break;
   }
   return ch;
 }
 
+channel_t *
+channel_find_by_name(const char *name)
+{
+  return channel_find_by_name_and_bouquet(name, NULL);
+}
 
-/// Copy name without space and HD suffix, lowercase in to a new
+/// Copy name without space and (U)HD suffix, lowercase in to a new
 /// buffer
 static char *
 channel_make_fuzzy_name(const char *name)
@@ -594,6 +600,9 @@ channel_make_fuzzy_name(const char *name)
     /* Strip trailing 'HD'. */
     if (*ch == 'H' && *(ch+1) == 'D' && *(ch+2) == 0)
       break;
+    /* Strip trailing 'UHD'. */
+    if (*ch == 'U' && *(ch+1) == 'H' && *(ch+2) == 'D' && *(ch+3) == 0)
+      break;
 
     if (!isspace(*ch)) {
       *ch_fuzzy++ = tolower(*ch);
@@ -605,7 +614,7 @@ channel_make_fuzzy_name(const char *name)
 }
 
 channel_t *
-channel_find_by_name_fuzzy ( const char *name )
+channel_find_by_name_bouquet_fuzzy ( const char *name, const struct bouquet *bq )
 {
   channel_t *ch;
   const char *s;
@@ -617,6 +626,7 @@ channel_find_by_name_fuzzy ( const char *name )
 
   CHANNEL_FOREACH(ch) {
     if (!ch->ch_enabled) continue;
+    if (bq && ch->ch_bouquet != bq) continue;
     s = channel_get_name(ch, NULL);
     if (s == NULL) continue;
     /* We need case insensitive since historical constraints means we
@@ -771,6 +781,30 @@ channel_set_name ( channel_t *ch, const char *name )
     save = 1;
   }
   return save;
+}
+
+int
+channel_rename_and_save ( const char *from, const char *to )
+{
+  channel_t *ch;
+  const char *s;
+  int num_match = 0;
+
+  if (!from || !to || !*from || !*to)
+    return 0;
+
+  CHANNEL_FOREACH(ch) {
+    if (!ch->ch_enabled) continue;
+    s = channel_get_name(ch, NULL);
+    if (s == NULL) continue;
+    if (strcmp(s, from) == 0) {
+      ++num_match;
+      if (channel_set_name(ch, to)) {
+        idnode_changed(&ch->ch_id);
+      }
+    }
+  }
+  return num_match;
 }
 
 int64_t
@@ -1628,7 +1662,6 @@ channel_tag_find_by_name(const char *name, int create)
   idnode_changed(&ct->ct_id);
   return ct;
 }
-
 
 /**
  *

@@ -205,6 +205,9 @@ ts_recv_packet0
 
   }
 
+  if (!t->s_scrambled_pass && st->es_type == SCT_CA)
+    return;
+
 skip_cc:
   if(streaming_pad_probe_type(&t->s_streaming_pad, SMT_MPEGTS))
     ts_remux(t, tsb, len, errors);
@@ -325,8 +328,7 @@ ts_recv_packet1
     service_set_streaming_status_flags((service_t*)t, TSS_INPUT_SERVICE);
 
   scrambled = t->s_scrambled_seen;
-  if(!t->s_scrambled_pass &&
-     ((tsb[3] & 0xc0) || (scrambled && st && st->es_type != SCT_CA))) {
+  if(!t->s_scrambled_pass && ((tsb[3] & 0xc0) || scrambled)) {
 
     /**
      * Lock for descrambling, but only if packet was not in error

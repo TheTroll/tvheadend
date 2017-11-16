@@ -631,6 +631,30 @@ mpegts_input_close_pid
   return 0;
 }
 
+int
+mpegts_input_open_service_pid
+  ( mpegts_input_t *mi, mpegts_mux_t *mm,
+    service_t *s, streaming_component_type_t stype,
+    int pid, int weight, int create )
+{
+  elementary_stream_t *es;
+
+  lock_assert(&s->s_stream_mutex);
+
+  es = NULL;
+  if (service_stream_find((service_t *)s, pid) == NULL) {
+    if (!create)
+      return -1;
+    es = service_stream_create(s, pid, stype);
+    es->es_pid_opened = 1;
+  }
+  if (es && mm->mm_active) {
+    mpegts_input_open_pid(mi, mm, pid,
+                          MPS_SERVICE, weight, s, 0);
+  }
+  return 0;
+}
+
 static void
 mpegts_input_update_pids
   ( mpegts_input_t *mi, mpegts_mux_t *mm )
@@ -661,7 +685,6 @@ mpegts_input_cat_pass_callback
   mpegts_mux_t             *mm  = mt->mt_mux;
   mpegts_psi_table_state_t *st  = NULL;
   service_t                *s   = mt->mt_opaque;
-  elementary_stream_t      *es;
   mpegts_input_t           *mi;
 
   /* Start */
@@ -686,18 +709,12 @@ mpegts_input_cat_pass_callback
           pid  = ((ptr[2] & 0x1f) << 8) | ptr[3];
           tvhdebug(LS_TBL_BASE, "cat:  pass: caid %04X (%d) pid %04X (%d)",
                    (uint16_t)caid, (uint16_t)caid, pid, pid);
-          pthread_mutex_lock(&s->s_stream_mutex);
-          es = NULL;
-          if (service_stream_find((service_t *)s, pid) == NULL) {
-            es = service_stream_create(s, pid, SCT_CA);
-            es->es_pid_opened = 1;
-          }
-          pthread_mutex_unlock(&s->s_stream_mutex);
-          if (es && mm->mm_active && (mi = mm->mm_active->mmi_input) != NULL) {
+          mi = mm->mm_active ? mm->mm_active->mmi_input : NULL;
+          if (mi) {
             pthread_mutex_lock(&mi->mi_output_lock);
-            if ((mi = mm->mm_active->mmi_input) != NULL)
-              mpegts_input_open_pid(mi, mm, pid,
-                                    MPS_SERVICE, MPS_WEIGHT_CAT, s, 0);
+            pthread_mutex_lock(&s->s_stream_mutex);
+            mpegts_input_open_service_pid(mi, mm, s, SCT_CA, pid, MPS_WEIGHT_CAT, 1);
+            pthread_mutex_unlock(&s->s_stream_mutex);
             pthread_mutex_unlock(&mi->mi_output_lock);
           }
         }

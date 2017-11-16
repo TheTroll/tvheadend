@@ -394,16 +394,12 @@ descrambler_service_start ( service_t *t )
       tvhtrace(LS_DESCRAMBLER, "using multipid for \"%s\"", t->s_nicename);
     dr->dr_skip = 0;
     dr->dr_force_skip = 0;
+    if (t->s_dvb_forcecaid == 0xffff)
+      dr->dr_descramble = descrambler_pass;
   }
 
   if (t->s_dvb_forcecaid != 0xffff)
     caclient_start(t);
-
-  if (t->s_dvb_forcecaid == 0xffff) {
-    pthread_mutex_lock(&t->s_stream_mutex);
-    descrambler_external(t, 1);
-    pthread_mutex_unlock(&t->s_stream_mutex);
-  }
 }
 
 void
@@ -528,22 +524,6 @@ descrambler_resolved( service_t *t, th_descrambler_t *ignore )
     if (td != ignore && td->td_keystate == DS_RESOLVED)
       return 1;
   return 0;
-}
-
-void
-descrambler_external ( service_t *t, int state )
-{
-  th_descrambler_runtime_t *dr;
-
-  if (t == NULL)
-    return;
-
-  lock_assert(&t->s_stream_mutex);
-
-  if ((dr = t->s_descramble) == NULL)
-    return;
-  dr->dr_external = state ? 1 : 0;
-  service_reset_streaming_status_flags(t, TSS_NO_DESCRAMBLER);
 }
 
 int
@@ -983,6 +963,17 @@ ecm_reset( service_t *t, th_descrambler_runtime_t *dr )
 }
 
 int
+descrambler_pass ( service_t *t,
+                   elementary_stream_t *st,
+                   const uint8_t *tsb,
+                   int len )
+{
+  if ((tsb[3] & 0x80) == 0)
+    ts_recv_packet0((mpegts_service_t *)t, st, tsb, len);
+  return 1;
+}
+
+int
 descrambler_descramble ( service_t *t,
                          elementary_stream_t *st,
                          const uint8_t *tsb,
@@ -991,7 +982,7 @@ descrambler_descramble ( service_t *t,
   th_descrambler_runtime_t *dr = t->s_descramble;
   th_descrambler_key_t *tk;
   th_descrambler_data_t *dd, *dd_next;
-  int len2, len3, r, flush_data = 0;
+  int len2, len3, r, flush_data;
   uint32_t dbuflen;
   const uint8_t *tsb2;
   int64_t now;
@@ -1009,13 +1000,7 @@ descrambler_descramble ( service_t *t,
   }
 
   if (dr->dr_descramble)
-    return dr->dr_descramble(dr->dr_descrambler, tsb, len);
-
-  if (dr->dr_external) {
-    if ((tsb[3] & 0x80) == 0)
-      ts_recv_packet0((mpegts_service_t *)t, st, tsb, len);
-    return 1;
-  }
+    return dr->dr_descramble(t, st, tsb, len);
 
   if (!dr->dr_key_multipid) {
     tk = &dr->dr_keys[0];
@@ -1028,6 +1013,7 @@ descrambler_descramble ( service_t *t,
       return 1;
     }
 
+  flush_data = 0;
   if (dr->dr_ca_resolved > 0) {
 
     /* process the queued TS packets or key updates */

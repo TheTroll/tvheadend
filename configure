@@ -75,6 +75,7 @@ OPTIONS=(
   "slow_memoryinfo:no"
   "libsystemd_daemon:no"
   "bintray_cache:yes"
+  "ddci:no"
 )
 
 #
@@ -274,6 +275,12 @@ int test(void)
   return 0;
 }
 ' -liconv
+
+if enabled libiconv; then
+  printf "    ^ using external iconv library\n"
+else
+  printf "    ^ using build-in glibc iconv routines\n"
+fi
 
 if enabled_or_auto dvben50221; then
   check_cc_snippet libdvben50221 '
@@ -645,6 +652,13 @@ if enabled linuxdvb; then
   fi
 fi
 
+# DD CI support
+if enabled ddci; then
+  if disabled linuxdvb_ca; then
+    die "DD CI requires linuxdvb_ca (linuxdvb libdvben50221) (use --disable-ddci)"
+  fi
+fi
+
 #
 # Icon caching
 #
@@ -724,7 +738,7 @@ fi
 # systemd
 #
 if enabled_or_auto libsystemd_daemon; then
-  if check_pkg libsystemd-daemon; then
+  if check_pkg libsystemd-daemon || check_pkg libsystemd; then
     enable libsystemd_daemon
   elif enabled libsystemd_daemon; then
     die "libsystemd-daemon development support not found (use --disable-systemd_daemon)"
