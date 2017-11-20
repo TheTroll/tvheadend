@@ -626,6 +626,7 @@ struct mpegts_service
    * PMT/CAT monitoring
    */
 
+  uint8_t s_cat_opened;
   mpegts_table_t *s_pmt_mon; ///< Table entry for monitoring PMT
   mpegts_table_t *s_cat_mon; ///< Table entry for monitoring CAT
 
@@ -1007,9 +1008,11 @@ int mpegts_input_close_pid
 void mpegts_input_close_pids
   ( mpegts_input_t *mi, mpegts_mux_t *mm, void *owner, int all );
 
-int mpegts_input_open_service_pid
+elementary_stream_t *mpegts_input_open_service_pid
   ( mpegts_input_t *mi, mpegts_mux_t *mm, service_t *s,
     streaming_component_type_t stype, int pid, int weight, int create );
+
+void mpegts_input_open_cat_monitor ( mpegts_mux_t *mm, mpegts_service_t *s );
 
 #if ENABLE_TSDEBUG
 

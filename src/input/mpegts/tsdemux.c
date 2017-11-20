@@ -192,7 +192,7 @@ ts_recv_packet0
     if (!streaming_pad_probe_type(&t->s_streaming_pad, SMT_PACKET))
       continue;
 
-    if (st->es_type == SCT_CA)
+    if (st->es_type == SCT_CA || st->es_type == SCT_CAT)
       continue;
 
     if (st->es_type == SCT_HBBTV) {
@@ -205,7 +205,7 @@ ts_recv_packet0
 
   }
 
-  if (!t->s_scrambled_pass && st->es_type == SCT_CA)
+  if (!t->s_scrambled_pass && (st->es_type == SCT_CA || st->es_type == SCT_CAT))
     return;
 
 skip_cc:
@@ -328,7 +328,7 @@ ts_recv_packet1
     service_set_streaming_status_flags((service_t*)t, TSS_INPUT_SERVICE);
 
   scrambled = t->s_scrambled_seen;
-  if(!t->s_scrambled_pass && ((tsb[3] & 0xc0) || (scrambled && st && st->es_type != SCT_CA))) {
+  if(!t->s_scrambled_pass && ((tsb[3] & 0xc0) || (st && scrambled))) {
 
     /**
      * Lock for descrambling, but only if packet was not in error

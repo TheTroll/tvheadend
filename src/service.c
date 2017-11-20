@@ -2080,12 +2080,12 @@ void service_save ( service_t *t, htsmsg_t *m )
       caid_t *c;
       htsmsg_t *v = htsmsg_create_list();
       LIST_FOREACH(c, &st->es_caids, link) {
-	      htsmsg_t *caid = htsmsg_create_map();
+        htsmsg_t *caid = htsmsg_create_map();
 
-	      htsmsg_add_u32(caid, "caid", c->caid);
-	      if(c->providerid)
-	        htsmsg_add_u32(caid, "providerid", c->providerid);
-	      htsmsg_add_msg(v, NULL, caid);
+        htsmsg_add_u32(caid, "caid", c->caid);
+        if(c->providerid)
+          htsmsg_add_u32(caid, "providerid", c->providerid);
+        htsmsg_add_msg(v, NULL, caid);
       }
 
       htsmsg_add_msg(sub, "caidlist", v);
@@ -2183,6 +2183,7 @@ add_caid(elementary_stream_t *st, uint16_t caid, uint32_t providerid)
   c->pid = 0;
   c->use = 1;
   c->filter = 0;
+  c->delete_me = 0;
   LIST_INSERT_HEAD(&st->es_caids, c, link);
 }
 
@@ -2247,6 +2248,7 @@ void service_load ( service_t *t, htsmsg_t *c )
   elementary_stream_t *st;
   streaming_component_type_t type;
   const char *v;
+  int shared_pcr = 0;
 
   idnode_load(&t->s_id, c);
 
@@ -2285,6 +2287,9 @@ void service_load ( service_t *t, htsmsg_t *c )
 
       if(htsmsg_get_u32(c, "pid", &pid))
         continue;
+
+      if(pid > 0 && t->s_pcr_pid > 0 && pid == t->s_pcr_pid)
+        shared_pcr = 1;
 
       st = service_stream_create(t, pid, type);
 
@@ -2329,6 +2334,8 @@ void service_load ( service_t *t, htsmsg_t *c )
       }
     }
   }
+  if (!shared_pcr)
+    service_stream_create(t, t->s_pcr_pid, SCT_PCR);
   sort_elementary_streams(t);
   pthread_mutex_unlock(&t->s_stream_mutex);
 }
