@@ -869,15 +869,15 @@ service_find_instance
 
   /* Forced, handle priority settings */
   si = NULL;
-  TAILQ_FOREACH(next, sil, si_link)
+/*  TAILQ_FOREACH(next, sil, si_link)
     if (next->si_weight < 0 && next->si_error == 0)
       if (si == NULL || next->si_prio > si->si_prio)
-        si = next;
+        si = next;*/
 
   /* Idle */
   if (!si) {
     TAILQ_FOREACH_REVERSE(si, sil, service_instance_list, si_link)
-      if (si->si_weight == 0 && si->si_error == 0)
+      if (si->si_weight <= 0 && si->si_error == 0)
         break;
   }
 
@@ -1879,7 +1879,7 @@ si_cmp(const service_instance_t *a, const service_instance_t *b)
   r = a->si_prio - b->si_prio;
 
   if (!r)
-    r = a->si_weight - b->si_weight;
+    r = b->si_weight - a->si_weight;
   return r;
 }
 

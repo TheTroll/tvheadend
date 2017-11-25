@@ -342,14 +342,13 @@ mpegts_service_enlist_raw
     /* Set weight to -1 (forced) for already active mux */
     if (mmi->mmi_mux->mm_active == mmi) {
       w = -1;
-      p = -1;
     } else {
       w = mi->mi_get_weight(mi, mmi->mmi_mux, flags, weight);
-      p = mi->mi_get_priority(mi, mmi->mmi_mux, flags);
       if (w > 0 && mi->mi_free_weight &&
           weight >= mi->mi_free_weight && w < mi->mi_free_weight)
         w = 0;
     }
+    p = mi->mi_get_priority(mi, mmi->mmi_mux, flags);
 
     service_instance_add(sil, t, mi->mi_instance, mi->mi_name, p, w);
     added++;
