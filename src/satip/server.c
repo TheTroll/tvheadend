@@ -777,6 +777,19 @@ const idclass_t satip_server_class = {
       .group  = 2,
     },
     {
+      .type   = PT_BOOL,
+      .id     = "satip_nat_name_force",
+      .name   = N_("Force RTSP announcement of the external (NAT) ip:port"),
+      .desc   = N_("Advertise only NAT address and port in RTSP commands,"
+                   "even for local connections."),
+      .off    = offsetof(struct satip_server_conf, satip_nat_name_force),
+      .opts   = PO_EXPERT,
+      .group  = 2,
+    },
+
+
+
+    {
       .type   = PT_U32,
       .id     = "satip_iptv_sig_level",
       .name   = N_("IPTV signal level"),
@@ -857,6 +870,26 @@ const idclass_t satip_server_class = {
       .name   = N_("ATSC-C"),
       .desc   = N_("The number of ATSC-C (Cable/AnnexB) tuners to export."),
       .off    = offsetof(struct satip_server_conf, satip_atsc_c),
+      .group  = 4,
+    },
+    {
+      .type   = PT_INT,
+      .id     = "satip_max_sessions",
+      .name   = N_("Max Sessions"),
+      .desc   = N_("The maximum number of active RTSP sessions "
+                   "(if 0 no limit)."),
+      .off    = offsetof(struct satip_server_conf, satip_max_sessions),
+      .opts   = PO_ADVANCED,
+      .group  = 4,
+    },
+    {
+      .type   = PT_INT,
+      .id     = "satip_max_user_connections",
+      .name   = N_("Max User connections"),
+      .desc   = N_("The maximum concurrent RTSP connections from the "
+                   "same IP address (if 0 no limit)."),
+      .off    = offsetof(struct satip_server_conf, satip_max_user_connections),
+      .opts   = PO_ADVANCED,
       .group  = 4,
     },
     {

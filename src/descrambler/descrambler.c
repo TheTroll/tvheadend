@@ -542,6 +542,7 @@ static struct strtab keystatetab[] = {
   { "READY",      DS_READY },
   { "RESOLVED",   DS_RESOLVED },
   { "FORBIDDEN",  DS_FORBIDDEN },
+  { "FATAL",      DS_FATAL },
   { "IDLE",       DS_IDLE },
 };
 
@@ -556,7 +557,7 @@ descrambler_change_keystate( th_descrambler_t *td, th_descrambler_keystate_t key
 {
   service_t *t = td->td_service;
   th_descrambler_runtime_t *dr;
-  int count = 0, failed = 0, resolved = 0;
+  int count = 0, fatal = 0, failed = 0, resolved = 0;
 
   if (td->td_keystate == keystate)
     return;
@@ -576,6 +577,7 @@ descrambler_change_keystate( th_descrambler_t *td, th_descrambler_keystate_t key
   LIST_FOREACH(td, &t->s_descramblers, td_service_link) {
     count++;
     switch (td->td_keystate) {
+    case DS_FATAL:     fatal++;    break;
     case DS_FORBIDDEN: failed++;   break;
     case DS_RESOLVED : resolved++; break;
     default: break;
@@ -584,8 +586,9 @@ descrambler_change_keystate( th_descrambler_t *td, th_descrambler_keystate_t key
   dr->dr_ca_count = count;
   dr->dr_ca_resolved = resolved;
   dr->dr_ca_failed = failed;
-  tvhtrace(LS_DESCRAMBLER, "service \"%s\": %d descramblers (%d ok %d failed)",
-                           t->s_nicename, count, resolved, failed);
+  dr->dr_ca_fatal = fatal;
+  tvhtrace(LS_DESCRAMBLER, "service \"%s\": %d descramblers (%d ok %d failed %d fatal)",
+                           t->s_nicename, count, resolved, failed, fatal);
   if (lock)
     pthread_mutex_unlock(&t->s_stream_mutex);
 }
@@ -1092,14 +1095,20 @@ doit:
         service_reset_streaming_status_flags(t, TSS_NO_ACCESS);
 dd_destroy:
       descrambler_data_destroy(dr, dd, 0);
+      if (dr->dr_key_multipid) {
+        tk = key_find_struct(dr, tk, tsb, t);
+        if (tk == NULL) {
+          if ((tsb[3] & 0x80) == 0) {
+            ts_recv_packet0((mpegts_service_t *)t, st, tsb, len);
+            return 1;
+          }
+          goto next;
+        }
+      }
     }
 
     /* check for key change */
     ki = tsb[3];
-    if (dr->dr_key_multipid) {
-      tk = key_find_struct(dr, tk, tsb, t);
-      if (tk == NULL) goto next;
-    }
     if ((ki & 0x80) != 0x00) {
       if (key_valid(tk, ki) == 0) {
         if (!key_started(dr, ki) && tvhlog_limit(&dr->dr_loglimit_key, 10))
@@ -1186,8 +1195,12 @@ queue:
     descrambler_flush_table_data(t);
 end:
   debug2("%p: end, %s", dr, keystr(tsb));
-  if (dr->dr_ca_count > 0 && dr->dr_ca_count == dr->dr_ca_failed)
-    return -1;
+  if (dr->dr_ca_count > 0) {
+    if (dr->dr_ca_count == dr->dr_ca_fatal)
+      return 0;
+    if (dr->dr_ca_count == dr->dr_ca_failed)
+      return -1;
+  }
   return dr->dr_ca_count;
 }
 
@@ -1272,8 +1285,8 @@ descrambler_table_callback
                 }
               }
             }
-            tvhtrace(LS_DESCRAMBLER, "ECM message %02x (section %d, len %d, pid %d) for service \"%s\"",
-                     ptr[0], des->number, len, mt->mt_pid, t->s_dvb_svcname);
+            tvhtrace(LS_DESCRAMBLER, "ECM message %02x:%02x (section %d, len %d, pid %d) for service \"%s\"",
+                     ptr[0], ptr[1], des->number, len, mt->mt_pid, t->s_dvb_svcname);
           }
           pthread_mutex_unlock(&t->s_stream_mutex);
         } else

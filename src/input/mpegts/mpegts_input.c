@@ -762,13 +762,13 @@ mpegts_input_cat_pass_callback
     if (es->es_type != SCT_CAT) continue;
     for (c = LIST_FIRST(&es->es_caids); c != NULL; c = cn) {
       cn = LIST_NEXT(c, link);
-      if (cn->delete_me) {
+      if (c->delete_me) {
         LIST_REMOVE(c, link);
         free(c);
       }
-      if (es->es_delete_me)
-        service_stream_destroy(s, es);
     }
+    if (es->es_delete_me)
+      service_stream_destroy(s, es);
   }
 
   pthread_mutex_unlock(&s->s_stream_mutex);

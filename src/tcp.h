@@ -58,6 +58,56 @@ void tcp_server_preinit(int opt_ipv6);
 void tcp_server_init(void);
 void tcp_server_done(void);
 
+static inline int ip_check_equal_v4
+  (const struct sockaddr_storage *a, const struct sockaddr_storage *b)
+    { return IP_AS_V4(a, addr).s_addr == IP_AS_V4(b, addr).s_addr; }
+
+static inline int ip_check_equal_v6
+  (const struct sockaddr_storage *a, const struct sockaddr_storage *b)
+    { return ((uint64_t *)IP_AS_V6(a, addr).s6_addr)[0] == ((uint64_t *)IP_AS_V6(b, addr).s6_addr)[0] &&
+             ((uint64_t *)IP_AS_V6(a, addr).s6_addr)[1] == ((uint64_t *)IP_AS_V6(b, addr).s6_addr)[1]; }
+
+static inline int ip_check_equal
+  (const struct sockaddr_storage *a, const struct sockaddr_storage *b)
+    { return a->ss_family == b->ss_family &&
+             a->ss_family == AF_INET ? ip_check_equal_v4(a, b) :
+             (a->ss_family == AF_INET6 ? ip_check_equal_v6(a, b) : 0); }
+
+static inline int ip_check_in_network_v4(const struct sockaddr_storage *network,
+                                         const struct sockaddr_storage *mask,
+                                         const struct sockaddr_storage *address)
+  { return (IP_AS_V4(address, addr).s_addr & IP_AS_V4(mask, addr).s_addr) ==
+           (IP_AS_V4(network, addr).s_addr & IP_AS_V4(mask, addr).s_addr); }
+
+static inline int ip_check_in_network_v6(const struct sockaddr_storage *network,
+                                         const struct sockaddr_storage *mask,
+                                         const struct sockaddr_storage *address)
+  { return (((uint64_t *)IP_AS_V6(address, addr).s6_addr)[0] & ((uint64_t *)IP_AS_V6(mask, addr).s6_addr)[0]) == 
+              (((uint64_t *)IP_AS_V6(network, addr).s6_addr)[0] & ((uint64_t *)IP_AS_V6(mask, addr).s6_addr)[0]) &&
+           (((uint64_t *)IP_AS_V6(address, addr).s6_addr)[0] & ((uint64_t *)IP_AS_V6(mask, addr).s6_addr)[1]) ==
+              (((uint64_t *)IP_AS_V6(network, addr).s6_addr)[1] & ((uint64_t *)IP_AS_V6(mask, addr).s6_addr)[1]); }
+
+static inline int ip_check_in_network(const struct sockaddr_storage *network,
+                                      const struct sockaddr_storage *mask,
+                                       const struct sockaddr_storage *address)
+  { return address->ss_family == AF_INET ? ip_check_in_network_v4(network, mask, address) :
+           (address->ss_family == AF_INET6 ? ip_check_in_network_v6(network, mask, address) : 0); }
+
+static inline int ip_check_is_any_v4(const struct sockaddr_storage *address)
+  { return IP_AS_V4(address, addr).s_addr == INADDR_ANY; }
+
+static inline int ip_check_is_any_v6(const struct sockaddr_storage *address)
+  { return ((uint64_t *)IP_AS_V6(address, addr).s6_addr)[0] == ((uint64_t *)(&in6addr_any.s6_addr))[0] &&
+           ((uint64_t *)IP_AS_V6(address, addr).s6_addr)[1] == ((uint64_t *)(&in6addr_any.s6_addr))[1]; }
+
+static inline int ip_check_is_any(const struct sockaddr_storage *address)
+  { return address->ss_family == AF_INET ? ip_check_is_any_v4(address) :
+           (address->ss_family == AF_INET6 ? ip_check_is_any_v6(address) : 0); }
+
+int ip_check_is_local_address(const struct sockaddr_storage *peer,
+                              const struct sockaddr_storage *local,
+                              struct sockaddr_storage *used_local);
+
 int socket_set_dscp(int sockfd, uint32_t dscp, char *errbuf, size_t errbufsize);
 
 int tcp_connect(const char *hostname, int port, const char *bindaddr,

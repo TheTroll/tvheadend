@@ -55,6 +55,7 @@ typedef struct eit_module_t
   eit_pattern_list_t p_enum;
   eit_pattern_list_t p_airdate;        ///< Original air date parser
   eit_pattern_list_t p_scrape_subtitle;///< Scrape subtitle from summary data
+  eit_pattern_list_t p_is_new;         ///< Is programme new to air
 } eit_module_t;
 
 /* ************************************************************************
@@ -435,14 +436,16 @@ static int _eit_desc_crid
  * @param text - string from broadcaster to search.
  * @param eit_mod - our module with regex to use.
  * @param en - [out] episode data
- * @param first_aired - [out] airdate
+ * @param copyright_year [out] - copyright year
+ * @param is_new [out] - is episode new
  * @return Bitmask of changed fields.
  */
 static uint32_t
 _eit_scrape_episode(const char *str,
                     eit_module_t *eit_mod,
                     epg_episode_num_t *en,
-                    time_t *first_aired)
+                    uint16_t *copyright_year,
+                    uint8_t *is_new)
 {
   if (!str) return 0;
 
@@ -465,21 +468,21 @@ _eit_scrape_episode(const char *str,
   /* Extract original air date year */
   if (eit_pattern_apply_list(buffer, sizeof(buffer), str, &eit_mod->p_airdate)) {
     if (strlen(buffer) == 4) {
-      /* Year component only */
+      /* Year component only, so assume it is the copyright year. */
       const int year = atoi(buffer);
       if (year) {
-        struct tm airdate;
-        memset(&airdate, 0, sizeof(airdate));
-        airdate.tm_year = year - 1900;
-        /* Remaining fields in airdate can all remain at zero but day
-         * of month is one-based
-         */
-        airdate.tm_mday = 1;
-        *first_aired = mktime(&airdate);
-        changed |= EPG_CHANGED_FIRST_AIRED;
-      }
+        *copyright_year = year;
+        changed |= EPG_CHANGED_COPYRIGHT_YEAR;
+     }
     }
   }
+
+  /* Extract is_new flag. Any match is assumed to mean "new" */
+  if (eit_pattern_apply_list(buffer, sizeof(buffer), str, &eit_mod->p_is_new)) {
+    *is_new = 1;
+    changed |= EPG_CHANGED_IS_NEW;
+  }
+
   return changed;
 }
 
@@ -659,6 +662,8 @@ static int _eit_process_event_one
   memset(&en, 0, sizeof(en));
   time_t first_aired = 0;
   uint32_t scraped = 0;
+  uint16_t copyright_year = 0;
+  uint8_t  is_new = 0;
 
   /* We search across all the main fields using the same regex and
    * merge the results with the last match taking precendence.  So if
@@ -668,19 +673,21 @@ static int _eit_process_event_one
   if (eit_mod->scrape_episode) {
     if (ev.title)
       scraped |=  _eit_scrape_episode(lang_str_get(ev.title, ev.default_charset),
-                                      eit_mod, &en, &first_aired);
+                                      eit_mod, &en, &copyright_year, &is_new);
     if (ev.desc)
       scraped |=  _eit_scrape_episode(lang_str_get(ev.desc, ev.default_charset),
-                                      eit_mod, &en, &first_aired);
+                                      eit_mod, &en, &copyright_year, &is_new);
 
     if (ev.summary)
       scraped |= _eit_scrape_episode(lang_str_get(ev.summary, ev.default_charset),
-                                     eit_mod, &en, &first_aired);
+                                     eit_mod, &en, &copyright_year, &is_new);
   }
 
   /* Update Episode */
   if (ee) {
     *save |= epg_broadcast_set_episode(ebc, ee, &changes2);
+    if (scraped & EPG_CHANGED_IS_NEW)
+      *save |= epg_broadcast_set_is_new(ebc, is_new, &changes2);
     *save |= epg_episode_set_is_bw(ee, ev.bw, &changes4);
     if (ev.title)
       *save |= epg_episode_set_title(ee, ev.title, &changes4);
@@ -720,6 +727,8 @@ static int _eit_process_event_one
       *save |= epg_episode_set_epnum(ee, &en, &changes4);
     if (scraped & EPG_CHANGED_FIRST_AIRED)
       *save |= epg_episode_set_first_aired(ee, first_aired, &changes4);
+    if (scraped & EPG_CHANGED_COPYRIGHT_YEAR)
+      *save |= epg_episode_set_copyright_year(ee, copyright_year, &changes4);
 
     *save |= epg_episode_change_finish(ee, changes4, 0);
   }
@@ -1062,6 +1071,7 @@ static void _eit_scrape_clear(eit_module_t *mod)
   eit_pattern_free_list(&mod->p_enum);
   eit_pattern_free_list(&mod->p_airdate);
   eit_pattern_free_list(&mod->p_scrape_subtitle);
+  eit_pattern_free_list(&mod->p_is_new);
 }
 
 static int _eit_scrape_load_one ( htsmsg_t *m, eit_module_t* mod )
@@ -1070,6 +1080,7 @@ static int _eit_scrape_load_one ( htsmsg_t *m, eit_module_t* mod )
     eit_pattern_compile_list(&mod->p_snum, htsmsg_get_list(m, "season_num"));
     eit_pattern_compile_list(&mod->p_enum, htsmsg_get_list(m, "episode_num"));
     eit_pattern_compile_list(&mod->p_airdate, htsmsg_get_list(m, "airdate"));
+    eit_pattern_compile_list(&mod->p_is_new, htsmsg_get_list(m, "is_new"));
   }
 
   if (mod->scrape_subtitle) {

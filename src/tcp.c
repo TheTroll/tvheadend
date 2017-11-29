@@ -34,6 +34,8 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <sys/types.h>
+#include <ifaddrs.h>
 
 #include "tvheadend.h"
 #include "tcp.h"
@@ -68,6 +70,48 @@ socket_set_dscp(int sockfd, uint32_t dscp, char *errbuf, size_t errbufsize)
     return -1;
   }
   return 0;
+}
+
+/**
+ *
+ */
+int
+ip_check_is_local_address
+  (const struct sockaddr_storage *peer, const struct sockaddr_storage *local,
+   struct sockaddr_storage *used_local)
+{
+  struct ifaddrs *iflist, *ifdev = NULL;
+  struct sockaddr_storage *ifaddr, *ifnetmask;
+  int any_address, ret;
+
+  // Note: Not all platforms have getifaddrs()
+  //       See http://docs.freeswitch.org/switch__utils_8c_source.html
+  if (!local || !peer)
+    return 0;
+
+  if (peer->ss_family != local->ss_family)
+    return 0;
+
+  if (getifaddrs(&iflist) < 0)
+    return 0;
+
+  any_address = ip_check_is_any(local);
+
+  for (ifdev = iflist, ret = 0; ifdev && ret == 0; ifdev = ifdev->ifa_next) {
+    ifaddr = (struct sockaddr_storage *)(ifdev->ifa_addr);
+    ifnetmask = (struct sockaddr_storage *)(ifdev->ifa_netmask);
+    if (!ifaddr || !ifnetmask) continue;
+    if (ifaddr->ss_family != local->ss_family) continue;
+    if (!any_address && !ip_check_equal(ifaddr, local)) continue;
+    ret = !!ip_check_in_network_v4(ifaddr, ifnetmask, peer);
+    if (ret) {
+      if (used_local)
+        memcpy(used_local, ifaddr, sizeof(struct sockaddr));
+      break;
+    }
+  }
+  freeifaddrs(iflist);
+  return ret;
 }
 
 /**

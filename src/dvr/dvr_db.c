@@ -36,6 +36,7 @@
 #include "access.h"
 #include "notify.h"
 #include "compat.h"
+#include "string_list.h"
 
 struct dvr_entry_list dvrentries;
 static int dvr_in_init;
@@ -3340,6 +3341,68 @@ dvr_entry_class_duplicate_get(void *o)
   return de ? &de->de_start : &null;
 }
 
+static const void *
+dvr_entry_class_first_aired_get(void *o)
+{
+  static time_t null = 0;
+  const dvr_entry_t *de = (const dvr_entry_t *)o;
+  return de && de->de_bcast && de->de_bcast->episode ?
+    &de->de_bcast->episode->first_aired : &null;
+}
+
+static const void *
+dvr_entry_class_category_get(void *o)
+{
+  const dvr_entry_t *de = (dvr_entry_t *)o;
+  htsmsg_t *l;
+  if (de->de_bcast && de->de_bcast->category) {
+    l = string_list_to_htsmsg(de->de_bcast->category);
+  } else {
+    l = htsmsg_create_list();
+  }
+  return l;
+}
+
+static const void *
+dvr_entry_class_credits_get(void *o)
+{
+  const dvr_entry_t *de = (dvr_entry_t *)o;
+  htsmsg_t *l;
+  if (de->de_bcast && de->de_bcast->credits) {
+    l = htsmsg_copy(de->de_bcast->credits);
+  } else {
+    l = htsmsg_create_map();
+  }
+  return l;
+}
+
+static const void *
+dvr_entry_class_keyword_get(void *o)
+{
+  const dvr_entry_t *de = (dvr_entry_t *)o;
+  htsmsg_t *l;
+  if (de->de_bcast && de->de_bcast->keyword) {
+    l = string_list_to_htsmsg(de->de_bcast->keyword);
+  } else {
+    l = htsmsg_create_list();
+  }
+  return l;
+}
+
+static const void *
+dvr_entry_class_genre_get(void *o)
+{
+  const dvr_entry_t *de = (dvr_entry_t *)o;
+  htsmsg_t *l = htsmsg_create_list();
+  if (de->de_bcast && de->de_bcast->episode) {
+    epg_genre_t *eg;
+    LIST_FOREACH(eg, &de->de_bcast->episode->genre, link) {
+      htsmsg_add_u32(l, NULL, eg->code);
+    }
+  }
+  return l;
+}
+
 htsmsg_t *
 dvr_entry_class_duration_list(void *o, const char *not_set, int max, int step, const char *lang)
 {
@@ -3857,11 +3920,55 @@ const idclass_t dvr_entry_class = {
       .opts     = PO_RDONLY | PO_NOSAVE | PO_ADVANCED,
     },
     {
+      .type     = PT_TIME,
+      .id       = "first_aired",
+      .name     = N_("First aired"),
+      .desc     = N_("Time when the program was first aired"),
+      .get      = dvr_entry_class_first_aired_get,
+      .opts     = PO_RDONLY | PO_NOSAVE | PO_ADVANCED,
+    },
+    {
       .type     = PT_STR,
       .id       = "comment",
       .name     = N_("Comment"),
       .desc     = N_("Free-form text field, enter whatever you like here."),
       .off      = offsetof(dvr_entry_t, de_comment),
+    },
+    {
+      .type     = PT_STR,
+      .islist   = 1,
+      .id       = "category",
+      .name     = N_("Category"),
+      .desc     = N_("Extra categories, typically from xmltv"),
+      .get      = dvr_entry_class_category_get,
+      .opts     = PO_RDONLY | PO_NOSAVE | PO_NOUI
+    },
+    {
+      .type     = PT_STR,
+      .islist   = 1,
+      .id       = "credits",
+      .name     = N_("Credits"),
+      .desc     = N_("Credits such as cast members"),
+      .get      = dvr_entry_class_credits_get,
+      .opts     = PO_RDONLY | PO_NOSAVE | PO_NOUI
+    },
+    {
+      .type     = PT_STR,
+      .islist   = 1,
+      .id       = "keyword",
+      .name     = N_("Keyword"),
+      .desc     = N_("Extra keywords, typically from xmltv"),
+      .get      = dvr_entry_class_keyword_get,
+      .opts     = PO_RDONLY | PO_NOSAVE | PO_NOUI
+    },
+    {
+      .type     = PT_STR,
+      .islist   = 1,
+      .id       = "genre",
+      .name     = N_("Genre"),
+      .desc     = N_("Genre of program"),
+      .get      = dvr_entry_class_genre_get,
+      .opts     = PO_RDONLY | PO_NOSAVE,
     },
     {}
   }

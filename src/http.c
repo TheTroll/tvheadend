@@ -595,6 +595,20 @@ next:
 }
 
 /**
+ *
+ */
+int
+http_check_local_ip( http_connection_t *hc )
+{
+  if (hc->hc_local_ip == NULL) {
+    hc->hc_local_ip = malloc(sizeof(*hc->hc_local_ip));
+    *hc->hc_local_ip = *hc->hc_self;
+    hc->hc_is_local_ip = ip_check_is_local_address(hc->hc_peer, hc->hc_self, hc->hc_local_ip) > 0;
+  }
+  return hc->hc_is_local_ip;
+}
+
+/**
  * Transmit a HTTP reply
  */
 static void
@@ -1960,6 +1974,7 @@ error:
   free(hc->hc_nonce);
   hc->hc_nonce = NULL;
 
+  free(hc->hc_local_ip);
 }
 
 
@@ -2016,8 +2031,10 @@ http_server_init(const char *bindaddr)
     .cancel = http_cancel
   };
   RB_INIT(&http_nonces);
-  http_server = tcp_server_create(LS_HTTP, "HTTP", bindaddr, tvheadend_webui_port, &ops, NULL);
-  atomic_set(&http_server_running, 1);
+  if (tvheadend_webui_port > 0) {
+    http_server = tcp_server_create(LS_HTTP, "HTTP", bindaddr, tvheadend_webui_port, &ops, NULL);
+    atomic_set(&http_server_running, 1);
+  }
 }
 
 void

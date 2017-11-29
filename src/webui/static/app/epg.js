@@ -103,11 +103,16 @@ tvheadend.epgDetails = function(event) {
 
     if (chicon)
         content += '<div class="x-epg-left">';
+    var icons = tvheadend.getContentTypeIcons(event, "x-dialog-category-large-icon");
+    if (icons)
+        content += '<div class="x-epg-icons">' + icons + '</div>';
     content += '<div class="x-epg-title">' + event.title;
-    if (event.subtitle)
+    // Some OTA have the same subtitle and summary so don't display subtitle
+    // since summary can be long.
+    if (event.subtitle && (!event.summary || (event.summary && event.subtitle != event.summary)))
         content += "&nbsp;:&nbsp;" + event.subtitle;
-    if (event.copyrightYear)
-        content += "&nbsp;(" + event.copyrightYear + ")";
+    if (event.copyright_year)
+        content += "&nbsp;(" + event.copyright_year + ")";
     content += '</div>';
     if (event.episodeOnscreen)
         content += '<div class="x-epg-title">' + event.episodeOnscreen + '</div>';
@@ -115,6 +120,8 @@ tvheadend.epgDetails = function(event) {
       content += '<div class="x-epg-time"><span class="x-epg-prefix">' + _('Start Time') + ':</span><span class="x-epg-body">' + tvheadend.niceDate(event.start) + '</span></div>';
     if (event.stop)
       content += '<div class="x-epg-time"><span class="x-epg-prefix">' + _('End Time') + ':</span><span class="x-epg-body">' + tvheadend.niceDate(event.stop) + '</span></div>';
+    if (event.first_aired)
+      content += '<div class="x-epg-time"><span class="x-epg-prefix">' + _('First Aired') + ':</span><span class="x-epg-body">' + tvheadend.niceDateYearMonth(event.first_aired, event.start) + '</span></div>';
     if (duration)
       content += '<div class="x-epg-time"><span class="x-epg-prefix">' + _('Duration') + ':</span><span class="x-epg-body">' + parseInt(duration / 60) + ' ' + _('min') + '</span></div>';
     if (chicon) {
@@ -131,58 +138,15 @@ tvheadend.epgDetails = function(event) {
       content += '<div class="x-epg-desc">' + event.description + '</div>';
     if (event.summary || event.description)
       content += '<hr class="x-epg-hr"/>';
-
-    // Helper function for common code to sort an array, convert to CSV and
-    // return the string to add to the content.
-    function sortAndAddArray(arr, title) {
-      arr.sort();
-      var csv = arr.join(", ");
-      if (csv)
-        return '<div class="x-epg-meta"><span class="x-epg-prefix">' + title + ':</span><span class="x-epg-body">' + csv + '</span></div>';
-      else
-        return '';
-    }
-
-    if (event.credits) {
-      // Our cast (credits) map contains details of actors, writers,
-      // etc. so split in to separate categories for displaying.
-      var castArr = [];
-      var crewArr = [];
-      var directorArr = [];
-      var writerArr = [];
-      var cast = ["actor", "guest", "presenter"];
-      // We use arrays here in case more tags in the future map on to
-      // director/writer, e.g., SchedulesDirect breaks it down in to
-      // writer, writer (adaptation) writer (screenplay), etc. but
-      // currently we just have them all as writer.
-      var director = ["director"];
-      var writer = ["writer"];
-
-      for (key in event.credits) {
-        var type = event.credits[key];
-        if (cast.indexOf(type) != -1)
-          castArr.push(key);
-        else if (director.indexOf(type) != -1)
-          directorArr.push(key);
-        else if (writer.indexOf(type) != -1)
-          writerArr.push(key);
-        else
-          crewArr.push(key);
-      };
-
-      content += sortAndAddArray(castArr, _('Starring'));
-      content += sortAndAddArray(directorArr, _('Director'));
-      content += sortAndAddArray(writerArr, _('Writer'));
-      content += sortAndAddArray(crewArr, _('Crew'));
-    }
+    content += tvheadend.getDisplayCredits(event.credits);
     if (event.keyword)
-      content += sortAndAddArray(event.keyword, _('Keywords'));
+      content += tvheadend.sortAndAddArray(event.keyword, _('Keywords'));
     if (event.category)
-      content += sortAndAddArray(event.category, _('Categories'));
+      content += tvheadend.sortAndAddArray(event.category, _('Categories'));
     if (event.starRating)
-      content += '<div class="x-epg-meta"><span class="x-epg-prefix">' + _('Star Rating') + ':</span><span class="x-epg-body">' + event.starRating + '</span></div>';
+      content += '<div class="x-epg-meta"><span class="x-epg-prefix">' + _('Star Rating') + ':</span><span class="x-epg-desc">' + event.starRating + '</span></div>';
     if (event.ageRating)
-      content += '<div class="x-epg-meta"><span class="x-epg-prefix">' + _('Age Rating') + ':</span><span class="x-epg-body">' + event.ageRating + '</span></div>';
+      content += '<div class="x-epg-meta"><span class="x-epg-prefix">' + _('Age Rating') + ':</span><span class="x-epg-desc">' + event.ageRating + '</span></div>';
     if (event.genre) {
       var genre = [];
       Ext.each(event.genre, function(g) {
@@ -200,7 +164,7 @@ tvheadend.epgDetails = function(event) {
       tags.push(_('UHDTV'));
     else if (event.hd > 0)
       tags.push(_('HDTV'));
-    if ('new' in event)
+    if ('new' in event && event.new)
       tags.push(_('New#EPG').split('#')[0]);
     if (event.repeat)
       tags.push(_('Repeat#EPG').split('#')[0]);
@@ -488,12 +452,18 @@ tvheadend.epg = function() {
                 type: 'date',
                 dateFormat: 'U' /* unix time */
             },
+            {
+                name: 'first_aired',
+                type: 'date',
+                dateFormat: 'U' /* unix time */
+            },
             { name: 'starRating' },
             { name: 'credits' },
             { name: 'category' },
             { name: 'keyword' },
             { name: 'ageRating' },
-            { name: 'copyrightYear' },
+            { name: 'copyright_year' },
+            { name: 'new' },
             { name: 'genre' },
             { name: 'dvrUuid' },
             { name: 'dvrState' },
@@ -590,6 +560,7 @@ tvheadend.epg = function() {
                         return "";
                 }
             }),
+            tvheadend.contentTypeAction,
             {
                 width: 250,
                 id: 'title',
@@ -600,6 +571,7 @@ tvheadend.epg = function() {
                     var clickable = tvheadend.regexEscape(record.data['title']) !=
                                     epgStore.baseParams.title;
                     setMetaAttr(meta, record, value && clickable);
+                    value = tvheadend.getDisplayTitle(value, record);
                     return !value ? '' : (clickable ? lookup : '') + value;
                 },
                 listeners: { click: { fn: clicked } }

@@ -189,16 +189,16 @@ ts_recv_packet0
         SCT_ISAUDIO(st->es_type))
       ts_recv_pcr_audio(t, st, tsb2 + off, 188 - off);
 
+    if (st->es_type == SCT_HBBTV) {
+      dvb_table_parse(&st->es_psi, "ts", tsb2, 188, 1, 0, ts_recv_hbbtv_cb);
+      continue;
+    }
+
     if (!streaming_pad_probe_type(&t->s_streaming_pad, SMT_PACKET))
       continue;
 
     if (st->es_type == SCT_CA || st->es_type == SCT_CAT)
       continue;
-
-    if (st->es_type == SCT_HBBTV) {
-      dvb_table_parse(&st->es_psi, "ts", tsb2, 188, 1, 0, ts_recv_hbbtv_cb);
-      continue;
-    }
 
     if (off <= 188 && t->s_status == SERVICE_RUNNING)
       parse_mpeg_ts((service_t*)t, st, tsb2 + off, 188 - off, pusi, error);
@@ -328,7 +328,7 @@ ts_recv_packet1
     service_set_streaming_status_flags((service_t*)t, TSS_INPUT_SERVICE);
 
   scrambled = t->s_scrambled_seen;
-  if(!t->s_scrambled_pass && ((tsb[3] & 0xc0) || (st && scrambled))) {
+  if(!t->s_scrambled_pass && ((tsb[3] & 0xc0) || scrambled)) {
 
     /**
      * Lock for descrambling, but only if packet was not in error
@@ -371,8 +371,8 @@ ts_recv_packet2(mpegts_service_t *t, const uint8_t *tsb, int len)
   for ( ; len > 0; tsb += len2, len -= len2 ) {
     len2 = mpegts_word_count(tsb, len, 0xFF9FFFD0);
     pid = (tsb[1] & 0x1f) << 8 | tsb[2];
-    if((st = service_stream_find((service_t*)t, pid)) != NULL)
-      ts_recv_packet0(t, st, tsb, len2);
+    st = service_stream_find((service_t*)t, pid);
+    ts_recv_packet0(t, st, tsb, len2);
   }
 }
 
