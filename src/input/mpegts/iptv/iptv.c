@@ -84,10 +84,11 @@ iptv_handler_find ( const char *scheme )
  * IPTV input
  * *************************************************************************/
 
-static const char *
-iptv_input_class_get_title ( idnode_t *self, const char *lang )
+static void
+iptv_input_class_get_title
+  ( idnode_t *self, const char *lang, char *dst, size_t dstsize )
 {
-  return tvh_gettext_lang(lang, N_("IPTV"));
+  snprintf(dst, dstsize, "%s", tvh_gettext_lang(lang, N_("IPTV")));
 }
 
 extern const idclass_t mpegts_input_class;
@@ -491,15 +492,10 @@ iptv_input_thread ( void *aux )
 void
 iptv_input_pause_handler ( iptv_mux_t *im, int pause )
 {
-  tvhpoll_event_t ev = { 0 };
-
-  ev.fd       = im->mm_iptv_fd;
-  ev.events   = TVHPOLL_IN;
-  ev.data.ptr = im;
   if (pause)
-    tvhpoll_rem(iptv_poll, &ev, 1);
+    tvhpoll_rem1(iptv_poll, im->mm_iptv_fd);
   else
-    tvhpoll_add(iptv_poll, &ev, 1);
+    tvhpoll_add1(iptv_poll, im->mm_iptv_fd, TVHPOLL_IN, im);
 }
 
 void
@@ -521,6 +517,7 @@ iptv_input_recv_packets ( iptv_mux_t *im, ssize_t len )
   iptv_network_t *in = (iptv_network_t*)im->mm_network;
   mpegts_mux_instance_t *mmi;
   mpegts_pcr_t pcr;
+  char buf[384];
   int64_t s64;
 
   pcr.pcr_first = PTS_UNSET;
@@ -533,7 +530,7 @@ iptv_input_recv_packets ( iptv_mux_t *im, ssize_t len )
         in->in_bps > in->in_max_bandwidth * 1024) {
       if (!in->in_bw_limited) {
         tvhinfo(LS_IPTV, "%s bandwidth limited exceeded",
-                idnode_get_title(&in->mn_id, NULL));
+                idnode_get_title(&in->mn_id, NULL, buf, sizeof(buf)));
         in->in_bw_limited = 1;
       }
     }
@@ -584,16 +581,11 @@ int
 iptv_input_fd_started ( iptv_mux_t *im )
 {
   char buf[256];
-  tvhpoll_event_t ev = { 0 };
 
   /* Setup poll */
   if (im->mm_iptv_fd > 0) {
-    ev.fd       = im->mm_iptv_fd;
-    ev.events   = TVHPOLL_IN;
-    ev.data.ptr = im;
-
     /* Error? */
-    if (tvhpoll_add(iptv_poll, &ev, 1) == -1) {
+    if (tvhpoll_add1(iptv_poll, im->mm_iptv_fd, TVHPOLL_IN, im) < 0) {
       mpegts_mux_nice_name((mpegts_mux_t*)im, buf, sizeof(buf));
       tvherror(LS_IPTV, "%s - failed to add to poll q", buf);
       close(im->mm_iptv_fd);
@@ -604,12 +596,8 @@ iptv_input_fd_started ( iptv_mux_t *im )
 
   /* Setup poll2 */
   if (im->mm_iptv_fd2 > 0) {
-    ev.fd       = im->mm_iptv_fd2;
-    ev.events   = TVHPOLL_IN;
-    ev.data.ptr = im;
-
     /* Error? */
-    if (tvhpoll_add(iptv_poll, &ev, 1) == -1) {
+    if (tvhpoll_add1(iptv_poll, im->mm_iptv_fd2, TVHPOLL_IN, im) < 0) {
       mpegts_mux_nice_name((mpegts_mux_t*)im, buf, sizeof(buf));
       tvherror(LS_IPTV, "%s - failed to add to poll q (2)", buf);
       close(im->mm_iptv_fd2);
@@ -680,6 +668,7 @@ iptv_network_delete ( mpegts_network_t *mn, int delconf )
 
   /* delete */
   free(in->in_remove_args);
+  free(in->in_ignore_args);
   free(in->in_ctx_charset);
   mpegts_network_delete(mn, delconf);
 
@@ -848,6 +837,8 @@ iptv_auto_network_class_charset_list(void *o, const char *lang)
   return m;
 }
 
+PROP_DOC(ignore_path)
+
 const idclass_t iptv_auto_network_class = {
   .ic_super      = &iptv_network_class,
   .ic_class      = "iptv_auto_network",
@@ -878,7 +869,7 @@ const idclass_t iptv_auto_network_class = {
       .intextra = CHANNEL_SPLIT,
       .id       = "channel_number",
       .name     = N_("Channel numbers from"),
-      .desc     = N_("Lowest starting channel number."),
+      .desc     = N_("Lowest starting channel number (when mapping). "),
       .off      = offsetof(iptv_network_t, in_channel_number),
     },
     {
@@ -902,16 +893,40 @@ const idclass_t iptv_auto_network_class = {
       .type     = PT_BOOL,
       .id       = "tsid_zero",
       .name     = N_("Accept zero value for TSID"),
+      .desc     = N_("Accept transport ID if zero."),
       .off      = offsetof(iptv_network_t, in_tsid_accept_zero_value),
     },
     {
       .type     = PT_STR,
       .id       = "remove_args",
       .name     = N_("Remove HTTP arguments"),
-      .desc     = N_("Key and value pairs to remove from the query "
+      .desc     = N_("Argument names to remove from the query "
                      "string in the URL."),
       .off      = offsetof(iptv_network_t, in_remove_args),
       .def.s    = "ticket",
+      .opts     = PO_EXPERT
+    },
+    {
+      .type     = PT_STR,
+      .id       = "ignore_args",
+      .name     = N_("Ignore HTTP arguments"),
+      .desc     = N_("Argument names to remove from the query "
+                     "string in the URL when the identical "
+                     "source is compared."),
+      .off      = offsetof(iptv_network_t, in_ignore_args),
+      .def.s    = "",
+      .opts     = PO_EXPERT
+    },
+    {
+      .type     = PT_INT,
+      .id       = "ignore_path",
+      .name     = N_("Ignore path components"),
+      .desc     = N_("Ignore last components in path. The defined count "
+                     "of last path components separated by / are removed "
+                     "when the identical source is compared - see Help for a detailed explanation."),
+      .doc      = prop_doc_ignore_path,
+      .off      = offsetof(iptv_network_t, in_ignore_path),
+      .def.i    = 0,
       .opts     = PO_EXPERT
     },
     {}

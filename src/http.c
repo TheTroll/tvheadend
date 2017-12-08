@@ -40,6 +40,7 @@
 #include "channels.h"
 #include "config.h"
 #include "htsmsg_json.h"
+#include "compat.h"
 
 const char* proxys[] = { "10.1.0.2", "10.2.0.2", "10.4.0.2", "10.4.0.3", "10.4.0.4", "10.4.0.5", "10.5.0.2" };
 
@@ -1524,7 +1525,7 @@ http_arg_remove(struct http_arg_list *list, struct http_arg *arg)
  * Delete all arguments associated with a connection
  */
 void
-http_arg_flush(struct http_arg_list *list)
+http_arg_flush(http_arg_list_t *list)
 {
   http_arg_t *ra;
   while((ra = TAILQ_FIRST(list)) != NULL)
@@ -1536,7 +1537,7 @@ http_arg_flush(struct http_arg_list *list)
  * Find an argument associated with a connection
  */
 char *
-http_arg_get(struct http_arg_list *list, const char *name)
+http_arg_get(http_arg_list_t *list, const char *name)
 {
   http_arg_t *ra;
   TAILQ_FOREACH(ra, list, link)
@@ -1584,6 +1585,34 @@ http_arg_set(struct http_arg_list *list, const char *key, const char *val)
   TAILQ_INSERT_TAIL(list, ra, link);
   ra->key = strdup(key);
   ra->val = val ? strdup(val) : NULL;
+}
+
+/*
+ *
+ */
+char *
+http_arg_get_query(http_arg_list_t *args)
+{
+  htsbuf_queue_t q;
+  http_arg_t *ra;
+  char *r;
+
+  if (http_args_empty(args))
+    return NULL;
+  htsbuf_queue_init(&q, 0);
+  htsbuf_queue_init(&q, 0);
+  TAILQ_FOREACH(ra, args, link) {
+    if (!htsbuf_empty(&q))
+      htsbuf_append(&q, "&", 1);
+    htsbuf_append_and_escape_url(&q, ra->key);
+    if (ra->val) {
+      htsbuf_append(&q, "=", 1);
+      htsbuf_append_and_escape_url(&q, ra->val);
+    }
+  }
+  r = htsbuf_to_string(&q);
+  htsbuf_queue_flush(&q);
+  return r;
 }
 
 /*

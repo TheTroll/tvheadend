@@ -241,9 +241,11 @@ typedef struct capmt_opaque {
 
 typedef struct capmt_adapter {
   ca_info_t       ca_info[MAX_INDEX];
+  int             ca_number;
   int             ca_sock;
   mpegts_input_t *ca_tuner;
   capmt_opaque_t  ca_pids[MAX_PIDS];
+  sbuf_t          ca_rbuf;
 } capmt_adapter_t;
 
 /**
@@ -257,6 +259,8 @@ typedef struct capmt {
   struct capmt_service_list capmt_services;
 
   pthread_t capmt_tid;
+
+  char capmt_name[128];
 
   /* from capmt configuration */
   char *capmt_sockfile;
@@ -306,7 +310,8 @@ static void capmt_send_client_info(capmt_t *capmt);
 static inline const char *
 capmt_name(capmt_t *capmt)
 {
-  return idnode_get_title(&capmt->cac_id, NULL);
+  return idnode_get_title(&capmt->cac_id, NULL,
+                          capmt->capmt_name, sizeof(capmt->capmt_name));
 }
 
 static inline int
@@ -331,30 +336,20 @@ capmt_include_elementary_stream(streaming_component_type_t type)
   return SCT_ISAV(type) || type == SCT_DVBSUB || type == SCT_TELETEXT;
 }
 
-static void
-capmt_poll_add(capmt_t *capmt, int fd, uint32_t u32)
+static int
+capmt_poll_add(capmt_t *capmt, int fd, void *ptr)
 {
-  tvhpoll_event_t ev;
-
   if (capmt->capmt_poll == NULL)
-    return;
-  memset(&ev, 0, sizeof(ev));
-  ev.events   = TVHPOLL_IN;
-  ev.fd       = fd;
-  ev.data.u32 = u32;
-  tvhpoll_add(capmt->capmt_poll, &ev, 1);
+    return 0;
+  return tvhpoll_add1(capmt->capmt_poll, fd, TVHPOLL_IN, ptr);
 }
 
-static void
+static int
 capmt_poll_rem(capmt_t *capmt, int fd)
 {
-  tvhpoll_event_t ev;
-
   if (capmt->capmt_poll == NULL)
-    return;
-  memset(&ev, 0, sizeof(ev));
-  ev.fd       = fd;
-  tvhpoll_rem(capmt->capmt_poll, &ev, 1);
+    return 0;
+  return tvhpoll_rem1(capmt->capmt_poll, fd);
 }
 
 static void
@@ -542,7 +537,7 @@ capmt_connect(capmt_t *capmt, int i)
     capmt->capmt_sock_reconnect[i]++;
     if (capmt_oscam_netproto(capmt))
       capmt_send_client_info(capmt);
-    capmt_poll_add(capmt, fd, i + 1);
+    capmt_poll_add(capmt, fd, &capmt->capmt_adapters[i]);
   }
 
   return fd;
@@ -684,7 +679,8 @@ capmt_queue_msg
   if (flags & CAPMT_MSG_CLEAR) {
     for (msg = TAILQ_FIRST(&capmt->capmt_writeq); msg; msg = msg2) {
       msg2 = TAILQ_NEXT(msg, cm_link);
-      if (msg->cm_sid == sid) {
+      if ((adapter == 0xff || msg->cm_adapter == adapter) &&
+          (sid == 0 || msg->cm_sid == sid)) {
         TAILQ_REMOVE(&capmt->capmt_writeq, msg, cm_link);
         sbuf_free(&msg->cm_sb);
         free(msg);
@@ -823,9 +819,9 @@ capmt_send_stop_descrambling(capmt_t *capmt, uint8_t demuxer)
     0x83,
     0x02,
     0x00,
-    demuxer, /* 0xFF is wildcard demux id */
+    demuxer /* 0xFF is wildcard demux id */
   };
-  capmt_write_msg(capmt, 0, 0, buf, 8);
+  capmt_queue_msg(capmt, demuxer, 0, buf, ARRAY_SIZE(buf), CAPMT_MSG_CLEAR);
 }
 
 /**
@@ -912,7 +908,7 @@ capmt_filter_data(capmt_t *capmt, uint8_t adapter, uint8_t demux_index,
   buf[5] = filter_index;
   memcpy(buf + 6, data, len);
   if (len - 3 == ((((uint16_t)buf[7] << 8) | buf[8]) & 0xfff))
-    capmt_queue_msg(capmt, adapter, 0, buf, len + 6, flags);
+    capmt_queue_msg(capmt, adapter, 0x10000, buf, len + 6, flags);
 }
 
 static void
@@ -1492,29 +1488,29 @@ show_connection(capmt_t *capmt, const char *what)
 
 #if CONFIG_LINUXDVB
 static void 
-handle_ca0(capmt_t *capmt) {
-  int i, ret, recvsock, adapter, nfds, cmd_size;
+handle_ca0(capmt_t *capmt)
+{
+  int i, ret, recvsock, nfds, cmd_size;
   uint32_t cmd;
   uint8_t buf[256];
-  sbuf_t buffer[MAX_CA];
   sbuf_t *pbuf;
+  capmt_adapter_t *adapter;
   tvhpoll_event_t ev[MAX_CA + 1];
 
   show_connection(capmt, "ca0");
 
-  for (i = 0; i < MAX_CA; i++)
-    sbuf_init(&buffer[i]);
-
   capmt_notify_server(capmt, NULL, 1);
 
   capmt->capmt_poll = tvhpoll_create(MAX_CA + 1);
-  capmt_poll_add(capmt, capmt->capmt_pipe.rd, 0);
-  for (i = 0; i < MAX_CA; i++)
-    if (capmt->capmt_adapters[i].ca_sock)
-      capmt_poll_add(capmt, capmt->capmt_adapters[i].ca_sock, i + 1);
+  capmt_poll_add(capmt, capmt->capmt_pipe.rd, &capmt->capmt_pipe);
+  for (i = 0; i < MAX_CA; i++) {
+    adapter = &capmt->capmt_adapters[i];
+    sbuf_init(&adapter->ca_rbuf);
+    if (adapter->ca_sock > 0)
+      capmt_poll_add(capmt, adapter->ca_sock, adapter);
+  }
 
   i = 0;
-  adapter = -1;
 
   while (atomic_get(&capmt->capmt_running)) {
 
@@ -1525,7 +1521,7 @@ handle_ca0(capmt_t *capmt) {
 
     for (i = 0; i < nfds; i++) {
 
-      if (ev[i].data.u32 == 0) {
+      if (ev[i].data.ptr == &capmt->capmt_pipe) {
         ret = read(capmt->capmt_pipe.rd, buf, 1);
         if (ret == 1 && buf[0] == 'c') {
           capmt_flush_queue(capmt, 0);
@@ -1537,12 +1533,11 @@ handle_ca0(capmt_t *capmt) {
         continue;
       }
 
-      adapter = ev[i].data.u32 - 1;
-
-      if (adapter < 0 || adapter >= MAX_CA)
+      adapter = ev[i].data.ptr;
+      if (adapter == NULL)
         continue;
 
-      recvsock = capmt->capmt_adapters[adapter].ca_sock;
+      recvsock = adapter->ca_sock;
 
       if (recvsock <= 0)
         continue;
@@ -1554,7 +1549,7 @@ handle_ca0(capmt_t *capmt) {
 
         close(recvsock);
         capmt_poll_rem(capmt, recvsock);
-        capmt->capmt_adapters[adapter].ca_sock = -1;
+        adapter->ca_sock = -1;
         continue;
       }
       
@@ -1564,7 +1559,7 @@ handle_ca0(capmt_t *capmt) {
       tvhtrace(LS_CAPMT, "%s: Received message from socket %i", capmt_name(capmt), recvsock);
       tvhlog_hexdump(LS_CAPMT, buf, ret);
 
-      pbuf = &buffer[adapter];
+      pbuf = &adapter->ca_rbuf;
       sbuf_append(pbuf, buf, ret);
 
       while (pbuf->sb_ptr > 0) {
@@ -1576,7 +1571,7 @@ handle_ca0(capmt_t *capmt) {
         }
         if (cmd_size <= pbuf->sb_ptr) {
           cmd = sbuf_peek_u32(pbuf, 0);
-          capmt_analyze_cmd(capmt, cmd, adapter, pbuf, 4);
+          capmt_analyze_cmd(capmt, cmd, adapter->ca_number, pbuf, 4);
           sbuf_cut(pbuf, cmd_size);
         } else {
           break;
@@ -1586,8 +1581,10 @@ handle_ca0(capmt_t *capmt) {
     }
   }
 
-  for (i = 0; i < MAX_CA; i++)
-    sbuf_free(&buffer[i]);
+  for (i = 0; i < MAX_CA; i++) {
+    adapter = &capmt->capmt_adapters[i];
+    sbuf_free(&adapter->ca_rbuf);
+  }
   tvhpoll_destroy(capmt->capmt_poll);
   capmt->capmt_poll = NULL;
 }
@@ -1611,8 +1608,8 @@ handle_single(capmt_t *capmt)
   capmt_notify_server(capmt, NULL, 1);
 
   capmt->capmt_poll = tvhpoll_create(2);
-  capmt_poll_add(capmt, capmt->capmt_pipe.rd, 0);
-  capmt_poll_add(capmt, capmt->capmt_sock[0], 1);
+  capmt_poll_add(capmt, capmt->capmt_pipe.rd, &capmt->capmt_pipe);
+  capmt_poll_add(capmt, capmt->capmt_sock[0], capmt->capmt_sock);
 
   while (atomic_get(&capmt->capmt_running)) {
 
@@ -1621,7 +1618,7 @@ handle_single(capmt_t *capmt)
     if (nfds <= 0)
       continue;
 
-    if (ev.data.u32 == 0) {
+    if (ev.data.ptr == &capmt->capmt_pipe) {
       ret = read(capmt->capmt_pipe.rd, buf, 1);
       if (ret == 1 && buf[0] == 'c') {
         capmt_flush_queue(capmt, 0);
@@ -1807,6 +1804,7 @@ capmt_thread(void *aux)
     fatal = 0;
     for (i = 0; i < MAX_CA; i++) {
       ca = &capmt->capmt_adapters[i];
+      ca->ca_number = i;
       ca->ca_sock = -1;
       memset(&ca->ca_info, 0, sizeof(ca->ca_info));
       for (j = 0; j < MAX_PIDS; j++) {
@@ -1927,7 +1925,7 @@ capmt_thread(void *aux)
       d = 60;
     }
 
-    tvhinfo(LS_CAPMT, "%s: Automatic reconnection attempt in in %d seconds", idnode_get_title(&capmt->cac_id, NULL), d);
+    tvhinfo(LS_CAPMT, "%s: Automatic reconnection attempt in in %d seconds", capmt_name(capmt), d);
 
     mono = mclk() + sec2mono(d);
     do {
@@ -2315,8 +2313,6 @@ capmt_send_request(capmt_service_t *ct, int lm)
              capmt_name(capmt), t->s_dvb_svcname);
 
   capmt_queue_msg(capmt, adapter_num, sid, buf, pos, 0);
-
-  mtimer_arm_rel(&ct->ct_ok_timer, capmt_ok_timer_cb, ct, sec2mono(3)/2);
 }
 
 static void
@@ -2345,11 +2341,10 @@ capmt_enumerate_services(capmt_t *capmt, int force)
     if (capmt_oscam_netproto(capmt)) {
       capmt_send_stop_descrambling(capmt, 0xff);
       capmt_pid_flush(capmt);
-    }
-    else
+    } else {
       capmt_socket_close(capmt, 0);
-  }
-  else if (force || (res_srv_count != all_srv_count)) {
+    }
+  } else if (force || (res_srv_count != all_srv_count)) {
     LIST_FOREACH(ct, &capmt->capmt_services, ct_link) {
       if (all_srv_count == i + 1)
         lm |= CAPMT_LIST_LAST;
@@ -2487,6 +2482,7 @@ capmt_service_start(caclient_t *cac, service_t *s)
   tvh_cond_signal(&capmt->capmt_cond, 0);
 
 fin:
+  mtimer_arm_rel(&ct->ct_ok_timer, capmt_ok_timer_cb, ct, sec2mono(3)/2);
   pthread_mutex_unlock(&t->s_stream_mutex);
   pthread_mutex_unlock(&capmt->capmt_mutex);
 

@@ -41,8 +41,6 @@ int
 iptv_url_set ( char **url, char **sane_url, const char *str, int allow_file, int allow_pipe )
 {
   const char *x;
-  char *buf, port[16] = "";
-  size_t len;
   url_t u;
 
   if (strcmp(str ?: "", *url ?: "") == 0)
@@ -65,21 +63,8 @@ iptv_url_set ( char **url, char **sane_url, const char *str, int allow_file, int
     return 1;
   }
   urlinit(&u);
-  if (!urlparse(str, &u)) {
-    len = (u.scheme ? strlen(u.scheme) + 3 : 0) +
-          (u.host ? strlen(u.host) + 1 : 0) +
-          /* port */ 16 +
-          (u.path ? strlen(u.path) + 1 : 0) +
-          (u.query ? strlen(u.query) + 2 : 0);
-    buf = alloca(len);
-    if (u.port > 0 && u.port <= 65535)
-      snprintf(port, sizeof(port), ":%d", u.port);
-    snprintf(buf, len, "%s%s%s%s%s%s%s",
-             u.scheme ?: "", u.scheme ? "://" : "",
-             u.host ?: "", port,
-             u.path ?: "", (u.query && u.query[0]) ? "?" : "",
-             u.query ?: "");
-    iptv_url_set0(url, sane_url, str, buf);
+  if (!urlparse(str, &u) && !urlrecompose(&u)) {
+    iptv_url_set0(url, sane_url, u.raw, str);
     urlreset(&u);
     return 1;
   } else {
@@ -139,6 +124,13 @@ const idclass_t iptv_mux_class =
       .off      = offsetof(iptv_mux_t, mm_iptv_url),
       .set      = iptv_mux_url_set,
       .opts     = PO_MULTILINE
+    },
+    {
+      .type     = PT_STR,
+      .id       = "iptv_url_cmpid",
+      .name     = N_("URL for comparison"),
+      .off      = offsetof(iptv_mux_t, mm_iptv_url_cmpid),
+      .opts     = PO_MULTILINE | PO_HIDDEN | PO_NOUI,
     },
     {
       .type     = PT_BOOL,
@@ -313,6 +305,7 @@ iptv_mux_free ( mpegts_mux_t *mm )
   free(im->mm_iptv_url);
   free(im->mm_iptv_url_sane);
   free(im->mm_iptv_url_raw);
+  free(im->mm_iptv_url_cmpid);
   free(im->mm_iptv_muxname);
   free(im->mm_iptv_interface);
   free(im->mm_iptv_svcname);
