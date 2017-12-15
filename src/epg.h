@@ -692,11 +692,15 @@ typedef struct epg_query {
   char             *stitle;
   tvh_regex_t       stitle_re;
   int               fulltext;
+  int               new_only;
   char             *channel;
   char             *channel_tag;
   uint32_t          genre_count;
   uint8_t          *genre;
   uint8_t           genre_static[16];
+  char             *cat1;
+  char             *cat2;
+  char             *cat3;
 
   enum {
     ESK_START,

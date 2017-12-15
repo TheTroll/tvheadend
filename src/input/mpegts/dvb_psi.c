@@ -1109,6 +1109,7 @@ dvb_pmt_callback
   mpegts_psi_table_state_t *st  = NULL;
 
   /* Start */
+  if (len < 2) return -1;
   sid = extract_svcid(ptr);
   r   = dvb_table_begin((mpegts_psi_table_t *)mt, ptr, len,
                         tableid, sid, 9, &st, &sect, &last, &ver);
@@ -1134,8 +1135,7 @@ dvb_pmt_callback
     descrambler_caid_changed((service_t *)s);
 
 #if ENABLE_LINUXDVB_CA
-  /* DVBCAM requires full pmt data including header and crc */
-  dvbcam_pmt_data(s, ptr - 3, len + 3 + 4);
+  dvbcam_pmt_data(s, ptr, len);
 #endif
 
   /* Finish */
@@ -1447,6 +1447,7 @@ dvb_nit_callback
   dvb_bat_id_t *bi = NULL;
 
   /* Net/Bat ID */
+  if (len < 2) return -1;
   nbid = extract_2byte(ptr);
 
   /* Begin */
@@ -1779,6 +1780,7 @@ dvb_sdt_callback
   mpegts_psi_table_state_t *st  = NULL;
 
   /* Begin */
+  if (len < 8) return -1;
   tsid    = extract_onid(ptr);
   onid    = extract_tsid(ptr + 5);
   extraid = ((int)onid) << 16 | tsid;
@@ -1840,6 +1842,7 @@ atsc_vct_callback
   if (tableid != 0xc8 && tableid != 0xc9) return -1;
 
   /* Extra ID */
+  if (len < 2) return -1;
   tsid    = extract_tsid(ptr);
   extraid = tsid;
 
@@ -1953,6 +1956,7 @@ atsc_stt_callback
   if (tableid != DVB_ATSC_STT_BASE) return -1;
 
   /* Extra ID */
+  if (len < 2) return -1;
   extraid = extract_2byte(ptr);
 
   /* Begin */
@@ -2134,6 +2138,7 @@ dvb_fs_sdt_callback
   mpegts_psi_table_state_t *st = NULL;
 
   /* Fastscan ID */
+  if (len < 2) return -1;
   nbid = extract_2byte(ptr);
 
   /* Begin */
@@ -2230,11 +2235,18 @@ psi_desc_ca(mpegts_table_t *mt, mpegts_service_t *t, const uint8_t *buffer, int 
   int r = 0;
   int i;
   uint32_t provid = 0;
-  uint16_t caid = extract_2byte(buffer);
-  uint16_t pid = extract_pid(buffer + 2);
+  uint16_t caid, pid;
+
+  if (size < 4)
+    return 0;
+
+  caid = extract_2byte(buffer);
+  pid = extract_pid(buffer + 2);
 
   switch (caid & 0xFF00) {
   case 0x0100: // SECA/Mediaguard
+    if (size < 6)
+      return 0;
     provid = extract_2byte(buffer + 4);
 
     //Add extra providers, if any

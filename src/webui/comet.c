@@ -454,8 +454,8 @@ comet_mailbox_ws(http_connection_t *hc, const char *remain, void *opaque)
   }
 
   pthread_mutex_lock(&comet_mutex);
-  if (atomic_get(&comet_running))
-    cmb->cmb_refcount--;
+  assert(cmb->cmb_refcount > 0);
+  cmb->cmb_refcount--;
   cmb->cmb_last_used = mclk();
   pthread_mutex_unlock(&comet_mutex);
 
@@ -490,8 +490,6 @@ comet_done(void)
 
   pthread_mutex_lock(&comet_mutex);
   atomic_set(&comet_running, 0);
-  while ((cmb = LIST_FIRST(&mailboxes)) != NULL)
-    cmb_destroy(cmb);
   tvh_cond_signal(&comet_cond, 1);
   pthread_mutex_unlock(&comet_mutex);
 
@@ -503,6 +501,9 @@ comet_done(void)
   }
 
   tvh_cond_destroy(&comet_cond);
+
+  while ((cmb = LIST_FIRST(&mailboxes)) != NULL)
+    cmb_destroy(cmb);
 
   pthread_mutex_lock(&global_lock);
   memoryinfo_unregister(&comet_memoryinfo);

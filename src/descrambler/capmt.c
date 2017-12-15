@@ -69,12 +69,12 @@ typedef struct dmx_filter {
 
 #define DVBAPI_PROTOCOL_VERSION     2
 
-#define CA_SET_DESCR       0x40106f86
+#define CA_SET_DESCR_      0x40106f86
 #define CA_SET_DESCR_X     0x866f1040
 #define CA_SET_DESCR_AES   0x40106f87
 #define CA_SET_DESCR_AES_X 0x876f1040
 #define CA_SET_DESCR_MODE  0x400c6f88
-#define CA_SET_PID         0x40086f87
+#define CA_SET_PID_        0x40086f87
 #define CA_SET_PID_X       0x876f0840
 #define DMX_STOP           0x00006f2a
 #define DMX_STOP_X         0x2a6f0000
@@ -99,6 +99,7 @@ typedef struct dmx_filter {
 // ca_pmt_descriptor types
 #define CAPMT_DESC_ENIGMA  0x81
 #define CAPMT_DESC_DEMUX   0x82
+#define CAPMT_DESC_ADAPTER 0x83
 #define CAPMT_DESC_PID     0x84
 
 // message type
@@ -404,7 +405,7 @@ capmt_pid_remove(capmt_t *capmt, int adapter, int pid, uint32_t flags)
 
   lock_assert(&capmt->capmt_mutex);
 
-  if (pid <= 0)
+  if (pid < 0)
     return;
   for (i = 0; i < MAX_PIDS; i++) {
     o = &ca->ca_pids[i];
@@ -825,6 +826,20 @@ capmt_send_stop_descrambling(capmt_t *capmt, uint8_t demuxer)
 }
 
 /**
+ *
+ */
+static void
+capmt_init_demuxes(capmt_t *capmt)
+{
+  int i, j;
+
+  memset(&capmt->capmt_demuxes, 0, sizeof(capmt->capmt_demuxes));
+  for (i = 0; i < MAX_INDEX; i++)
+    for (j = 0; j < MAX_FILTER; j++)
+      capmt->capmt_demuxes.filters[i].dmx[j].pid = PID_UNUSED;
+}
+
+/**
  * global_lock is held
  */
 static void 
@@ -871,7 +886,7 @@ capmt_service_destroy(th_descrambler_t *td)
   }
 
   if (LIST_EMPTY(&capmt->capmt_services))
-    memset(&capmt->capmt_demuxes, 0, sizeof(capmt->capmt_demuxes));
+    capmt_init_demuxes(capmt);
 
   pthread_mutex_unlock(&capmt->capmt_mutex);
 
@@ -974,7 +989,7 @@ cont:
 
   cf->adapter = adapter;
   filter = &cf->dmx[filter_index];
-  if (!filter->pid) {
+  if (filter->pid == PID_UNUSED) {
     add = 1;
   } else if (pid != filter->pid || flags != filter->flags) {
     capmt_pid_remove(capmt, adapter, filter->pid, filter->flags);
@@ -1026,10 +1041,11 @@ capmt_stop_filter(capmt_t *capmt, int adapter, sbuf_t *sb, int offset)
     goto end;
   flags = filter->flags;
   memset(filter, 0, sizeof(*filter));
+  filter->pid = PID_UNUSED;
   capmt_pid_remove(capmt, adapter, pid, flags);
   /* short the max values */
   filter_index = cf->max - 1;
-  while (filter_index != 255 && cf->dmx[filter_index].pid == 0)
+  while (filter_index != 255 && cf->dmx[filter_index].pid == PID_UNUSED)
     filter_index--;
   cf->max = filter_index == 255 ? 0 : filter_index + 1;
   demux_index = capmt->capmt_demuxes.max - 1;
@@ -1240,9 +1256,9 @@ capmt_msg_size(capmt_t *capmt, sbuf_t *sb, int offset)
     }
   }
   sb->sb_err = 1; /* "first seen" flag for the moment */
-  if (cmd == CA_SET_PID)
+  if (cmd == CA_SET_PID_)
     return 4 + 8 + adapter_byte;
-  else if (cmd == CA_SET_DESCR)
+  else if (cmd == CA_SET_DESCR_)
     return 4 + 16 + adapter_byte;
   else if (cmd == CA_SET_DESCR_AES)
     return 4 + 32 + adapter_byte;
@@ -1291,7 +1307,7 @@ capmt_peek_str(sbuf_t *sb, int *offset)
 static void
 capmt_analyze_cmd(capmt_t *capmt, uint32_t cmd, int adapter, sbuf_t *sb, int offset)
 {
-  if (cmd == CA_SET_PID) {
+  if (cmd == CA_SET_PID_) {
 
     uint32_t pid   = sbuf_peek_u32(sb, offset + 0);
     int32_t  index = sbuf_peek_s32(sb, offset + 4);
@@ -1330,7 +1346,7 @@ capmt_analyze_cmd(capmt_t *capmt, uint32_t cmd, int adapter, sbuf_t *sb, int off
       tvherror(LS_CAPMT, "%s: Invalid index %d in CA_SET_PID (%d) for adapter %d", capmt_name(capmt), index, MAX_INDEX, adapter);
     }
 
-  } else if (cmd == CA_SET_DESCR) {
+  } else if (cmd == CA_SET_DESCR_) {
 
     int32_t index  = sbuf_peek_s32(sb, offset + 0);
     int32_t parity = sbuf_peek_s32(sb, offset + 4);
@@ -1819,7 +1835,7 @@ capmt_thread(void *aux)
       capmt->capmt_sock[i] = -1;
       capmt->capmt_sock_reconnect[i] = 0;
     }
-    memset(&capmt->capmt_demuxes, 0, sizeof(capmt->capmt_demuxes));
+    capmt_init_demuxes(capmt);
 
     /* Accessible */
     if (capmt->capmt_sockfile && capmt->capmt_oscam != CAPMT_OSCAM_TCP &&
@@ -2182,16 +2198,6 @@ capmt_send_request(capmt_service_t *ct, int lm)
   buf[pos++] = 1; /* OK DESCRAMBLING, skipped for parse_descriptors, but */
                   /* mandatory for getDemuxOptions() */
 
-  /* build program info tags */
-
-  if (capmt->capmt_oscam != CAPMT_OSCAM_SO_WRAPPER) {
-    /* build SI tag */
-    buf[pos++] = CAPMT_DESC_DEMUX;
-    buf[pos++] = 2;
-    buf[pos++] = 0;
-    buf[pos++] = adapter_num;
-  }
-
   /* build SI tag */
   buf[pos++] = CAPMT_DESC_ENIGMA;
   buf[pos++] = 8;
@@ -2204,19 +2210,24 @@ capmt_send_request(capmt_service_t *ct, int lm)
   buf[pos++] = onid >> 8;
   buf[pos++] = onid;
 
-  if (capmt->capmt_oscam == CAPMT_OSCAM_SO_WRAPPER) {
-    /* build SI tag */
-    buf[pos++] = CAPMT_DESC_DEMUX;
-    buf[pos++] = 2;
-    buf[pos++] = 1 << adapter_num;
-    buf[pos++] = adapter_num;
-  }
+  /* build SI tag */
+  buf[pos++] = CAPMT_DESC_DEMUX;
+  buf[pos++] = 2;
+  buf[pos++] = 1 << adapter_num;
+  buf[pos++] = capmt->capmt_oscam == CAPMT_OSCAM_SO_WRAPPER ? adapter_num : 0;
 
   /* build SI tag */
   buf[pos++] = CAPMT_DESC_PID;
   buf[pos++] = 2;
   buf[pos++] = pmtpid >> 8;
   buf[pos++] = pmtpid;
+
+  if (capmt->capmt_oscam != CAPMT_OSCAM_SO_WRAPPER) {
+    /* build SI tag */
+    buf[pos++] = CAPMT_DESC_ADAPTER;
+    buf[pos++] = 1;
+    buf[pos++] = adapter_num;
+  }
 
   capmt_caid_ecm_t *cce2;
   LIST_FOREACH(cce2, &ct->ct_caid_ecm, cce_link) {
@@ -2482,7 +2493,8 @@ capmt_service_start(caclient_t *cac, service_t *s)
   tvh_cond_signal(&capmt->capmt_cond, 0);
 
 fin:
-  mtimer_arm_rel(&ct->ct_ok_timer, capmt_ok_timer_cb, ct, sec2mono(3)/2);
+  if (ct)
+    mtimer_arm_rel(&ct->ct_ok_timer, capmt_ok_timer_cb, ct, sec2mono(3)/2);
   pthread_mutex_unlock(&t->s_stream_mutex);
   pthread_mutex_unlock(&capmt->capmt_mutex);
 
@@ -2576,14 +2588,14 @@ caclient_capmt_class_cwmode_list ( void *o, const char *lang )
   return strtab2htsmsg(tab, 1, lang);
 }
 
-CLASS_DOC(caclient_capmt)
+CLASS_DOC(caclient)
 
 const idclass_t caclient_capmt_class =
 {
   .ic_super      = &caclient_class,
   .ic_class      = "caclient_capmt",
   .ic_caption    = N_("CAPMT (Linux Network DVBAPI)"),
-  .ic_doc        = tvh_doc_caclient_capmt_class,
+  .ic_doc        = tvh_doc_caclient_class,
   .ic_properties = (const property_t[]){
     {
       .type     = PT_INT,
@@ -2593,6 +2605,7 @@ const idclass_t caclient_capmt_class =
       .off      = offsetof(capmt_t, capmt_oscam),
       .list     = caclient_capmt_class_oscam_mode_list,
       .def.i    = CAPMT_OSCAM_NET_PROTO,
+      .opts     = PO_DOC_NLIST,
     },
     {
       .type     = PT_STR,
@@ -2618,6 +2631,7 @@ const idclass_t caclient_capmt_class =
       .off      = offsetof(capmt_t, capmt_cwmode),
       .list     = caclient_capmt_class_cwmode_list,
       .def.i    = CAPMT_CWMODE_AUTO,
+      .opts     = PO_DOC_NLIST,
     },
     { }
   }

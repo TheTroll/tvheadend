@@ -343,12 +343,22 @@ api_epg_grid
   if (str)
     eq.stitle = strdup(str);
   eq.fulltext = htsmsg_get_bool_or_default(args, "fulltext", 0);
+  eq.new_only = htsmsg_get_bool_or_default(args, "new", 0);
   str = htsmsg_get_str(args, "channel");
   if (str)
     eq.channel = strdup(str);
   str = htsmsg_get_str(args, "channelTag");
   if (str)
     eq.channel_tag = strdup(str);
+  str = htsmsg_get_str(args, "cat1");
+  if (str)
+    eq.cat1 = strdup(str);
+  str = htsmsg_get_str(args, "cat2");
+  if (str)
+    eq.cat2 = strdup(str);
+  str = htsmsg_get_str(args, "cat3");
+  if (str)
+    eq.cat3 = strdup(str);
 
   if (mode != NULL) {
       if (!strcmp(mode, "now")) {

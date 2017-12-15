@@ -1111,7 +1111,7 @@ cccam_send_cli_data(cccam_t *cccam)
   memcpy(buf + 20, cccam->cccam_nodeid, 8);
   buf[28] = 0; // TODO: wantemus = 1;
   memcpy(buf + 29, cccam_version_str[cccam->cccam_version], 32);
-  memcpy(buf + 61, "tvh", 32); // build number (ascii)
+  memcpy(buf + 61, "tvh", 3); // build number (ascii)
   cccam_send_msg(cccam, MSG_CLI_DATA, buf, 20 + 8 + 1 + 64, 0, 0, 0);
 }
 
@@ -1971,6 +1971,7 @@ const idclass_t caclient_cccam_class =
       .off      = offsetof(cccam_t, cccam_version),
       .list     = caclient_cccam_class_cccam_version_list,
       .def.i    = CCCAM_VERSION_2_3_0,
+      .opts     = PO_DOC_NLIST,
     },
 #if 0
     {
@@ -2019,4 +2020,3 @@ caclient_t *cccam_create(void)
   cccam->cccam_version = CCCAM_VERSION_2_3_0;
   return (caclient_t *)cccam;
 }
-

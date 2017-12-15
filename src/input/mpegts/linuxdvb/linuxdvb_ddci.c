@@ -96,7 +96,7 @@ typedef struct linuxdvb_ddci_rd_thread
 
 struct linuxdvb_ddci
 {
-  linuxdvb_ca_t             *lca;    /* back link to the associated CA */
+  linuxdvb_transport_t      *lcat;    /* back link to the associated CA transport */
   char                      *lddci_path;
   char                       lddci_id[6];
   int                        lddci_fdW;
@@ -457,10 +457,10 @@ linuxdvb_ddci_wr_thread_stop ( linuxdvb_ddci_wr_thread_t *ddci_wr_thread )
   /* See function linuxdvb_ddci_wr_thread_buffer_put why we lock here.
    */
 
-  pthread_mutex_lock(&(LDDCI_TO_THREAD(ddci_wr_thread))->lddci_thread_lock);
+  pthread_mutex_lock(&ddci_wr_thread->lddci_thread_lock);
   linuxdvb_ddci_thread_stop(LDDCI_TO_THREAD(ddci_wr_thread));
   linuxdvb_ddci_send_buffer_clear(&ddci_wr_thread->lddci_send_buffer);
-  pthread_mutex_unlock(&(LDDCI_TO_THREAD(ddci_wr_thread))->lddci_thread_lock);
+  pthread_mutex_unlock(&ddci_wr_thread->lddci_thread_lock);
 }
 
 static inline void
@@ -475,10 +475,10 @@ linuxdvb_ddci_wr_thread_buffer_put
    * linuxdvb_ddci_wr_thread_start will then re-init the queue and the wrongly
    * stored data is lost -> memory leak.
    */
-  pthread_mutex_lock(&(LDDCI_TO_THREAD(ddci_wr_thread))->lddci_thread_lock);
+  pthread_mutex_lock(&ddci_wr_thread->lddci_thread_lock);
   if (linuxdvb_ddci_thread_running(LDDCI_TO_THREAD(ddci_wr_thread)))
     linuxdvb_ddci_send_buffer_put(&ddci_wr_thread->lddci_send_buffer, tsb, len );
-  pthread_mutex_unlock(&(LDDCI_TO_THREAD(ddci_wr_thread))->lddci_thread_lock);
+  pthread_mutex_unlock(&ddci_wr_thread->lddci_thread_lock);
 }
 
 
@@ -625,7 +625,6 @@ linuxdvb_ddci_read_thread ( void *arg )
 
     nfds = tvhpoll_wait(efd, ev, 1, 150);
     if (nfds <= 0) continue;
-    assert(ev[0].data.fd == fd);
 
     /* Read */
     errno = 0;
@@ -746,14 +745,15 @@ linuxdvb_ddci_rd_thread_stop ( linuxdvb_ddci_rd_thread_t *ddci_rd_thread )
  *****************************************************************************/
 
 linuxdvb_ddci_t *
-linuxdvb_ddci_create ( linuxdvb_ca_t *lca, const char *ci_path)
+linuxdvb_ddci_create ( linuxdvb_transport_t *lcat, const char *ci_path)
 {
   linuxdvb_ddci_t *lddci;
 
   lddci = calloc(1, sizeof(*lddci));
-  lddci->lca = lca;
-  lddci->lddci_path  = strdup(ci_path);
-  snprintf(lddci->lddci_id, sizeof(lddci->lddci_id), "ci%u", lca->lca_number);
+  lddci->lcat = lcat;
+  lddci->lddci_path = strdup(ci_path);
+  snprintf(lddci->lddci_id, sizeof(lddci->lddci_id), "ci%u",
+           lcat->lcat_adapter->la_dvb_number);
   lddci->lddci_fdW = -1;
   lddci->lddci_fdR = -1;
   linuxdvb_ddci_wr_thread_init(lddci);
@@ -762,6 +762,17 @@ linuxdvb_ddci_create ( linuxdvb_ca_t *lca, const char *ci_path)
   tvhtrace(LS_DDCI, "created %s %s", lddci->lddci_id, lddci->lddci_path);
 
   return lddci;
+}
+
+void
+linuxdvb_ddci_destroy ( linuxdvb_ddci_t *lddci )
+{
+  if (!lddci)
+    return;
+  tvhtrace(LS_DDCI, "destroy %s %s", lddci->lddci_id, lddci->lddci_path);
+  linuxdvb_ddci_close(lddci);
+  free(lddci->lddci_path);
+  free(lddci);
 }
 
 void

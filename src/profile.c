@@ -281,7 +281,7 @@ CLASS_DOC(profile)
 const idclass_t profile_class =
 {
   .ic_class      = "profile",
-  .ic_caption    = N_("Stream Profile"),
+  .ic_caption    = N_("Stream - Stream Profiles"),
   .ic_event      = "profile",
   .ic_doc        = tvh_doc_profile_class,
   .ic_perm_def   = ACCESS_ADMIN,
@@ -354,7 +354,7 @@ const idclass_t profile_class =
                      "priority."),
       .list     = profile_class_priority_list,
       .off      = offsetof(profile_t, pro_prio),
-      .opts     = PO_SORTKEY | PO_ADVANCED,
+      .opts     = PO_SORTKEY | PO_ADVANCED | PO_DOC_NLIST,
       .def.i    = PROFILE_SPRIO_NORMAL,
       .group    = 1
     },
@@ -431,7 +431,7 @@ const idclass_t profile_class =
                      "multiple services are available for a channel."),
       .list     = profile_class_svfilter_list,
       .off      = offsetof(profile_t, pro_svfilter),
-      .opts     = PO_SORTKEY | PO_ADVANCED,
+      .opts     = PO_SORTKEY | PO_ADVANCED | PO_DOC_NLIST,
       .def.i    = PROFILE_SVF_NONE,
       .group    = 1
     },
@@ -1526,9 +1526,10 @@ const idclass_t profile_mpegts_spawn_class =
       .type     = PT_INT,
       .id       = "killsig",
       .name     = N_("Kill signal (pipe)"),
+      .desc     = N_("Kill signal to send to the spawn."),
       .off      = offsetof(profile_mpegts_spawn_t, pro_killsig),
       .list     = proplib_kill_list,
-      .opts     = PO_EXPERT,
+      .opts     = PO_EXPERT | PO_DOC_NLIST,
       .def.i    = TVH_KILL_TERM,
       .group    = 2
     },
@@ -1536,6 +1537,7 @@ const idclass_t profile_mpegts_spawn_class =
       .type     = PT_INT,
       .id       = "kill_timeout",
       .name     = N_("Kill timeout (pipe/secs)"),
+      .desc     = N_("Number of seconds to wait for spawn to die."),
       .off      = offsetof(profile_mpegts_spawn_t, pro_killtimeout),
       .opts     = PO_EXPERT,
       .def.i    = 15,
@@ -1750,6 +1752,7 @@ const idclass_t profile_audio_class =
       .id       = "type",
       .name     = N_("Audio type"),
       .desc     = N_("Pick the stream with given audio type only."),
+      .opts     = PO_DOC_NLIST,
       .off      = offsetof(profile_audio_t, pro_mc),
       .list     = profile_class_mc_audio_list,
       .group    = 1
@@ -2265,6 +2268,7 @@ const idclass_t profile_transcode_class =
       .off      = offsetof(profile_transcode_t, pro_mc),
       .def.i    = MC_MATROSKA,
       .list     = profile_class_mc_list,
+      .opts     = PO_DOC_NLIST,
       .group    = 1
     },
     {
@@ -2314,7 +2318,7 @@ const idclass_t profile_transcode_class =
       .off      = offsetof(profile_transcode_t, pro_src_vcodec),
       .def.i    = SCT_UNKNOWN,
       .list     = profile_class_src_vcodec_list,
-      .opts     = PO_ADVANCED,
+      .opts     = PO_ADVANCED | PO_DOC_NLIST,
       .group    = 2
     },
     {
