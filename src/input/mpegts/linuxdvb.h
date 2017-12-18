@@ -20,7 +20,7 @@
 #ifndef __TVH_LINUX_DVB_H__
 #define __TVH_LINUX_DVB_H__
 
-void linuxdvb_init ( int mask );
+void linuxdvb_init ( uint64_t mask );
 
 void linuxdvb_done ( void );
 

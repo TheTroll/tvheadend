@@ -22,9 +22,9 @@
 #include "settings.h"
 #include "linuxdvb_private.h"
 
-int linuxdvb_adapter_mask;
+uint64_t linuxdvb_adapter_mask;
 
-void linuxdvb_init ( int adapter_mask )
+void linuxdvb_init ( uint64_t adapter_mask )
 {
   linuxdvb_adapter_mask = adapter_mask;
 

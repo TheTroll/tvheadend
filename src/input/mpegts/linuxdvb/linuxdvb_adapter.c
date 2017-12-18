@@ -347,7 +347,7 @@ linuxdvb_check_ddci ( const char *ci_path )
 static void
 linuxdvb_adapter_add ( const char *path )
 {
-  extern int linuxdvb_adapter_mask;
+  extern uint64_t linuxdvb_adapter_mask;
   int a, i, j, r, fd;
   char fe_path[512], dmx_path[512], dvr_path[512], name[132];
 #if ENABLE_LINUXDVB_CA
@@ -372,6 +372,7 @@ linuxdvb_adapter_add ( const char *path )
   struct dtv_property cmd;
   linuxdvb_frontend_t *lfe;
 #endif
+  uint64_t one = 1;
 
   tvhtrace(LS_LINUXDVB, "scanning adapter %s", path);
 
@@ -379,7 +380,7 @@ linuxdvb_adapter_add ( const char *path )
   if (sscanf(path, "/dev/dvb/adapter%d", &a) != 1)
     return;
 
-  if (a >= 0 && a < 32 && (linuxdvb_adapter_mask & (1 << a)) == 0)
+  if (a >= 0 && a < 64 && (linuxdvb_adapter_mask & (one << a)) == 0)
     return;
 
   /* Note: some of the below can take a while, so we relinquish the lock

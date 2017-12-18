@@ -730,7 +730,7 @@ main(int argc, char **argv)
   int i;
   sigset_t set;
 #if ENABLE_MPEGTS
-  uint32_t adapter_mask = 0;
+  uint64_t adapter_mask = 0;
 #endif
   int  log_level   = LOG_INFO;
   int  log_options = TVHLOG_OPT_MILLIS | TVHLOG_OPT_STDERR | TVHLOG_OPT_SYSLOG;
@@ -972,7 +972,7 @@ main(int argc, char **argv)
     p = strtok_r(dvb_adapters, ",", &r);
     while (p) {
       int a = strtol(p, &e, 10);
-      if (*e != 0 || a > 31) {
+      if (*e != 0 || a > 63) {
         fprintf(stderr, _("Invalid adapter number '%s'\n"), p);
         free(dvb_adapters);
         return 1;
@@ -980,8 +980,10 @@ main(int argc, char **argv)
       i = 1;
       if (a < 0)
         adapter_mask = 0;
-      else
-        adapter_mask |= (1 << a);
+      else {
+        uint64_t one = 1;
+        adapter_mask |= (one << a);
+      }
       p = strtok_r(NULL, ",", &r);
     }
     free(dvb_adapters);
