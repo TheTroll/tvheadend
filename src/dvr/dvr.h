@@ -499,6 +499,12 @@ static inline int dvr_entry_is_editable(dvr_entry_t *de)
 static inline int dvr_entry_is_valid(dvr_entry_t *de)
   { return de->de_refcnt > 0; }
 
+static inline int dvr_entry_is_completed_ok(dvr_entry_t *de)
+  { assert(de->de_sched_state == DVR_COMPLETED);
+    return de->de_last_error == SM_CODE_OK ||
+           de->de_last_error == SM_CODE_FORCE_OK ||
+           de->de_last_error == SM_CODE_PREVIOUSLY_RECORDED; }
+
 char *dvr_entry_get_retention_string ( dvr_entry_t *de );
 
 char *dvr_entry_get_removal_string ( dvr_entry_t *de );
@@ -622,6 +628,8 @@ void dvr_entry_cancel_delete(dvr_entry_t *de, int rerecord);
 
 void dvr_entry_cancel_remove(dvr_entry_t *de, int rerecord);
 
+void dvr_entry_set_prevrec(dvr_entry_t *de, int cmd);
+
 int dvr_entry_file_moved(const char *src, const char *dst);
 
 void dvr_entry_destroy(dvr_entry_t *de, int delconf);
@@ -634,10 +642,11 @@ htsmsg_t *dvr_entry_class_retention_list ( void *o, const char *lang );
 htsmsg_t *dvr_entry_class_removal_list ( void *o, const char *lang );
 
 int dvr_entry_is_upcoming(dvr_entry_t *entry);
+int dvr_entry_is_upcoming_nodup(dvr_entry_t *entry);
 int dvr_entry_is_finished(dvr_entry_t *entry, int flags);
 int dvr_entry_verify(dvr_entry_t *de, access_t *a, int readonly);
 
-void dvr_entry_changed_notify(dvr_entry_t *de);
+void dvr_entry_changed(dvr_entry_t *de);
 
 void dvr_spawn_cmd(dvr_entry_t *de, const char *cmd, const char *filename, int pre);
 

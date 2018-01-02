@@ -83,10 +83,18 @@ static int en50221_capmt_check_pid
 }
 
 static int en50221_capmt_check_caid
-  (mpegts_service_t *s, uint16_t pid, uint16_t caid)
+  (mpegts_service_t *s, uint16_t pid, uint16_t caid,
+   const uint16_t *caids, int caids_count)
 {
   elementary_stream_t *st;
   caid_t *c;
+
+  for (; caids_count > 0; caids++, caids_count--)
+    if (caid == *caids)
+      break;
+
+  if (caids_count == 0)
+    return 0;
 
   TAILQ_FOREACH(st, &s->s_filt_components, es_link) {
     if (st->es_type != SCT_CA) continue;
@@ -104,6 +112,7 @@ static int en50221_capmt_check_caid
 
 int en50221_capmt_build
   (mpegts_service_t *s, int bcmd, uint16_t svcid,
+   const uint16_t *caids, int caids_count,
    const uint8_t *pmt, size_t pmtlen,
    uint8_t **capmt, size_t *capmtlen)
 {
@@ -149,7 +158,7 @@ int en50221_capmt_build
     if (dtag == DVB_DESC_CA && dlen >= 4) {
       caid = extract_2byte(p + 2);
       pid  = extract_pid(p + 4);
-      if (en50221_capmt_check_caid(s, pid, caid)) {
+      if (en50221_capmt_check_caid(s, pid, caid, caids, caids_count)) {
         if (first) {
           *x++ = cmd_id;
           first = 0;
@@ -167,16 +176,15 @@ int en50221_capmt_build
   put_len12(d + 4, x - d - 6); /* update length */
 
   while (tl >= 5) {
-    y = x;
     l = extract_len12(p + 3);
     if (l + 5 > tl)
       goto reterr;
     pid = extract_pid(p + 1);
-    memcpy(x, p, 3); /* stream type, PID */
     p  += 5;
     tl -= 5;
-    x  += 5;
     if (en50221_capmt_check_pid(s, pid)) {
+      memcpy(y = x, p - 5, 3); /* stream type, PID */
+      x += 5;
       first = 1;
       while (l > 1) {
         dtag = p[0];
@@ -184,7 +192,7 @@ int en50221_capmt_build
         if (dtag == DVB_DESC_CA && dlen >= 4) {
           caid = extract_2byte(p + 2);
           pid  = extract_pid(p + 4);
-          if (en50221_capmt_check_caid(s, pid, caid)) {
+          if (en50221_capmt_check_caid(s, pid, caid, caids, caids_count)) {
             if (first) {
               *x++ = cmd_id;
               first = 0;
@@ -199,12 +207,12 @@ int en50221_capmt_build
       }
       if (l)
         return -EINVAL;
+      y[3] = 0xf0;
+      put_len12(y + 3, x - y - 5);
     } else {
       p  += l;
       tl -= l;
     }
-    y[3] = 0xf0;
-    put_len12(y + 3, x - y - 5);
   }
 
   *capmt = d;
@@ -281,6 +289,7 @@ void en50221_capmt_dump
   uint16_t l, caid, pid;
   uint8_t dtag, dlen, stype;
   const uint8_t *p;
+  char hbuf[257];
 
   if (capmtlen < 6) {
     tvhtrace(subsys, "%s: CAPMT short length %zd", prefix, capmtlen);
@@ -309,8 +318,9 @@ void en50221_capmt_dump
         tvhtrace(subsys, "%s:   CAPMT wrong CA descriptor length %d (2)", prefix, l);
       } else {
         caid = extract_2byte(p + 2);
-        pid  = extract_pid(p + 3);
-        tvhtrace(subsys, "%s:   CAPMT CA descriptor caid %04X pid %04x length %d", prefix, caid, pid, dlen);
+        pid  = extract_pid(p + 4);
+        tvhtrace(subsys, "%s:   CAPMT CA descriptor caid %04X pid %04x length %d (%s)",
+                         prefix, caid, pid, dlen, bin2hex(hbuf, sizeof(hbuf), p + 6, dlen - 4));
       }
       p += dlen + 2;
       l -= dlen + 2;
@@ -339,8 +349,9 @@ void en50221_capmt_dump
           tvhtrace(subsys, "%s:     CAPMT ES wrong CA descriptor length %d (2)", prefix, l);
         } else {
           caid = extract_2byte(p + 2);
-          pid  = extract_pid(p + 3);
-          tvhtrace(subsys, "%s:     CAPMT ES CA descriptor caid %04X pid %04x length %d", prefix, caid, pid, dlen);
+          pid  = extract_pid(p + 4);
+          tvhtrace(subsys, "%s:     CAPMT ES CA descriptor caid %04X pid %04x length %d (%s)",
+                           prefix, caid, pid, dlen, bin2hex(hbuf, sizeof(hbuf), p + 6, dlen - 4));
         }
         p += dlen + 2;
         l -= dlen + 2;

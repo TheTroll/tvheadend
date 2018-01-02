@@ -392,6 +392,7 @@ dvr_autorec_add_series_link(const char *dvr_config_name,
   htsmsg_t *conf;
   const char *chname;
   char *title;
+  const char *name;
   if (!event || !event->episode)
     return NULL;
   chname = channel_get_name(event->channel, NULL);
@@ -399,8 +400,10 @@ dvr_autorec_add_series_link(const char *dvr_config_name,
     return NULL;
   conf = htsmsg_create_map();
   title = regexp_escape(epg_broadcast_get_title(event, NULL));
+  name = epg_broadcast_get_title(event, NULL);
   htsmsg_add_u32(conf, "enabled", 1);
   htsmsg_add_str(conf, "title", title);
+  htsmsg_add_str(conf, "name", name);
   free(title);
   htsmsg_add_str(conf, "config_name", dvr_config_name ?: "");
   htsmsg_add_str(conf, "channel", chname);
@@ -580,7 +583,7 @@ dvr_autorec_entry_class_title_set(void *o, const void *v)
     if (dae->dae_title)
       autorec_regfree(dae);
     dae->dae_error = 0;
-    if (!regex_compile(&dae->dae_title_regex, title, LS_DVR))
+    if (!regex_compile(&dae->dae_title_regex, title, TVHREGEX_CASELESS, LS_DVR))
       dae->dae_title = strdup(title);
     else
       dae->dae_error = 1;

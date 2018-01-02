@@ -129,7 +129,6 @@ access_ticket_create(const char *resource, access_t *a)
   char id[41];
   uint_fast32_t i;
   access_ticket_t *at;
-  static const char hex_string[16] = "0123456789ABCDEF";
 
   assert(a);
 
@@ -146,14 +145,8 @@ access_ticket_create(const char *resource, access_t *a)
 
   at = calloc(1, sizeof(access_ticket_t));
 
-  uuid_random(buf, 20);
-
-  //convert to hexstring
-  for (i=0; i < sizeof(buf); i++){
-    id[i*2] = hex_string[((buf[i] >> 4) & 0xF)];
-    id[(i*2)+1] = hex_string[(buf[i]) & 0x0F];
-  }
-  id[40] = '\0';
+  uuid_random(buf, sizeof(buf));
+  bin2hex(id, sizeof(id), buf, sizeof(buf));
 
   at->at_id = strdup(id);
   at->at_resource = strdup(resource);
@@ -161,7 +154,7 @@ access_ticket_create(const char *resource, access_t *a)
   at->at_access = access_copy(a);
   at->at_timer.mti_expire = mclk() + lifetime;
 
-  i = TAILQ_FIRST(&access_tickets) != NULL;
+  i = TAILQ_EMPTY(&access_tickets);
 
   TAILQ_INSERT_TAIL(&access_tickets, at, at_link);
 

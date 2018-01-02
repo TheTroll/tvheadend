@@ -224,6 +224,14 @@
     background-image: url(../icons/delete.png) !important;
 }
 
+.prevrec {
+    background-image: url(../icons/accept.png) !important;
+}
+
+.duprec {
+    background-image: url(../icons/control_repeat_blue.png) !important;
+}
+
 .cancel {
     background-image: url(../icons/cancel.png) !important;
 }

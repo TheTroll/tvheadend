@@ -57,6 +57,8 @@ static void dvr_timer_stop_recording(void *aux);
 static int dvr_entry_rerecord(dvr_entry_t *de);
 static time_t dvr_entry_get_segment_stop_extra(dvr_entry_t *de);
 
+static dvr_entry_t *_dvr_duplicate_event(dvr_entry_t *de);
+
 /*
  *
  */
@@ -135,6 +137,14 @@ int dvr_entry_is_upcoming(dvr_entry_t *entry)
   return state == DVR_RECORDING || state == DVR_SCHEDULED || state == DVR_NOSTATE;
 }
 
+int dvr_entry_is_upcoming_nodup(dvr_entry_t *entry)
+{
+  dvr_entry_sched_state_t state = entry->de_sched_state;
+  if (_dvr_duplicate_event(entry))
+    return 0;
+  return state == DVR_RECORDING || state == DVR_SCHEDULED || state == DVR_NOSTATE;
+}
+
 int dvr_entry_is_finished(dvr_entry_t *entry, int flags)
 {
   if (dvr_entry_is_upcoming(entry))
@@ -142,13 +152,17 @@ int dvr_entry_is_finished(dvr_entry_t *entry, int flags)
   if (!flags || (flags & DVR_FINISHED_ALL))
     return 1;
 
-  int removed = entry->de_file_removed ||                                               /* Removed by tvheadend */
-      (entry->de_sched_state != DVR_MISSED_TIME && dvr_get_filesize(entry, 0) == -1);   /* Removed externally? */
+  int removed = entry->de_file_removed ||                       /* Removed by tvheadend */
+                (entry->de_sched_state != DVR_MISSED_TIME &&
+                 dvr_get_filesize(entry, 0) < 0);		/* Removed externally? */
   int success = entry->de_sched_state == DVR_COMPLETED;
 
-  if (success && entry->de_last_error != SM_CODE_FORCE_OK)
-      success = entry->de_last_error == SM_CODE_OK &&
-                entry->de_data_errors < DVR_MAX_DATA_ERRORS;
+  if (success) {
+    if (entry->de_last_error == SM_CODE_OK)
+      success = entry->de_data_errors < DVR_MAX_DATA_ERRORS;
+    else
+      success = dvr_entry_is_completed_ok(entry);
+  }
 
   if ((flags & DVR_FINISHED_REMOVED_SUCCESS) && removed && success)
     return 1;
@@ -186,7 +200,7 @@ dvr_entry_verify(dvr_entry_t *de, access_t *a, int readonly)
  *
  */
 void
-dvr_entry_changed_notify(dvr_entry_t *de)
+dvr_entry_changed(dvr_entry_t *de)
 {
   idnode_changed(&de->de_id);
   htsp_dvr_entry_update(de);
@@ -261,7 +275,7 @@ dvr_entry_dont_rerecord(dvr_entry_t *de, int dont_rerecord)
   if (de->de_dont_rerecord ? 1 : 0 != dont_rerecord) {
     dvr_entry_trace(de, "don't rerecord change %d", dont_rerecord);
     de->de_dont_rerecord = dont_rerecord;
-    dvr_entry_changed_notify(de);
+    dvr_entry_changed(de);
   }
 }
 
@@ -556,7 +570,7 @@ dvr_entry_retention_timer(dvr_entry_t *de)
       return;
     }
     if (save)
-      dvr_entry_changed_notify(de);
+      dvr_entry_changed(de);
   }
 
   if (retention < DVR_RET_ONREMOVE &&
@@ -649,15 +663,14 @@ dvr_entry_status(dvr_entry_t *de)
       case SM_CODE_INVALID_TARGET:
         return N_("File not created");
       case SM_CODE_USER_ACCESS:
-        return N_("User access error");
       case SM_CODE_USER_LIMIT:
-        return N_("User limit reached");
       case SM_CODE_NO_SPACE:
+      case SM_CODE_PREVIOUSLY_RECORDED:
         return streaming_code2txt(de->de_last_error);
       default:
         break;
     }
-    if (dvr_get_filesize(de, 0) == -1 && !de->de_file_removed)
+    if (dvr_get_filesize(de, 0) < 0 && !de->de_file_removed)
       return N_("File missing");
     if(de->de_last_error != SM_CODE_FORCE_OK &&
        de->de_data_errors >= DVR_MAX_DATA_ERRORS) /* user configurable threshold? */
@@ -696,8 +709,8 @@ dvr_entry_schedstatus(dvr_entry_t *de)
     break;
   case DVR_COMPLETED:
     s = "completed";
-    if(de->de_last_error ||
-      (dvr_get_filesize(de, 0) == -1 && !de->de_file_removed))
+    if(!dvr_entry_is_completed_ok(de) ||
+       (dvr_get_filesize(de, 0) < 0 && !de->de_file_removed))
       s = "completedError";
     rerecord = de->de_dont_rerecord ? 0 : dvr_entry_get_rerecord_errors(de);
     if(rerecord && (de->de_errors || de->de_data_errors > rerecord))
@@ -1255,7 +1268,7 @@ dvr_entry_rerecord(dvr_entry_t *de)
         dvr_entry_cancel_delete(de2, 1);
       }
     } else if (de->de_sched_state == DVR_COMPLETED) {
-      if(dvr_get_filesize(de, 0) == -1) {
+      if(dvr_get_filesize(de, 0) < 0) {
 delete_me:
         dvr_entry_cancel_delete(de, 0);
         dvr_entry_rerecord(de2);
@@ -2157,7 +2170,7 @@ static dvr_entry_t *_dvr_entry_update
   /* Save changes */
 dosave:
   if (save) {
-    dvr_entry_changed_notify(de);
+    dvr_entry_changed(de);
     if (tvhlog_limit(&de->de_update_limit, 60)) {
       tvhinfo(LS_DVR, "\"%s\" on \"%s\": Updated%s (%s)",
               lang_str_get(de->de_title, NULL), DVR_CH_NAME(de),
@@ -4192,6 +4205,43 @@ dvr_entry_cancel(dvr_entry_t *de, int rerecord)
   return de;
 }
 
+/*
+ * Toggle/set/unset previously recorded state
+ */
+void
+dvr_entry_set_prevrec(dvr_entry_t *de, int cmd)
+{
+  if (de->de_sched_state == DVR_RECORDING)
+    return;
+
+  if (cmd < 0) /* toggle */
+    cmd = de->de_dont_reschedule ? 0 : 1;
+
+  if (cmd == !!de->de_dont_reschedule)
+    return;
+
+  if (cmd) {
+    de->de_dont_reschedule = 1;
+    de->de_dont_rerecord = 1;
+    de->de_file_removed = 1;
+    dvr_entry_completed(de, SM_CODE_PREVIOUSLY_RECORDED);
+  } else {
+    de->de_dont_reschedule = 0;
+    de->de_dont_rerecord = 0;
+    de->de_file_removed = 0;
+    dvr_entry_set_timer(de);
+  }
+
+  dvr_entry_retention_timer(de);
+
+  dvr_entry_changed(de);
+
+  tvhinfo(LS_DVR, "\"%s\" on \"%s\": "
+                  "%sset as previously recorded",
+                  lang_str_get(de->de_title, NULL), DVR_CH_NAME(de),
+                  cmd ? "" : "un");
+}
+
 /**
  * Called by 'dvr_entry_cancel_remove' and 'dvr_entry_cancel_delete'
  * delete = 0 -> remove finished and active recordings (visible as removed)
@@ -4213,7 +4263,7 @@ dvr_entry_cancel_delete_remove(dvr_entry_t *de, int rerecord, int _delete)
     if (_delete || dvr_entry_delete_retention_expired(de)) /* In case retention was postponed (retention < removal) */
       dvr_entry_destroy(de, 1);                            /* Delete database */
     else if (save) {
-      dvr_entry_changed_notify(de);
+      dvr_entry_changed(de);
       dvr_entry_retention_timer(de);                       /* As retention timer depends on file removal */
     }
     break;

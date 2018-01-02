@@ -702,7 +702,7 @@ htsp_channel_tag_get_identifier(channel_tag_t *ct)
 }
 
 static channel_tag_t *
-htsp_channel_tag_find_by_identifier(htsp_connection_t *htsp, uint32_t id)
+htsp_channel_tag_find_by_id(htsp_connection_t *htsp, uint32_t id)
 {
   channel_tag_t *ct;
 
@@ -1057,8 +1057,7 @@ htsp_build_dvrentry(htsp_connection_t *htsp, dvr_entry_t *de, const char *method
     fsize = dvr_get_filesize(de, DVR_FILESIZE_UPDATE);
     if (fsize < 0)
       error = "File missing";
-    else if(de->de_last_error != SM_CODE_OK &&
-            de->de_last_error != SM_CODE_FORCE_OK)
+    else if(!dvr_entry_is_completed_ok(de))
       error = streaming_code2txt(de->de_last_error);
     break;
   case DVR_MISSED_TIME:
@@ -1753,7 +1752,7 @@ htsp_method_epgQuery(htsp_connection_t *htsp, htsmsg_t *in)
       eq.channel = strdup(idnode_uuid_as_str(&ch->ch_id, ubuf));
   }
   if(!(htsmsg_get_u32(in, "tagId", &u32))) {
-    if (!(ct = htsp_channel_tag_find_by_identifier(htsp, u32)))
+    if (!(ct = htsp_channel_tag_find_by_id(htsp, u32)))
       return htsp_error(htsp, N_("Channel tag does not exist"));
     else
       eq.channel_tag = strdup(idnode_uuid_as_str(&ct->ct_id, ubuf));
@@ -2931,7 +2930,7 @@ htsp_method_file_close(htsp_connection_t *htsp, htsmsg_t *in)
       save = 1;
     }
     if (save)
-      dvr_entry_changed_notify(de);
+      dvr_entry_changed(de);
   }
 
   pthread_mutex_unlock(&global_lock);

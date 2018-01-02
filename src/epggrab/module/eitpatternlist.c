@@ -22,71 +22,97 @@
 #include "eitpatternlist.h"
 #include "htsmsg.h"
 
-void eit_pattern_compile_list ( eit_pattern_list_t *list, htsmsg_t *l )
+#define MAX_TEXT_LEN    2048
+
+void eit_pattern_compile_list ( eit_pattern_list_t *list, htsmsg_t *l, int flags )
 {
   eit_pattern_t *pattern;
   htsmsg_field_t *f;
   const char *s;
+  int filter;
 
   TAILQ_INIT(list);
   if (!l) return;
   HTSMSG_FOREACH(f, l) {
     s = htsmsg_field_get_str(f);
-    if (s == NULL) continue;
+    filter = 0;
+    if (s == NULL) {
+      htsmsg_t *m = htsmsg_field_get_map(f);
+      if (m == NULL) continue;
+      s = htsmsg_get_str(m, "pattern");
+      if (s == NULL) continue;
+      filter = htsmsg_get_bool_or_default(m, "filter", 0);
+    }
     pattern = calloc(1, sizeof(eit_pattern_t));
     pattern->text = strdup(s);
-    if (regcomp(&pattern->compiled, pattern->text, REG_EXTENDED)) {
+    pattern->filter = filter;
+    if (regex_compile(&pattern->compiled, pattern->text, flags, LS_EPGGRAB)) {
       tvhwarn(LS_EPGGRAB, "error compiling pattern \"%s\"", pattern->text);
       free(pattern->text);
       free(pattern);
     } else {
-      tvhtrace(LS_EPGGRAB, "compiled pattern \"%s\"", pattern->text);
+      tvhtrace(LS_EPGGRAB, "compiled pattern \"%s\", filter %d", pattern->text, pattern->filter);
       TAILQ_INSERT_TAIL(list, pattern, p_links);
     }
   }
 }
 
-void *eit_pattern_apply_list(char *buf, size_t size_buf, const char *text, eit_pattern_list_t *l)
+void eit_pattern_compile_named_list ( eit_pattern_list_t *list, htsmsg_t *m, const char *key)
 {
-    char *b[2] = { buf, NULL };
-    size_t s[2] = { size_buf, 0 };
-    return eit_pattern_apply_list_2(b, s, text, l);
+#if defined(TVHREGEX_TYPE)
+  htsmsg_t *m_alt = htsmsg_get_map(m, TVHREGEX_TYPE);
+  if (!m_alt)
+    m_alt = htsmsg_get_map(m, "pcre");
+  if (m_alt) {
+    htsmsg_t *res = htsmsg_get_list(m_alt, key);
+    if (res) {
+      eit_pattern_compile_list(list, res, 0);
+      return;
+    }
+  }
+#endif
+  eit_pattern_compile_list(list, htsmsg_get_list(m, key), TVHREGEX_POSIX);
 }
 
-void *eit_pattern_apply_list_2(char *buf[2], size_t size_buf[2], const char *text, eit_pattern_list_t *l)
+static void rtrim(char *buf)
 {
-  regmatch_t match[3];
-  eit_pattern_t *p;
-  ssize_t size;
+  size_t len = strlen(buf);
+  while (len > 0 && isspace(buf[len - 1]))
+    --len;
+  buf[len] = '\0';
+}
 
-  assert(buf[0]);
+void *eit_pattern_apply_list(char *buf, size_t size_buf, const char *text, eit_pattern_list_t *l)
+{
+  eit_pattern_t *p;
+  char textbuf[MAX_TEXT_LEN];
+  char matchbuf[MAX_TEXT_LEN];
+  int matchno;
+
+  assert(buf);
   assert(text);
 
   if (!l) return NULL;
-  /* search and report the first match */
+
+  /* search and concatenate all subgroup matches - there must be at least one */
   TAILQ_FOREACH(p, l, p_links)
-    if (!regexec(&p->compiled, text, 3, match, 0) && match[1].rm_so != -1) {
-      size = MIN(match[1].rm_eo - match[1].rm_so, size_buf[0] - 1);
-      if (size > 0) {
-        while (isspace(text[match[1].rm_so + size - 1]))
-          size--;
-        memcpy(buf[0], text + match[1].rm_so, size);
+    if (!regex_match(&p->compiled, text) &&
+        !regex_match_substring(&p->compiled, 1, buf, size_buf)) {
+      for (matchno = 2; ; ++matchno) {
+        if (regex_match_substring(&p->compiled, matchno, matchbuf, sizeof(matchbuf)))
+          break;
+        size_t len = strlen(buf);
+        strncat(buf, matchbuf, size_buf - len - 1);
       }
-      buf[0][size] = '\0';
-      if (match[2].rm_so != -1 && buf[1]) {
-          size = MIN(match[2].rm_eo - match[2].rm_so, size_buf[1] - 1);
-          if (size > 0) {
-              while (isspace(text[match[2].rm_so + size - 1]))
-                  size--;
-              memcpy(buf[1], text + match[2].rm_so, size);
-          }
-          buf[1][size] = '\0';
-          tvhtrace(LS_EPGGRAB,"  pattern \"%s\" matches with '%s' & '%s'", p->text, buf[0], buf[1]);
-      } else {
-          buf[1] = NULL;
-          tvhtrace(LS_EPGGRAB,"  pattern \"%s\" matches with '%s'", p->text, buf[0]);
+      rtrim(buf);
+      tvhtrace(LS_EPGGRAB,"  pattern \"%s\" matches '%s' from '%s'", p->text, buf, text);
+      if (p->filter) {
+        strncpy(textbuf, buf, MAX_TEXT_LEN - 1);
+        textbuf[MAX_TEXT_LEN - 1] = '\0';
+        text = textbuf;
+        continue;
       }
-      return buf[0];
+      return buf;
     }
   return NULL;
 }
@@ -99,7 +125,7 @@ void eit_pattern_free_list ( eit_pattern_list_t *l )
   while ((p = TAILQ_FIRST(l)) != NULL) {
     TAILQ_REMOVE(l, p, p_links);
     free(p->text);
-    regfree(&p->compiled);
+    regex_free(&p->compiled);
     free(p);
   }
 }

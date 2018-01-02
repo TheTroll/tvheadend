@@ -1087,7 +1087,7 @@ page_http_playlist(http_connection_t *hc, const char *remain, void *opaque)
   else if(nc == 2 && !strcmp(components[0], "dvrid"))
     de = dvr_entry_find_by_id(atoi(components[1]));
   else if(nc == 2 && !strcmp(components[0], "tagid"))
-    tag = channel_tag_find_by_identifier(atoi(components[1]));
+    tag = channel_tag_find_by_id(atoi(components[1]));
   else if(nc == 2 && !strcmp(components[0], "tagname"))
     tag = channel_tag_find_by_name(components[1], 0);
   else if(nc == 2 && !strcmp(components[0], "tag")) {
@@ -1421,7 +1421,7 @@ http_stream(http_connection_t *hc, const char *remain, void *opaque)
   } else if(!strcmp(components[0], "channel")) {
     ch = channel_find(components[1]);
   } else if(!strcmp(components[0], "service")) {
-    service = service_find_by_identifier(components[1]);
+    service = service_find_by_uuid(components[1]);
 #if ENABLE_MPEGTS
   } else if(!strcmp(components[0], "mux")) {
     // TODO: do we want to be able to force starting a particular instance
@@ -1762,7 +1762,7 @@ page_dvrfile_preop(http_connection_t *hc, off_t file_start,
       de = dvr_entry_find_by_id(atoi(priv->uuid));
     if (de && !dvr_entry_verify(de, hc->hc_access, 0)) {
       de->de_playcount = de->de_playcount + 1;
-      dvr_entry_changed_notify(de);
+      dvr_entry_changed(de);
     }
   }
   pthread_mutex_unlock(&global_lock);

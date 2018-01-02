@@ -80,10 +80,17 @@ api_dvr_entry_grid_upcoming
   ( access_t *perm, idnode_set_t *ins, api_idnode_grid_conf_t *conf, htsmsg_t *args )
 {
   dvr_entry_t *de;
+  int duplicates = htsmsg_get_s32_or_default(args, "duplicates", 1);
 
-  LIST_FOREACH(de, &dvrentries, de_global_link)
-    if (dvr_entry_is_upcoming(de))
-      idnode_set_add(ins, (idnode_t*)de, &conf->filter, perm->aa_lang_ui);
+  if (duplicates) {
+    LIST_FOREACH(de, &dvrentries, de_global_link)
+      if (dvr_entry_is_upcoming(de))
+        idnode_set_add(ins, (idnode_t*)de, &conf->filter, perm->aa_lang_ui);
+  } else {
+    LIST_FOREACH(de, &dvrentries, de_global_link)
+      if (dvr_entry_is_upcoming_nodup(de))
+        idnode_set_add(ins, (idnode_t*)de, &conf->filter, perm->aa_lang_ui);
+  }
 }
 
 static void
@@ -335,6 +342,45 @@ api_dvr_entry_remove
 }
 
 static void
+api_dvr_prevrec_toggle(access_t *perm, idnode_t *self)
+{
+  dvr_entry_set_prevrec((dvr_entry_t *)self, -1);
+}
+
+static int
+api_dvr_entry_prevrec_toggle
+  ( access_t *perm, void *opaque, const char *op, htsmsg_t *args, htsmsg_t **resp )
+{
+  return api_idnode_handler(&dvr_entry_class, perm, args, resp, api_dvr_prevrec_toggle, "prevrec", 0);
+}
+
+static void
+api_dvr_prevrec_unset(access_t *perm, idnode_t *self)
+{
+  dvr_entry_set_prevrec((dvr_entry_t *)self, 0);
+}
+
+static int
+api_dvr_entry_prevrec_unset
+  ( access_t *perm, void *opaque, const char *op, htsmsg_t *args, htsmsg_t **resp )
+{
+  return api_idnode_handler(&dvr_entry_class, perm, args, resp, api_dvr_prevrec_unset, "prevrec", 0);
+}
+
+static void
+api_dvr_prevrec_set(access_t *perm, idnode_t *self)
+{
+  dvr_entry_set_prevrec((dvr_entry_t *)self, 1);
+}
+
+static int
+api_dvr_entry_prevrec_set
+  ( access_t *perm, void *opaque, const char *op, htsmsg_t *args, htsmsg_t **resp )
+{
+  return api_idnode_handler(&dvr_entry_class, perm, args, resp, api_dvr_prevrec_set, "prevrec", 0);
+}
+
+static void
 api_dvr_move_finished(access_t *perm, idnode_t *self)
 {
   dvr_entry_move((dvr_entry_t *)self, 0);
@@ -531,6 +577,9 @@ void api_dvr_init ( void )
     { "dvr/entry/rerecord/allow",  ACCESS_RECORDER, api_dvr_entry_rerecord_allow, NULL },
     { "dvr/entry/stop",            ACCESS_RECORDER, api_dvr_entry_stop, NULL },   /* Stop active recording gracefully */
     { "dvr/entry/cancel",          ACCESS_RECORDER, api_dvr_entry_cancel, NULL }, /* Cancel scheduled or active recording */
+    { "dvr/entry/prevrec/toggle",  ACCESS_RECORDER, api_dvr_entry_prevrec_toggle, NULL },
+    { "dvr/entry/prevrec/set",     ACCESS_RECORDER, api_dvr_entry_prevrec_set, NULL },
+    { "dvr/entry/prevrec/unset",   ACCESS_RECORDER, api_dvr_entry_prevrec_unset, NULL },
     { "dvr/entry/remove",          ACCESS_RECORDER, api_dvr_entry_remove, NULL }, /* Remove recorded files from storage */
     { "dvr/entry/filemoved",       ACCESS_ADMIN,    api_dvr_entry_file_moved, NULL },
     { "dvr/entry/move/finished",   ACCESS_RECORDER, api_dvr_entry_move_finished, NULL },
