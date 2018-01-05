@@ -295,6 +295,7 @@ tvheadend.dvr_upcoming = function(panel, index) {
                 list + ',owner,creator' : list) + ',retention,removal';
     var duplicates = 0;
     var buttonFcn = tvheadend.dvrButtonFcn;
+    var columnId = null;
 
     var stopButton = {
         name: 'stop',
@@ -344,6 +345,10 @@ tvheadend.dvr_upcoming = function(panel, index) {
         }
     };
 
+    function updateDupText(button, dup) {
+        button.setText(dup ? _('Hide duplicates') : _('Show duplicates'));
+    }
+
     var dupButton = {
         name: 'dup',
         builder: function() {
@@ -355,7 +360,9 @@ tvheadend.dvr_upcoming = function(panel, index) {
         },
         callback: function(conf, e, store, select) {
             duplicates ^= 1;
-            this.setText(duplicates ? _('Hide duplicates') : _('Show duplicates'));
+            select.grid.colModel.setHidden(columnId, !duplicates);
+            select.grid.bottomToolbar.changePage(0);
+            updateDupText(this, duplicates);
             store.baseParams.duplicates = duplicates;
             store.reload();
         }
@@ -375,6 +382,15 @@ tvheadend.dvr_upcoming = function(panel, index) {
     function beforeedit(e, grid) {
         if (e.record.data.sched_status == 'recording')
             return false;
+    }
+
+    function viewready(grid) {
+        var d = grid.store.baseParams.duplicates;
+        updateDupText(grid.abuttons['dup'], d);
+        if (!d) {
+            columnId = grid.colModel.findColumnIndex('duplicate');
+            grid.colModel.setHidden(columnId, true);
+        }
     }
 
     tvheadend.idnode_grid(panel, {
@@ -441,7 +457,8 @@ tvheadend.dvr_upcoming = function(panel, index) {
         ],
         tbar: [stopButton, abortButton, prevrecButton, dupButton],
         selected: selected,
-        beforeedit: beforeedit
+        beforeedit: beforeedit,
+        viewready: viewready
     });
 
     return panel;
@@ -520,6 +537,34 @@ tvheadend.dvr_finished = function(panel, index) {
         }
     };
 
+    function groupingText(field) {
+        return field ? _('Enable grouping') : _('Disable grouping');
+    }
+
+    var groupingButton = {
+        name: 'grouping',
+        builder: function() {
+            return new Ext.Toolbar.Button({
+                tooltip: _('When enabled, group the recordings by the selected column.'),
+                iconCls: 'grouping',
+                text: _('Enable grouping')
+            });
+        },
+        callback: function(conf, e, store, select) {
+            this.setText(groupingText(store.groupField));
+            if (!store.groupField){
+                select.grid.view.enableGrouping = true;
+                select.grid.store.groupBy(store.sortInfo.field);
+                select.grid.fireEvent('groupchange', select.grid, store.getGroupState());
+                select.grid.view.refresh();
+            }else{
+                store.clearGrouping();
+                select.grid.view.enableGrouping = false;
+                select.grid.fireEvent('groupchange', select.grid, null);
+            }
+        }
+    };
+
     function selected(s, abuttons) {
         var r = s.getSelections();
         var b = r.length > 0 && r[0].data.filesize > 0;
@@ -527,6 +572,10 @@ tvheadend.dvr_finished = function(panel, index) {
         abuttons.rerecord.setDisabled(!b);
         abuttons.move.setDisabled(!b);
         abuttons.remove.setDisabled(!b);
+    }
+
+    function viewready(grid) {
+        grid.abuttons['grouping'].setText(groupingText(!grid.store.groupField));
     }
 
     tvheadend.idnode_grid(panel, {
@@ -537,7 +586,12 @@ tvheadend.dvr_finished = function(panel, index) {
         titleP: _('Finished Recordings'),
         iconCls: 'finishedRec',
         tabIndex: index,
-        edit: { params: { list: tvheadend.admin ? "playcount,retention,removal,owner,comment" : "retention,removal,comment" } },
+        edit: {
+            params: {
+                list: tvheadend.admin ? "playcount,retention,removal,owner,comment" :
+                                        "retention,removal,comment"
+            }
+        },
         del: false,
         list: 'disp_title,disp_subtitle,episode,channelname,' +
               'start_real,stop_real,duration,filesize,' +
@@ -552,8 +606,8 @@ tvheadend.dvr_finished = function(panel, index) {
             }
         },
         sort: {
-          field: 'start_real',
-          direction: 'ASC'
+            field: 'start_real',
+            direction: 'ASC'
         },
         plugins: [actions],
         lcol: [
@@ -569,8 +623,11 @@ tvheadend.dvr_finished = function(panel, index) {
                     return tvheadend.playLink('play/dvrfile/' + r.id, title);
                 }
             }],
-        tbar: [removeButton, downloadButton, rerecordButton, moveButton],
-        selected: selected
+        tbar: [removeButton, downloadButton, rerecordButton, moveButton, groupingButton],
+        selected: selected,
+        viewready: viewready,
+        viewTpl: '{text} ({[values.rs.length]} {[values.rs.length > 1 ? "' +
+                  _('Recordings') + '" : "' + _('Recording') + '"]})'
     });
 
     return panel;
@@ -668,7 +725,7 @@ tvheadend.dvr_failed = function(panel, index) {
         },
         sort: {
           field: 'start_real',
-          direction: 'ASC'
+          direction: 'DESC'
         },
         plugins: [actions],
         lcol: [
@@ -742,7 +799,7 @@ tvheadend.dvr_removed = function(panel, index) {
         },
         sort: {
           field: 'start_real',
-          direction: 'ASC'
+          direction: 'DESC'
         },
         plugins: [actions],
         lcol: [actions],

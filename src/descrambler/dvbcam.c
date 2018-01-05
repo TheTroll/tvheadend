@@ -35,11 +35,9 @@
 #define DVBCAM_SEL_FIRST    1
 #define DVBCAM_SEL_LAST     2
 
-#define CAIDS_PER_CA_SLOT   16
-
 typedef struct dvbcam_active_cam {
   TAILQ_ENTRY(dvbcam_active_cam) global_link;
-  uint16_t              caids[CAIDS_PER_CA_SLOT];
+  uint16_t              caids[32];
   int                   caids_count;
   linuxdvb_ca_t        *ca;
   uint8_t               slot;
@@ -72,10 +70,10 @@ typedef struct dvbcam {
   uint16_t caid_list[32];
 } dvbcam_t;
 
-TAILQ_HEAD(,dvbcam_active_service) dvbcam_active_services;
-TAILQ_HEAD(,dvbcam_active_cam) dvbcam_active_cams;
+static TAILQ_HEAD(,dvbcam_active_service) dvbcam_active_services;
+static TAILQ_HEAD(,dvbcam_active_cam) dvbcam_active_cams;
 
-pthread_mutex_t dvbcam_mutex;
+static pthread_mutex_t dvbcam_mutex;
 
 /*
  *
@@ -186,7 +184,7 @@ dvbcam_register_cam(linuxdvb_ca_t * lca, uint16_t * caids,
     ac->ca = lca;
   }
 
-  caids_count = MIN(CAIDS_PER_CA_SLOT, caids_count);
+  caids_count = MIN(ARRAY_SIZE(ac->caids), caids_count);
 
   memcpy(ac->caids, caids, caids_count * sizeof(uint16_t));
   ac->caids_count = caids_count;
@@ -834,6 +832,17 @@ const idclass_t caclient_dvbcam_class =
   .ic_super      = &caclient_class,
   .ic_class      = "caclient_dvbcam",
   .ic_caption    = N_("Linux DVB CAM Client"),
+  .ic_groups     = (const property_group_t[]) {
+    {
+      .name   = N_("Client"),
+      .number = 1,
+    },
+    {
+      .name   = N_("Common Interface"),
+      .number = 2,
+    },
+    {}
+  },
   .ic_properties = (const property_t[]){
     {
       .type     = PT_INT,
@@ -841,6 +850,7 @@ const idclass_t caclient_dvbcam_class =
       .name     = N_("Service limit"),
       .desc     = N_("Limit of concurrent descrambled services (per one CAM)."),
       .off      = offsetof(dvbcam_t, limit),
+      .group    = 2,
     },
     {
       .type     = PT_INT,
@@ -850,6 +860,7 @@ const idclass_t caclient_dvbcam_class =
       .list     = caclient_dvbcam_class_caid_selection_list,
       .off      = offsetof(dvbcam_t, caid_select),
       .opts     = PO_DOC_NLIST,
+      .group    = 2,
     },
     {
       .type     = PT_STR,
@@ -859,6 +870,7 @@ const idclass_t caclient_dvbcam_class =
                      "E.g. '0D00,0F00,0100'."),
       .set      = caclient_dvbcam_class_caid_list_set,
       .get      = caclient_dvbcam_class_caid_list_get,
+      .group    = 2,
     },
     {}
   }

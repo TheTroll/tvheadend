@@ -262,6 +262,7 @@ SRCS-1 = \
 	src/string_list.c \
 	src/wizard.c \
 	src/memoryinfo.c
+
 SRCS = $(SRCS-1)
 I18N-C = $(SRCS-1)
 
@@ -505,10 +506,16 @@ SRCS-TVHCSA = \
 SRCS-${CONFIG_TVHCSA} += $(SRCS-TVHCSA)
 I18N-C += $(SRCS-TVHCSA)
 
+# Cardclient
+SRCS-CARDCLIENT = \
+        src/descrambler/cclient.c \
+	src/descrambler/emm_reass.c
+SRCS-${CONFIG_CARDCLIENT} += $(SRCS-CARDCLIENT)
+I18N-C += $(SRCS-CARDCLIENT)
+
 # CWC
 SRCS-CWC = \
-	src/descrambler/cwc.c \
-	src/descrambler/emm_reass.c
+	src/descrambler/cwc.c
 SRCS-${CONFIG_CWC} += $(SRCS-CWC)
 I18N-C += $(SRCS-CWC)
 
@@ -575,6 +582,9 @@ SRCS-${CONFIG_SSL} += src/descrambler/algo/libdesdec.c
 
 # DBUS
 SRCS-${CONFIG_DBUS_1}  += src/dbus.c
+
+# Watchdog
+SRCS-${CONFIG_LIBSYSTEMD_DAEMON} += src/watchdog.c
 
 # File bundles
 SRCS-${CONFIG_BUNDLE}     += bundle.c

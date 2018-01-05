@@ -58,25 +58,21 @@ tvheadend.contentGroupFullLookupName = function(code) {
 };
 
 tvheadend.channelLookupName = function(key) {
-    channelString = "";
-
-    var index = tvheadend.channels.find('key', key);
-
+    var s = "";
+    var channels = tvheadend.getChannels();
+    var index = channels.find('key', key);
     if (index !== -1)
-        var channelString = tvheadend.channels.getAt(index).get('val');
-
-    return channelString;
+        s = channels.getAt(index).get('val');
+    return s;
 };
 
 tvheadend.channelTagLookupName = function(key) {
-    tagString = "";
-
-    var index = tvheadend.channelTags.find('key', key);
-
+    var s = "";
+    var tags = tvheadend.getChannelTags();
+    var index = tvheadend.tags.find('key', key);
     if (index !== -1)
-        var tagString = tvheadend.channelTags.getAt(index).get('val');
-
-    return tagString;
+        s = tags.getAt(index).get('val');
+    return s;
 };
 
 // Store for duration filters - EPG, autorec dialog and autorec rules in the DVR grid
@@ -273,7 +269,7 @@ tvheadend.epgDetails = function(event) {
           }));
         }
 
-        var confcombo = new Ext.form.ComboBox({
+        var confcombo = new Ext.ux.form.ComboAny({
             store: store,
             triggerAction: 'all',
             mode: 'local',
@@ -762,11 +758,11 @@ tvheadend.epg = function() {
 
     // Channels, uses global store
 
-    var epgFilterChannels = new Ext.form.ComboBox({
+    var epgFilterChannels = new Ext.ux.form.ComboAny({
         loadingText: _('Loading...'),
         width: 200,
         displayField: 'val',
-        store: tvheadend.channels,
+        store: tvheadend.getChannels(),
         mode: 'local',
         editable: true,
         forceSelection: true,
@@ -785,11 +781,11 @@ tvheadend.epg = function() {
 
     // Tags, uses global store
 
-    var epgFilterChannelTags = new Ext.form.ComboBox({
+    var epgFilterChannelTags = new Ext.ux.form.ComboAny({
         loadingText: _('Loading...'),
         width: 200,
         displayField: 'val',
-        store: tvheadend.channelTags,
+        store: tvheadend.getChannelTags(),
         mode: 'local',
         editable: true,
         forceSelection: true,
@@ -811,7 +807,7 @@ tvheadend.epg = function() {
     /// We have to pass the name, not the field, since the
     /// field is deleted and re-created inside clear filter.
     function createFilterCat(clearFilter, cat) {
-      var filter = new Ext.form.ComboBox({
+      var filter = new Ext.ux.form.ComboAny({
         loadingText: _('Loading...'),
         width: 200,
         displayField: 'val',
@@ -862,7 +858,7 @@ tvheadend.epg = function() {
 
     // Content groups
 
-    var epgFilterContentGroup = new Ext.form.ComboBox({
+    var epgFilterContentGroup = new Ext.ux.form.ComboAny({
         loadingText: _('Loading...'),
         width: 200,
         displayField: 'val',
@@ -883,7 +879,7 @@ tvheadend.epg = function() {
         }
     });
 
-    var epgFilterDuration = new Ext.form.ComboBox({
+    var epgFilterDuration = new Ext.ux.form.ComboAny({
         loadingText: _('Loading...'),
         width: 150,
         displayField: 'label',

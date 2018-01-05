@@ -74,6 +74,7 @@
 #include "packet.h"
 #include "streaming.h"
 #include "memoryinfo.h"
+#include "watchdog.h"
 #if CONFIG_LINUXDVB_CA
 #include "input/mpegts/en50221/en50221.h"
 #endif
@@ -1217,6 +1218,7 @@ main(int argc, char **argv)
   tvhftrace(LS_MAIN, esfilter_init);
   tvhftrace(LS_MAIN, bouquet_init);
   tvhftrace(LS_MAIN, service_init);
+  tvhftrace(LS_MAIN, descrambler_init);
   tvhftrace(LS_MAIN, dvb_init);
 #if ENABLE_MPEGTS
   tvhftrace(LS_MAIN, mpegts_init, adapter_mask, opt_nosatip, &opt_satip_xml,
@@ -1236,7 +1238,6 @@ main(int argc, char **argv)
   tvhftrace(LS_MAIN, upnp_server_init, opt_bindaddr);
 #endif
   tvhftrace(LS_MAIN, service_mapper_init);
-  tvhftrace(LS_MAIN, descrambler_init);
   tvhftrace(LS_MAIN, epggrab_init);
   tvhftrace(LS_MAIN, epg_init);
   tvhftrace(LS_MAIN, dvr_init);
@@ -1255,6 +1256,8 @@ main(int argc, char **argv)
   epg_in_load = 0;
 
   pthread_mutex_unlock(&global_lock);
+
+  tvhftrace(LS_MAIN, watchdog_init);
 
   /**
    * Wait for SIGTERM / SIGINT, but only in this thread
@@ -1381,6 +1384,8 @@ main(int argc, char **argv)
 #endif
   tvh_gettext_done();
   free((char *)tvheadend_webroot);
+
+  tvhftrace(LS_MAIN, watchdog_done);
   return 0;
 }
 

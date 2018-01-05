@@ -412,7 +412,6 @@ tvheadend.IdNodeField = function(conf)
     this.editor = function(conf)
     {
         var cons = null;
-        var combo = false;
 
         /* Editable? */
         var d = this.rdonly;
@@ -447,7 +446,7 @@ tvheadend.IdNodeField = function(conf)
                 c['fromLegend'] = _('Available');
 
             } else {
-                cons = Ext.form.ComboBox;
+                cons = Ext.ux.form.ComboAny;
                 if (this.list) {
                     cons = Ext.ux.form.LovCombo;
                     c['checkField'] = 'checked_' + this.id;
@@ -460,8 +459,6 @@ tvheadend.IdNodeField = function(conf)
                 c['forceSelection'] = false;
                 c['triggerAction'] = 'all';
                 c['emptyText'] = _('Select {0} ...').replace('{0}', this.text);
-
-                combo = true;
             }
 
             /* Single */
@@ -509,10 +506,7 @@ tvheadend.IdNodeField = function(conf)
             }
         }
 
-        var r = new cons(c);
-        if (combo)
-            r.doQuery = tvheadend.doQueryAnyMatch;
-        return r;
+        return new cons(c);
     };
 };
 
@@ -694,7 +688,7 @@ tvheadend.idnode_editor_field = function(f, conf)
 
     /* Enumerated (combobox) type */
     } else if (f['enum']) {
-        var cons = Ext.form.ComboBox;
+        var cons = Ext.ux.form.ComboAny;
         if (f.list)
             cons = Ext.ux.form.LovCombo;
         var st = tvheadend.idnode_enum_store(f);
@@ -719,8 +713,6 @@ tvheadend.idnode_editor_field = function(f, conf)
                 }
             }
         });
-
-        r.doQuery = tvheadend.doQueryAnyMatch;
 
         if (st.on) {
             var fn = function() {
@@ -1626,6 +1618,7 @@ tvheadend.idnode_grid = function(panel, conf)
     var event = null;
     var auto = null;
     var idnode = null;
+    var groupReader = null;
 
     var update = function(o) {
         if ((o.create || o.moveup || o.movedown || 'delete' in o) && auto.getValue()) {
@@ -1728,15 +1721,31 @@ tvheadend.idnode_grid = function(panel, conf)
         var params = {};
         if (conf.all) params['all'] = 1;
         if (conf.extraParams) conf.extraParams(params);
-        store = new Ext.data.JsonStore({
+
+        groupReader = new Ext.data.JsonReader({
+            totalProperty: 'total',
             root: 'entries',
+            fields: fields,
+            idProperty: 'uuid'
+        });
+
+        store = new Ext.data.GroupingStore({
             url: conf.gridURL || (conf.url + '/grid'),
             baseParams: params,
             autoLoad: true,
             id: 'uuid',
-            totalProperty: 'total',
-            fields: fields,
-            remoteSort: true,
+            remoteSort: true, //  We lost multi sort at server side :-(, maybe perexg has a better idea
+            reader: groupReader,
+            remoteGroup: true,
+            groupField: conf.groupField ? conf.groupField : false,
+            groupDir: 'ASC',
+            groupOnSort: true,
+            /*multiSort: true,
+            multiSortInfo:{
+               sorters: [{field : 'disp_title', direction : 'ASC'},
+                         conf.sort ? conf.sort : null],
+               direction: 'ASC'
+            },*/
             pruneModifiedRecords: true,
             sortInfo: conf.sort ? conf.sort : null
         });
@@ -2093,9 +2102,15 @@ tvheadend.idnode_grid = function(panel, conf)
             cm: model,
             selModel: select,
             plugins: plugins,
-            viewConfig: {
-                forceFit: true
-            },
+            view: new Ext.grid.GroupingView({
+                forceFit: true,
+                startCollapsed: true,
+                showGroupName: false,
+                // custom grouping text template to display the number of recordings per group
+                groupTextTpl: conf.viewTpl ||
+                              '{text} ({[values.rs.length]} {[values.rs.length > 1 ? "' +
+                              _('Items') + '" : "' + _('Item') + '"]})'
+            }),
             keys: {
                 key: 'a',
                 ctrl: true,
@@ -2112,8 +2127,14 @@ tvheadend.idnode_grid = function(panel, conf)
         grid.on('filterupdate', function() {
             page.changePage(0);
         });
+
         if (conf.beforeedit)
-          grid.on('beforeedit', conf.beforeedit);
+            grid.on('beforeedit', conf.beforeedit);
+
+        if (conf.viewready)
+            grid.on('viewready', conf.viewready);
+
+        grid.abuttons = abuttons;
 
         dpanel.add(grid);
         dpanel.doLayout(false, true);
