@@ -42,8 +42,6 @@
 #include "htsmsg_json.h"
 #include "compat.h"
 
-const char* proxys[] = { "10.1.0.2", "10.2.0.2", "10.4.0.2", "10.4.0.3", "10.4.0.4", "10.4.0.5", "10.5.0.2" };
-
 #if ENABLE_ANDROID
 #include <sys/socket.h>
 #endif
@@ -1087,38 +1085,18 @@ http_access_verify(http_connection_t *hc, int mask)
 {
   struct http_verify_structure v;
   int res = -1;
-  int i;
 
   http_access_verify_ticket(hc);
   if (hc->hc_access)
     res = access_verify2(hc->hc_access, mask);
 
   if (res) {
-    struct sockaddr_storage real_peer = {0, }, *peer;
-    char authbuf[128]; int port; char *xff;
-
-    tcp_get_str_from_ip_port((struct sockaddr_storage*)hc->hc_peer, authbuf, sizeof(authbuf), &port);
-    peer = (struct sockaddr_storage *)hc->hc_peer;
-
-    for (i=0; i<sizeof(proxys)/sizeof(const char*); i++) {
-      if (!strcmp(proxys[i], authbuf)) {
-        xff = http_arg_get(&hc->hc_args, "x-forwarded-for");
-        if (xff) {
-          // Hack, for AF_INET
-          real_peer.ss_family = AF_INET;
-
-          tcp_get_sockaddr(&real_peer, xff);
-          peer = &real_peer;
-        }
-      }
-    }
-
     access_destroy(hc->hc_access);
     if (http_verify_prepare(hc, &v)) {
       hc->hc_access = NULL;
       return -1;
     }
-    hc->hc_access = access_get(peer, hc->hc_username,
+    hc->hc_access = access_get(hc->hc_peer, hc->hc_username,
                                http_verify_callback, &v);
     http_verify_free(&v);
     if (hc->hc_access)
@@ -1377,30 +1355,21 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
 {
   char *v, *argv[2];
   int n, rval = -1;
-  char authbuf[64];
+  char authbuf[150];
   int port;
-  struct sockaddr_storage real_peer = {0, };
-  int i;
+  
 
   hc->hc_url_orig = tvh_strdupa(hc->hc_url);
 
-  tcp_get_str_from_ip_port((struct sockaddr_storage*)hc->hc_peer, authbuf, sizeof(authbuf), &port);
-
-  for (i=0; i<sizeof(proxys)/sizeof(const char*); i++) {
-    if (!strcmp(proxys[i], authbuf)) {
-      v = (config.proxy) ? http_arg_get(&hc->hc_args, "X-Forwarded-For") : NULL;
-      if (v)
-      {
-        // Hack, for AF_INET
-        real_peer.ss_family = AF_INET;
-        tcp_get_sockaddr(&real_peer, v);
-
-        tcp_get_str_from_ip_port(&real_peer, authbuf, sizeof(authbuf), &port);
-        strcat(authbuf, "+");
-        strcat(authbuf, proxys[i]);
-      }
+  v = (config.proxy) ? http_arg_get(&hc->hc_args, "X-Forwarded-For") : NULL;
+  if (v) {
+    if (tcp_get_ip_from_str(v, hc->hc_peer) == NULL) {
+      http_error(hc, HTTP_STATUS_BAD_REQUEST);
+      return -1;
     }
   }
+
+  tcp_get_str_from_ip_port(hc->hc_peer, authbuf, sizeof(authbuf), &port);
 
   hc->hc_peer_ipstr = tvh_strdupa(authbuf);
   hc->hc_peer_port = port;
