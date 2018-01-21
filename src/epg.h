@@ -22,6 +22,7 @@
 #include "tvhregex.h"
 #include "settings.h"
 #include "lang_str.h"
+#include "string_list.h"
 #include "access.h"
 
 /*
@@ -31,7 +32,6 @@ struct channel;
 struct channel_tag;
 struct dvr_entry;
 struct epggrab_module;
-struct string_list;
 
 /*
  * Map/List types
@@ -420,7 +420,7 @@ int epg_episode_set_age_rating
 
 // Note: this does NOT strdup the text field
 void epg_episode_get_epnum
-  ( epg_episode_t *e, epg_episode_num_t *epnum );
+  ( const epg_episode_t *e, epg_episode_num_t *epnum );
 /* EpNum format helper */
 // output string will be:
 // if (episode_num) 
@@ -431,13 +431,23 @@ void epg_episode_get_epnum
 //   ret += sprintf(efmt, episode_num)
 //   if (episode_cnt) ret += sprintf(cfmt, episode_cnt)
 // and will return num chars written
+size_t epg_episode_epnum_format
+  ( epg_episode_num_t *epnum, char *buf, size_t len,
+    const char *pre,  const char *sfmt,
+    const char *sep,  const char *efmt,
+    const char *cfmt );
 size_t epg_episode_number_format 
   ( epg_episode_t *e, char *buf, size_t len,
     const char *pre,  const char *sfmt,
     const char *sep,  const char *efmt,
     const char *cfmt );
-int  epg_episode_number_cmp
-  ( epg_episode_num_t *a, epg_episode_num_t *b );
+int epg_episode_number_cmp
+  ( const epg_episode_num_t *a, const epg_episode_num_t *b );
+int epg_episode_number_cmpfull
+  ( const epg_episode_num_t *a, const epg_episode_num_t *b );
+
+htsmsg_t *epg_episode_epnum_serialize( epg_episode_num_t *num );
+void epg_episode_epnum_deserialize( htsmsg_t *m, epg_episode_num_t *num );
 
 /* Matching */
 int epg_episode_fuzzy_match
@@ -523,16 +533,16 @@ struct epg_broadcast
   lang_str_t                *description;      ///< Description
   htsmsg_t                  *credits;          ///< Cast/Credits map of name -> role type (actor, presenter, director, etc).
   lang_str_t                *credits_cached;   ///< Comma separated cast (for regex searching in GUI/autorec). Kept in sync with cast_map
-  struct string_list        *category;         ///< Extra categories (typically from xmltv) such as "Western" or "Sumo Wrestling".
+  string_list_t             *category;         ///< Extra categories (typically from xmltv) such as "Western" or "Sumo Wrestling".
                                                ///< These extra categories are often a superset of our EN 300 468 DVB genre.
                                                ///< Used with drop-down lists in the GUI.
-  struct string_list        *keyword;          ///< Extra keywords (typically from xmltv) such as "Wild West" or "Unicorn".
+  string_list_t             *keyword;          ///< Extra keywords (typically from xmltv) such as "Wild West" or "Unicorn".
   lang_str_t                *keyword_cached;   ///< Cached CSV version for regex searches.
   RB_ENTRY(epg_broadcast)    sched_link;       ///< Schedule link
   LIST_ENTRY(epg_broadcast)  ep_link;          ///< Episode link
   epg_episode_t             *episode;          ///< Episode shown
   LIST_ENTRY(epg_broadcast)  sl_link;          ///< SeriesLink link
-  epg_serieslink_t          *serieslink;       ///< SeriesLink;
+  epg_serieslink_t          *serieslink;       ///< SeriesLink
   struct channel            *channel;          ///< Channel being broadcast on
 
   /* DVR */
@@ -598,13 +608,13 @@ int epg_broadcast_set_description
   ( epg_broadcast_t *b, const lang_str_t *str, uint32_t *changed )
   __attribute__((warn_unused_result));
 int epg_broadcast_set_credits
-( epg_broadcast_t *b, const htsmsg_t* msg, uint32_t *changed )
+( epg_broadcast_t *b, const htsmsg_t *msg, uint32_t *changed )
   __attribute__((warn_unused_result));
 int epg_broadcast_set_category
-( epg_broadcast_t *b, const struct string_list* msg, uint32_t *changed )
+( epg_broadcast_t *b, const string_list_t *msg, uint32_t *changed )
   __attribute__((warn_unused_result));
 int epg_broadcast_set_keyword
-( epg_broadcast_t *b, const struct string_list* msg, uint32_t *changed )
+( epg_broadcast_t *b, const string_list_t *msg, uint32_t *changed )
   __attribute__((warn_unused_result));
 int epg_broadcast_set_serieslink
   ( epg_broadcast_t *b, epg_serieslink_t *sl, uint32_t *changed )

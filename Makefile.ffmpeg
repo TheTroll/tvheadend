@@ -635,9 +635,11 @@ $(LIB_ROOT)/$(FFMPEG)/.tvh_build: \
 	cd $(LIB_ROOT)/$(FFMPEG) && $(CONFIGURE) \
 		--disable-all \
 		--enable-gpl \
+		--enable-nonfree \
 		--extra-cflags="$(ECFLAGS)" \
 		--extra-libs="$(ELIBS)" \
 		--pkg-config="$(ROOTDIR)/support/pkg-config.ffmpeg" \
+		--enable-openssl --enable-protocol=tls_openssl \
 		$(foreach component,$(COMPONENTS),--enable-$(component)) \
 		$(foreach extlib,$(EXTLIBS),--enable-$(extlib)) \
 		$(foreach protocol,$(PROTOCOLS),--enable-protocol=$(protocol)) \

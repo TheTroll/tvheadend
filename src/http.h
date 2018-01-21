@@ -138,6 +138,7 @@ typedef struct http_connection {
   int hc_peer_port;
   struct sockaddr_storage *hc_self;
   char *hc_representative;
+  struct sockaddr_storage *hc_proxy_ip;
   struct sockaddr_storage *hc_local_ip;
 
   pthread_mutex_t  *hc_paths_mutex;

@@ -218,11 +218,14 @@ autorec_cmp(dvr_autorec_entry_t *dae, epg_broadcast_t *e)
   }
 
   if (e->category) {
-    if (dae->dae_cat1 && *dae->dae_cat1 && !string_list_contains_string(e->category, dae->dae_cat1))
+    if (dae->dae_cat1 && *dae->dae_cat1 &&
+        !string_list_contains_string(e->category, dae->dae_cat1))
       return 0;
-    if (dae->dae_cat2 && *dae->dae_cat2 && !string_list_contains_string(e->category, dae->dae_cat2))
+    if (dae->dae_cat2 && *dae->dae_cat2 &&
+        !string_list_contains_string(e->category, dae->dae_cat2))
       return 0;
-    if (dae->dae_cat3 && *dae->dae_cat3 && !string_list_contains_string(e->category, dae->dae_cat3))
+    if (dae->dae_cat3 && *dae->dae_cat3 &&
+        !string_list_contains_string(e->category, dae->dae_cat3))
       return 0;
   } else if ((dae->dae_cat1 && *dae->dae_cat1) ||
              (dae->dae_cat2 && *dae->dae_cat2) ||
@@ -449,6 +452,9 @@ autorec_entry_destroy(dvr_autorec_entry_t *dae, int delconf)
   free(dae->dae_owner);
   free(dae->dae_creator);
   free(dae->dae_comment);
+  free(dae->dae_cat1);
+  free(dae->dae_cat2);
+  free(dae->dae_cat3);
 
   autorec_regfree(dae);
 
@@ -840,9 +846,9 @@ dvr_autorec_entry_class_weekdays_rend(uint32_t weekdays, const char *lang)
   size_t l;
   int i;
   if (weekdays == 0x7f)
-    strcpy(buf + 1, tvh_gettext_lang(lang, N_("Every day")));
+    snprintf(buf, sizeof(buf), "%s", tvh_gettext_lang(lang, N_("Every day")));
   else if (weekdays == 0)
-    strcpy(buf + 1, tvh_gettext_lang(lang, N_("No days")));
+    snprintf(buf, sizeof(buf), "%s", tvh_gettext_lang(lang, N_("No days")));
   else {
     buf[0] = '\0';
     for (i = 0; i < 7; i++)
@@ -934,7 +940,7 @@ dvr_autorec_entry_class_star_rating_set(void *o, const void *v)
 {
   dvr_autorec_entry_t *dae = (dvr_autorec_entry_t *)o;
   const uint16_t *val = (uint16_t*)v;
-  if (*val < 0 || *val > 100)
+  if (*val > 100)
     return 0;
   dae->dae_star_rating = *val;
   return 1;

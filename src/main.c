@@ -139,7 +139,7 @@ static cmdline_opt_t* cmdline_opt_find
 /*
  * Globals
  */
-int              tvheadend_running;
+int              tvheadend_running; /* do not use directly: tvheadend_is_running() */
 int              tvheadend_webui_port;
 int              tvheadend_webui_debug;
 int              tvheadend_htsp_port;
@@ -1342,7 +1342,6 @@ main(int argc, char **argv)
   tvhtrace(LS_MAIN, "mtimer tick thread join leave");
 
   tvhftrace(LS_MAIN, dvb_done);
-  tvhftrace(LS_MAIN, lang_str_done);
   tvhftrace(LS_MAIN, esfilter_done);
   tvhftrace(LS_MAIN, profile_done);
   tvhftrace(LS_MAIN, libav_done);

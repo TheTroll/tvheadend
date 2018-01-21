@@ -55,7 +55,7 @@ ts_recv_hbbtv_cb(mpegts_psi_table_t *mt, const uint8_t *buf, int len)
     return;
 
   r = dvb_table_begin(mt, buf + 3, len - 3,
-                      tableid, app_type, 5, &tst, &sect, &last, &ver);
+                      tableid, app_type, 5, &tst, &sect, &last, &ver, 0);
   if (r != 1) return;
 
   p = buf;
@@ -82,14 +82,14 @@ ts_recv_hbbtv_cb(mpegts_psi_table_t *mt, const uint8_t *buf, int len)
       switch (dtag) {
       case DVB_DESC_APP:
         l3 = *dptr++; dlen--;
-        if (l3 % 5) goto dvberr;
-        while (l3 >= 5) {
+        if (l3 > dlen || (l3 % 5)) goto dvberr;
+        while (dlen >= 5 && l3 >= 5) {
           tvhtrace(mt->mt_subsys, "%s:     profile %04X %d.%d.%d", mt->mt_name, (dptr[0] << 8) | dptr[1], dptr[2], dptr[3], dptr[4]);
           dptr += 5;
           dlen -= 5;
           l3 -= 5;
         }
-        if (dlen < 3) goto dvberr;
+        if (dlen < 3 || l3 < 3) goto dvberr;
         flags = dptr[0];
         tvhtrace(mt->mt_subsys, "%s:     flags %02X prio %02X", mt->mt_name, dptr[0], dptr[1]);
         dptr += 2;
@@ -153,6 +153,7 @@ ts_recv_hbbtv_cb(mpegts_psi_table_t *mt, const uint8_t *buf, int len)
       htsmsg_add_msg(apps, NULL, map);
     } else {
       htsmsg_destroy(titles);
+      titles = NULL;
     }
   }
   if (l2 != 0)

@@ -357,9 +357,24 @@ dvr_sub_title(const char *id, const char *fmt, const void *aux, char *tmp, size_
 }
 
 static const char *
+dvr_sub_subtitle_or_summary(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen)
+{
+  const dvr_entry_t *de = aux;
+  const char *s = lang_str_get(de->de_subtitle, NULL);
+  if (s == NULL) s = lang_str_get(de->de_summary, NULL);
+  return dvr_do_prefix(id, fmt, s, tmp, tmplen);
+}
+
+static const char *
 dvr_sub_subtitle(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen)
 {
   return dvr_do_prefix(id, fmt, lang_str_get(((dvr_entry_t *)aux)->de_subtitle, NULL), tmp, tmplen);
+}
+
+static const char *
+dvr_sub_summary(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen)
+{
+  return dvr_do_prefix(id, fmt, lang_str_get(((dvr_entry_t *)aux)->de_summary, NULL), tmp, tmplen);
 }
 
 static const char *
@@ -394,7 +409,18 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
   *tmp = 0;
   const char *title    = lang_str_get(de->de_title, NULL);
   const char *subtitle = lang_str_get(de->de_subtitle, NULL);
+  const char *summary  = lang_str_get(de->de_summary, NULL);
   const char *desc     = lang_str_get(de->de_desc, NULL);
+
+  /* Pick summary as subtitle if appropriate */
+  if (summary) {
+    if (subtitle == NULL) {
+      subtitle = summary;
+    } else if (strlen(subtitle) < strlen(summary)) {
+      if (strlen(subtitle) < 10)
+        subtitle = summary;
+    }
+  }
 
   if (subtitle && desc && strcmp(subtitle, desc) == 0) {
     /* Subtitle and description are identical so assume they are from
@@ -405,16 +431,18 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
     subtitle = NULL;
   }
 
-  char title_buf[512] = { 0 };
-  char subtitle_buf[512] = { 0 };
+  const size_t title_buf_size = title ? strlen(title) + 1 : 0;
+  char *title_buf = title ? alloca(title_buf_size) : NULL;
+  const size_t subtitle_buf_size = title ? strlen(title) + 1 : 0;
+  char *subtitle_buf = subtitle ? alloca(subtitle_buf_size) : NULL;
   /* Copy a cleaned version in to our buffers.
    * Since dvr_clean_directory_separator _can_ modify source if source!=dest
    * it means we have to remove our const when we call it.
    */
   if (title)
-    dvr_clean_directory_separator((char*)title,    title_buf,    sizeof title_buf);
+    dvr_clean_directory_separator((char*)title,    title_buf,    title_buf_size);
   if (subtitle)
-    dvr_clean_directory_separator((char*)subtitle, subtitle_buf, sizeof subtitle_buf);
+    dvr_clean_directory_separator((char*)subtitle, subtitle_buf, subtitle_buf_size);
 
   int is_movie = 0;
   /* Override options on the format tag. This is useful because my OTA
@@ -428,9 +456,7 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
     if (de->de_bcast && de->de_bcast->category) {
       /* We've parsed categories from xmltv. So check if it has the movie category. */
       is_movie =
-        string_list_contains_string(de->de_bcast->category, "Movie") ||
         string_list_contains_string(de->de_bcast->category, "movie") ||
-        string_list_contains_string(de->de_bcast->category, "Film") ||
         string_list_contains_string(de->de_bcast->category, "film");
     } else {
       /* No xmltv categories parsed. So have to use less-accurate genre instead. */
@@ -651,13 +677,27 @@ static htsstr_substitute_t dvr_subs_entry[] = {
   { .id = "?.t", .getval = dvr_sub_title },
   { .id = "?,t", .getval = dvr_sub_title },
   { .id = "?;t", .getval = dvr_sub_title },
-  { .id = "?s",  .getval = dvr_sub_subtitle },
-  { .id = "? s", .getval = dvr_sub_subtitle },
-  { .id = "?-s", .getval = dvr_sub_subtitle },
-  { .id = "?_s", .getval = dvr_sub_subtitle },
-  { .id = "?.s", .getval = dvr_sub_subtitle },
-  { .id = "?,s", .getval = dvr_sub_subtitle },
-  { .id = "?;s", .getval = dvr_sub_subtitle },
+  { .id = "?s",  .getval = dvr_sub_subtitle_or_summary },
+  { .id = "? s", .getval = dvr_sub_subtitle_or_summary },
+  { .id = "?-s", .getval = dvr_sub_subtitle_or_summary },
+  { .id = "?_s", .getval = dvr_sub_subtitle_or_summary },
+  { .id = "?.s", .getval = dvr_sub_subtitle_or_summary },
+  { .id = "?,s", .getval = dvr_sub_subtitle_or_summary },
+  { .id = "?;s", .getval = dvr_sub_subtitle_or_summary },
+  { .id = "?u",  .getval = dvr_sub_subtitle },
+  { .id = "? u", .getval = dvr_sub_subtitle },
+  { .id = "?-u", .getval = dvr_sub_subtitle },
+  { .id = "?_u", .getval = dvr_sub_subtitle },
+  { .id = "?.u", .getval = dvr_sub_subtitle },
+  { .id = "?,u", .getval = dvr_sub_subtitle },
+  { .id = "?;u", .getval = dvr_sub_subtitle },
+  { .id = "?m",  .getval = dvr_sub_summary },
+  { .id = "? m", .getval = dvr_sub_summary },
+  { .id = "?-m", .getval = dvr_sub_summary },
+  { .id = "?_m", .getval = dvr_sub_summary },
+  { .id = "?.m", .getval = dvr_sub_summary },
+  { .id = "?,m", .getval = dvr_sub_summary },
+  { .id = "?;m", .getval = dvr_sub_summary },
   { .id = "e",   .getval = dvr_sub_episode },
   { .id = " e",  .getval = dvr_sub_episode },
   { .id = "-e",  .getval = dvr_sub_episode },
@@ -791,7 +831,9 @@ static htsstr_substitute_t dvr_subs_tally[] = {
 
 static htsstr_substitute_t dvr_subs_postproc_entry[] = {
   { .id = "t",  .getval = dvr_sub_title },
-  { .id = "s",  .getval = dvr_sub_subtitle },
+  { .id = "s",  .getval = dvr_sub_subtitle_or_summary },
+  { .id = "u",  .getval = dvr_sub_subtitle },
+  { .id = "m",  .getval = dvr_sub_summary },
   { .id = "p",  .getval = dvr_sub_episode },
   { .id = "d",  .getval = dvr_sub_description },
   { .id = "g",  .getval = dvr_sub_genre },

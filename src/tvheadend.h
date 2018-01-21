@@ -555,6 +555,7 @@ typedef enum {
 #define SM_CODE_NO_VALID_ADAPTER          208
 #define SM_CODE_NO_ADAPTERS               209
 #define SM_CODE_INVALID_SERVICE           210
+#define SM_CODE_CHN_NOT_ENABLED           211
 
 #define SM_CODE_ABORTED                   300
 
@@ -776,7 +777,7 @@ char *regexp_escape ( const char *str );
 uint8_t *tvh_gzip_inflate ( const uint8_t *data, size_t size, size_t orig );
 uint8_t *tvh_gzip_deflate ( const uint8_t *data, size_t orig, size_t *size );
 int      tvh_gzip_deflate_fd ( int fd, const uint8_t *data, size_t orig, size_t *size, int speed );
-int      tvh_gzip_deflate_fd_header ( int fd, const uint8_t *data, size_t orig, size_t *size, int speed );
+int      tvh_gzip_deflate_fd_header ( int fd, const uint8_t *data, size_t orig, size_t *size, int speed , const char *signature);
 #endif
 
 /* URL decoding */
@@ -830,5 +831,14 @@ void tvh_qsort_r(void *base, size_t nmemb, size_t size, int (*compar)(const void
 /* transcoding */
 #define TVH_NAME_LEN 32
 #define TVH_TITLE_LEN 256
+
+/* sanitizer helpers */
+#if ENABLE_CCLANG_THREADSAN
+void *blacklisted_memcpy(void *dest, const void *src, size_t n);
+int blacklisted_close(int fildes);
+#else
+#define blacklisted_memcpy memcpy
+#define blacklisted_close close
+#endif
 
 #endif /* TVHEADEND_H */

@@ -1363,8 +1363,13 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
 
   v = (config.proxy) ? http_arg_get(&hc->hc_args, "X-Forwarded-For") : NULL;
   if (v) {
+    if (hc->hc_proxy_ip == NULL)
+      hc->hc_proxy_ip = malloc(sizeof(*hc->hc_proxy_ip));
+    *hc->hc_proxy_ip = *hc->hc_peer;
     if (tcp_get_ip_from_str(v, hc->hc_peer) == NULL) {
       http_error(hc, HTTP_STATUS_BAD_REQUEST);
+      free(hc->hc_proxy_ip);
+      hc->hc_proxy_ip = NULL;
       return -1;
     }
   }
@@ -1776,14 +1781,15 @@ again:
   if (p == NULL)
     return -1;
   if (tcp_read(hc->hc_fd, bl, 4))
-    return -1;
+    goto err1;
   if (tcp_read(hc->hc_fd, p, plen))
-    return -1;
+    goto err1;
   /* apply mask descrambling */
   for (pi = 0; pi < plen; pi++)
     p[pi] ^= bl[pi & 3];
   if (op == HTTP_WSOP_PING) {
     http_websocket_send(hc, p, plen, HTTP_WSOP_PONG);
+    free(p);
     goto again;
   }
   msg = htsmsg_create_map();
@@ -1792,15 +1798,20 @@ again:
     p[plen] = '\0';
     msg1 = p[0] == '{' || p[0] == '[' ?
              htsmsg_json_deserialize((char *)p) : NULL;
-    if (msg1)
+    if (msg1) {
       htsmsg_add_msg(msg, "json", msg1);
-    else
-      htsmsg_add_str(msg, "text", (char *)p);
+      free(p);
+    } else {
+      htsmsg_add_str_alloc(msg, "text", (char *)p);
+    }
   } else {
-    htsmsg_add_bin(msg, "bin", p, plen);
+    htsmsg_add_bin_alloc(msg, "bin", p, plen);
   }
   *_res = msg;
   return 0;
+err1:
+  free(p);
+  return -1;
 }
 
 /**
@@ -1972,6 +1983,7 @@ error:
   free(hc->hc_nonce);
   hc->hc_nonce = NULL;
 
+  free(hc->hc_proxy_ip);
   free(hc->hc_local_ip);
 }
 

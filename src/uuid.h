@@ -21,6 +21,7 @@
 #define __TVH_UUID_H__
 
 #include <stdint.h>
+#include <string.h>
 
 #define UUID_BIN_SIZE   (16)
 #define UUID_HEX_SIZE   (33) // inc NUL
@@ -85,6 +86,11 @@ int uuid_hexvalid ( const char *uuid );
  *
  */
 void uuid_set_init( tvh_uuid_set_t *us, uint32_t alloc_chunk );
+
+/**
+ *
+ */
+tvh_uuid_set_t *uuid_set_copy( tvh_uuid_set_t *dst, const tvh_uuid_set_t *src );
 
 /**
  *

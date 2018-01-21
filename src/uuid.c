@@ -142,8 +142,7 @@ char *
 uuid_get_hex ( const tvh_uuid_t *u, char *dst )
 {
   assert(dst);
-  bin2hex(dst, UUID_HEX_SIZE, u->bin, sizeof(u->bin));
-  return dst;
+  return bin2hex(dst, UUID_HEX_SIZE, u->bin, sizeof(u->bin));
 }
 
 /* Validate the hexadecimal representation of uuid */
@@ -165,6 +164,23 @@ uuid_set_init( tvh_uuid_set_t *us, uint32_t alloc_chunk )
 {
   memset(us, 0, sizeof(*us));
   us->us_alloc_chunk = alloc_chunk ?: 10;
+}
+
+/* Copy uuid set */
+tvh_uuid_set_t *
+uuid_set_copy( tvh_uuid_set_t *dst, const tvh_uuid_set_t *src )
+{
+  size_t size;
+  memset(dst, 0, sizeof(*dst));
+  dst->us_alloc_chunk = src->us_alloc_chunk;
+  size = sizeof(tvh_uuid_t) * src->us_size;
+  dst->us_array = malloc(size);
+  if (dst->us_array == NULL)
+    return NULL;
+  memcpy(dst->us_array, src->us_array, size);
+  dst->us_size = src->us_size;
+  dst->us_count = src->us_count;
+  return dst;
 }
 
 /* Add an uuid to set */
@@ -191,9 +207,9 @@ uuid_set_free ( tvh_uuid_set_t *us )
 {
   if (us) {
     free(us->us_array);
+    us->us_size = 0;
+    us->us_count = 0;
   }
-  us->us_size = 0;
-  us->us_count = 0;
 }
 
 /* Destroy uuid set */

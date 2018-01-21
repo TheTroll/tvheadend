@@ -149,6 +149,7 @@ satip_frontend_signal_cb( void *aux )
   sigstat.ec_block     = mmi->tii_stats.ec_block;
   sigstat.tc_block     = mmi->tii_stats.tc_block;
   pthread_mutex_unlock(&mmi->tii_stats_mutex);
+  memset(&sm, 0, sizeof(sm));
   sm.sm_type = SMT_SIGNAL_STATUS;
   sm.sm_data = &sigstat;
   LIST_FOREACH(svc, &mmi->mmi_mux->mm_transports, s_active_link) {
@@ -729,11 +730,10 @@ satip_frontend_stop_mux
 {
   satip_frontend_t *lfe = (satip_frontend_t*)mi;
   satip_tune_req_t *tr;
-  char buf1[256], buf2[256];
+  char buf1[256];
 
   mi->mi_display_name(mi, buf1, sizeof(buf1));
-  mpegts_mux_nice_name(mmi->mmi_mux, buf2, sizeof(buf2));
-  tvhdebug(LS_SATIP, "%s - stopping %s", buf1, buf2);
+  tvhdebug(LS_SATIP, "%s - stopping %s", buf1, mmi->mmi_mux->mm_nicename);
 
   mtimer_disarm(&lfe->sf_monitor_timer);
 
@@ -787,11 +787,10 @@ satip_frontend_start_mux
   satip_frontend_t *lfe = (satip_frontend_t*)mi;
   dvb_mux_t *lm = (dvb_mux_t *)mmi->mmi_mux;
   satip_tune_req_t *tr;
-  char buf1[256], buf2[256];
+  char buf1[256];
 
   lfe->mi_display_name((mpegts_input_t*)lfe, buf1, sizeof(buf1));
-  mpegts_mux_nice_name(mmi->mmi_mux, buf2, sizeof(buf2));
-  tvhdebug(LS_SATIP, "%s - starting %s", buf1, buf2);
+  tvhdebug(LS_SATIP, "%s - starting %s", buf1, lm->mm_nicename);
 
   if (!lfe->sf_device->sd_no_univ_lnb &&
       (lm->lm_tuning.dmc_fe_delsys == DVB_SYS_DVBS ||
@@ -2039,7 +2038,7 @@ new_tune:
   udp_multirecv_free(&um);
   lfe->sf_curmux = NULL;
 
-  memset(ev, 0, sizeof(&ev));
+  memset(ev, 0, sizeof(ev));
   nfds = 0;
   if ((rtsp_flags & SATIP_SETUP_TCP) == 0) {
     ev[nfds++].fd = rtp->fd;
@@ -2305,13 +2304,13 @@ satip_frontend_create
 void
 satip_frontend_save ( satip_frontend_t *lfe, htsmsg_t *fe )
 {
-  char id[16], ubuf[UUID_HEX_SIZE];
+  char id[16];
   htsmsg_t *m = htsmsg_create_map();
 
   /* Save frontend */
   mpegts_input_save((mpegts_input_t*)lfe, m);
   htsmsg_add_str(m, "type", dvb_type2str(lfe->sf_type));
-  htsmsg_add_str(m, "uuid", idnode_uuid_as_str(&lfe->ti_id, ubuf));
+  htsmsg_add_uuid(m, "uuid", &lfe->ti_id.in_uuid);
   if (lfe->ti_id.in_class == &satip_frontend_dvbs_class) {
     satip_satconf_save(lfe, m);
     htsmsg_delete_field(m, "networks");

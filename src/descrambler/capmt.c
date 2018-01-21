@@ -190,6 +190,7 @@ typedef struct capmt_service {
 
   /* PIDs list */
   uint16_t ct_pids[MAX_PIDS];
+  uint8_t  ct_multipid;
 
   /* Elementary stream types */
   uint8_t ct_types[MAX_PIDS];
@@ -311,8 +312,7 @@ static void capmt_send_client_info(capmt_t *capmt);
 static inline const char *
 capmt_name(capmt_t *capmt)
 {
-  return idnode_get_title(&capmt->cac_id, NULL,
-                          capmt->capmt_name, sizeof(capmt->capmt_name));
+  return capmt->capmt_name;
 }
 
 static inline int
@@ -1117,7 +1117,7 @@ capmt_process_key(capmt_t *capmt, uint8_t adapter, ca_info_t *cai,
   mpegts_service_t *t;
   capmt_service_t *ct;
   uint16_t *pids;
-  int i, j, pid, multipid;
+  int i, j, pid;
 
   pthread_mutex_lock(&capmt->capmt_mutex);
   LIST_FOREACH(ct, &capmt->capmt_services, ct_link) {
@@ -1136,8 +1136,6 @@ capmt_process_key(capmt_t *capmt, uint8_t adapter, ca_info_t *cai,
     if (adapter != ct->ct_adapter)
       continue;
 
-    multipid = descrambler_multi_pid((th_descrambler_t *)ct);
-
     pids = cai->pids;
 
     for (i = 0; i < MAX_PIDS; i++) {
@@ -1146,7 +1144,7 @@ capmt_process_key(capmt_t *capmt, uint8_t adapter, ca_info_t *cai,
         pid = ct->ct_pids[j];
         if (pid == 0) break;
         if (pid == pids[i]) {
-          if (multipid) {
+          if (ct->ct_multipid) {
             ct->ct_ok_flag = 1;
             descrambler_keys((th_descrambler_t *)ct, type, pid, even, odd);
             continue;
@@ -1171,12 +1169,13 @@ capmt_send_key(capmt_t *capmt)
   const int index = capmt->capmt_last_key.index;
   const int parity = capmt->capmt_last_key.parity;
   const uint8_t *cw = capmt->capmt_last_key.cw;
-  ca_info_t *cai = &capmt->capmt_adapters[adapter].ca_info[index];
+  ca_info_t *cai;
   int type;
 
   capmt->capmt_last_key.adapter = -1;
   if (adapter < 0)
     return;
+  cai = &capmt->capmt_adapters[adapter].ca_info[index];
   switch (cai->algo) {
   case CA_ALGO_DVBCSA:
     type = DESCRAMBLER_CSA_CBC;
@@ -1880,7 +1879,7 @@ capmt_thread(void *aux)
             la = (linuxdvb_adapter_t*)is->is_array[i];
             if (!la || !la->la_is_enabled(la)) continue;
             n = la->la_dvb_number;
-            if (n < 0 || n > MAX_CA) {
+            if (n < 0 || n >= MAX_CA) {
               tvherror(LS_CAPMT, "%s: adapter number > MAX_CA", capmt_name(capmt));
               continue;
             }
@@ -1889,6 +1888,7 @@ capmt_thread(void *aux)
                                               &capmt->capmt_adapters[n].ca_sock,
                                               capmt->capmt_port + n);
           }
+          idnode_set_free(is);
           if (bind_ok)
             handle_ca0(capmt);
         }
@@ -2456,6 +2456,7 @@ capmt_service_start(caclient_t *cac, service_t *s)
   ct              = calloc(1, sizeof(capmt_service_t));
   ct->ct_capmt    = capmt;
   ct->ct_adapter  = tuner;
+  ct->ct_multipid = descrambler_multi_pid((th_descrambler_t *)ct);
 
   i = 0;
   TAILQ_FOREACH(st, &t->s_filt_components, es_filt_link) {
@@ -2541,6 +2542,8 @@ capmt_conf_changed(caclient_t *cac)
   capmt_t *capmt = (capmt_t *)cac;
   pthread_t tid;
 
+  idnode_get_title(&capmt->cac_id, NULL,
+                   capmt->capmt_name, sizeof(capmt->capmt_name));
   if (capmt->cac_enabled) {
     if (capmt->capmt_sockfile == NULL || capmt->capmt_sockfile[0] == '\0') {
       caclient_set_status(cac, CACLIENT_STATUS_NONE);

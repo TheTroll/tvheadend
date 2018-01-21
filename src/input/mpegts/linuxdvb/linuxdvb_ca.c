@@ -291,10 +291,10 @@ linuxdvb_ca_thread ( void *aux )
   
   tvhtrace(LS_EN50221, "ca thread start");
   ev = malloc(sizeof(*ev) * evsize);
-  poll = tvhpoll_create(ARRAY_SIZE(ev) + 1);
+  poll = tvhpoll_create(evsize + 1);
   tm = mclk();
   waitms = 250;
-  while (tvheadend_running && !quit) {
+  while (tvheadend_is_running() && !quit) {
     evp = ev;
     evp->fd = linuxdvb_ca_pipe.rd;
     evp->events = TVHPOLL_IN;
@@ -781,11 +781,11 @@ static void linuxdvb_ca_destroy( linuxdvb_ca_t *lca )
 
 static void linuxdvb_ca_save( linuxdvb_ca_t *lca, htsmsg_t *msg )
 {
-  char id[8], ubuf[UUID_HEX_SIZE];
+  char id[32];
   htsmsg_t *m = htsmsg_create_map();
   linuxdvb_transport_t *lcat = lca->lca_transport;
 
-  htsmsg_add_str(m, "uuid", idnode_uuid_as_str(&lca->lca_id, ubuf));
+  htsmsg_add_uuid(m, "uuid", &lca->lca_id.in_uuid);
   idnode_save(&lca->lca_id, m);
 
   /* Add to list */
@@ -1142,8 +1142,8 @@ linuxdvb_ca_enqueue_capmt
     if (!linuxdvb_ca_write_cmd(lca, CA_WRITE_CMD_CAPMT_QUERY, capmt2, capmtlen2)) {
       tvhtrace(LS_EN50221, "%s: CAPMT enqueued query (len %zd)", lca->lca_name, capmtlen2);
       en50221_capmt_dump(LS_EN50221, lca->lca_name, capmt2, capmtlen2);
-      free(capmt2);
     }
+    free(capmt2);
   }
 
   if (!linuxdvb_ca_write_cmd(lca, CA_WRITE_CMD_CAPMT, capmt, capmtlen)) {

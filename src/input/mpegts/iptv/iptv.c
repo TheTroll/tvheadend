@@ -294,7 +294,6 @@ iptv_input_start_mux ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi, int weigh
   }
 
   /* Parse URL */
-  mpegts_mux_nice_name((mpegts_mux_t*)im, buf, sizeof(buf));
   urlinit(&url);
 
 #if ENABLE_LIBAV
@@ -322,7 +321,7 @@ iptv_input_start_mux ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi, int weigh
   } else {
 
     if (urlparse(raw ?: "", &url)) {
-      tvherror(LS_IPTV, "%s - invalid URL [%s]", buf, raw);
+      tvherror(LS_IPTV, "%s - invalid URL [%s]", im->mm_nicename, raw);
       return ret;
     }
     scheme = url.scheme;
@@ -332,21 +331,23 @@ iptv_input_start_mux ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi, int weigh
   /* Find scheme handler */
   ih = iptv_handler_find(scheme ?: "");
   if (!ih) {
-    tvherror(LS_IPTV, "%s - unsupported scheme [%s]", buf, scheme ?: "none");
+    tvherror(LS_IPTV, "%s - unsupported scheme [%s]", im->mm_nicename, scheme ?: "none");
     return ret;
   }
 
   /* Start */
   pthread_mutex_lock(&iptv_lock);
   s = im->mm_iptv_url_raw;
-  im->mm_iptv_url_raw = strdup(raw);
-  im->mm_active = mmi; // Note: must set here else mux_started call
-                       // will not realise we're ready to accept pid open calls
-  ret = ih->start(im, im->mm_iptv_url_raw, &url);
-  if (!ret)
-    im->im_handler = ih;
-  else
-    im->mm_active  = NULL;
+  im->mm_iptv_url_raw = raw ? strdup(raw) : NULL;
+  if (im->mm_iptv_url_raw) {
+    im->mm_active = mmi; // Note: must set here else mux_started call
+                         // will not realise we're ready to accept pid open calls
+    ret = ih->start(im, im->mm_iptv_url_raw, &url);
+    if (!ret)
+      im->im_handler = ih;
+    else
+      im->mm_active  = NULL;
+  }
   pthread_mutex_unlock(&iptv_lock);
 
   urlreset(&url);
@@ -369,14 +370,16 @@ iptv_input_stop_mux ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi )
 
   /* Close file */
   if (im->mm_iptv_fd > 0) {
-    udp_close(im->mm_iptv_connection); // removes from poll
+    tvhpoll_rem1(iptv_poll, im->mm_iptv_fd);
+    udp_close(im->mm_iptv_connection);
     im->mm_iptv_connection = NULL;
     im->mm_iptv_fd = -1;
   }
 
   /* Close file2 */
   if (im->mm_iptv_fd2 > 0) {
-    udp_close(im->mm_iptv_connection2); // removes from poll
+    tvhpoll_rem1(iptv_poll, im->mm_iptv_fd2);
+    udp_close(im->mm_iptv_connection2);
     im->mm_iptv_connection2 = NULL;
     im->mm_iptv_fd2 = -1;
   }
@@ -579,14 +582,11 @@ iptv_input_recv_packets ( iptv_mux_t *im, ssize_t len )
 int
 iptv_input_fd_started ( iptv_mux_t *im )
 {
-  char buf[256];
-
   /* Setup poll */
   if (im->mm_iptv_fd > 0) {
     /* Error? */
     if (tvhpoll_add1(iptv_poll, im->mm_iptv_fd, TVHPOLL_IN, im) < 0) {
-      mpegts_mux_nice_name((mpegts_mux_t*)im, buf, sizeof(buf));
-      tvherror(LS_IPTV, "%s - failed to add to poll q", buf);
+      tvherror(LS_IPTV, "%s - failed to add to poll q", im->mm_nicename);
       close(im->mm_iptv_fd);
       im->mm_iptv_fd = -1;
       return -1;
@@ -597,8 +597,7 @@ iptv_input_fd_started ( iptv_mux_t *im )
   if (im->mm_iptv_fd2 > 0) {
     /* Error? */
     if (tvhpoll_add1(iptv_poll, im->mm_iptv_fd2, TVHPOLL_IN, im) < 0) {
-      mpegts_mux_nice_name((mpegts_mux_t*)im, buf, sizeof(buf));
-      tvherror(LS_IPTV, "%s - failed to add to poll q (2)", buf);
+      tvherror(LS_IPTV, "%s - failed to add to poll q (2)", im->mm_nicename);
       close(im->mm_iptv_fd2);
       im->mm_iptv_fd2 = -1;
       return -1;

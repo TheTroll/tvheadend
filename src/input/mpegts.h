@@ -434,6 +434,7 @@ struct mpegts_mux
   
   LIST_ENTRY(mpegts_mux)  mm_network_link;
   mpegts_network_t       *mm_network;
+  char                   *mm_nicename;
   char                   *mm_provider_network_name;
   uint16_t                mm_onid;
   uint16_t                mm_tsid;
@@ -893,6 +894,9 @@ mpegts_mux_t *mpegts_mux_create0
   mpegts_mux_create0(calloc(1, sizeof(mpegts_mux_t)), &mpegts_mux_class, uuid,\
                      mn, onid, tsid, conf)
 
+static inline mpegts_mux_t *mpegts_mux_find0(tvh_uuid_t *uuid)
+  { return idnode_find0(uuid, &mpegts_mux_class, NULL); }
+
 static inline mpegts_mux_t *mpegts_mux_find(const char *uuid)
   { return idnode_find(uuid, &mpegts_mux_class, NULL); }
 
@@ -988,6 +992,9 @@ int mpegts_mux_compare ( mpegts_mux_t *a, mpegts_mux_t *b );
 void mpegts_input_recv_packets
   (mpegts_input_t *mi, mpegts_mux_instance_t *mmi, sbuf_t *sb,
    int flags, mpegts_pcr_t *pcr);
+
+void mpegts_input_postdemux
+  ( mpegts_input_t *mi, mpegts_mux_t *mm, uint8_t *data, int len );
 
 int mpegts_input_get_weight ( mpegts_input_t *mi, mpegts_mux_t *mm, int flags, int weight );
 int mpegts_input_get_priority ( mpegts_input_t *mi, mpegts_mux_t *mm, int flags );
@@ -1134,6 +1141,9 @@ mpegts_service_t *
 mpegts_service_find_by_pid ( mpegts_mux_t *mm, int pid );
 
 void mpegts_service_update_slave_pids ( mpegts_service_t *t, int del );
+
+static inline mpegts_service_t *mpegts_service_find_by_uuid0(tvh_uuid_t *uuid)
+  { return idnode_find0(uuid, &mpegts_service_class, NULL); }
 
 static inline mpegts_service_t *mpegts_service_find_by_uuid(const char *uuid)
   { return idnode_find(uuid, &mpegts_service_class, NULL); }

@@ -373,6 +373,7 @@ descrambler_service_start ( service_t *t )
 
   }
 
+  pthread_mutex_lock(&t->s_stream_mutex);
   ((mpegts_service_t *)t)->s_dvb_mux->mm_descrambler_flush = 0;
   if (t->s_descramble == NULL) {
     t->s_descramble = dr = calloc(1, sizeof(th_descrambler_runtime_t));
@@ -399,6 +400,7 @@ descrambler_service_start ( service_t *t )
     if (t->s_dvb_forcecaid == 0xffff)
       dr->dr_descramble = descrambler_pass;
   }
+  pthread_mutex_unlock(&t->s_stream_mutex);
 
   if (t->s_dvb_forcecaid != 0xffff)
     caclient_start(t);
@@ -416,10 +418,12 @@ descrambler_service_stop ( service_t *t )
 
   while ((td = LIST_FIRST(&t->s_descramblers)) != NULL)
     td->td_stop(td);
+  pthread_mutex_lock(&t->s_stream_mutex);
   t->s_descramble = NULL;
   t->s_descrambler = NULL;
   p = t->s_descramble_info;
   t->s_descramble_info = NULL;
+  pthread_mutex_unlock(&t->s_stream_mutex);
   free(p);
   if (dr) {
     for (i = 0; i < DESCRAMBLER_MAX_KEYS; i++) {

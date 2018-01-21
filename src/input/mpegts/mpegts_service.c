@@ -796,7 +796,6 @@ mpegts_service_create0
     mpegts_mux_t *mm, uint16_t sid, uint16_t pmt_pid, htsmsg_t *conf )
 {
   int r;
-  char buf[256];
   mpegts_network_t *mn = mm->mm_network;
   time_t dispatch_clock = gclk();
 
@@ -846,8 +845,7 @@ mpegts_service_create0
   service_make_nicename((service_t*)s);
   pthread_mutex_unlock(&s->s_stream_mutex);
 
-  mpegts_mux_nice_name(mm, buf, sizeof(buf));
-  tvhdebug(LS_MPEGTS, "%s - add service %04X %s", buf, s->s_dvb_service_id, s->s_dvb_svcname);
+  tvhdebug(LS_MPEGTS, "%s - add service %04X %s", mm->mm_nicename, s->s_dvb_service_id, s->s_dvb_svcname);
 
   /* Bouquet */
   mpegts_network_bouquet_trigger(mn, 1);
@@ -974,7 +972,7 @@ mpegts_service_raw_update_pids(mpegts_service_t *t, mpegts_apids_t *pids)
     pthread_mutex_lock(&t->s_stream_mutex);
     x = t->s_pids;
     t->s_pids = p;
-    if (!pids->all && x && x->all) {
+    if (pids && !pids->all && x && x->all) {
       mpegts_input_close_pid(mi, mm, MPEGTS_FULLMUX_PID, MPS_RAW, MPS_WEIGHT_RAW, t);
       mpegts_input_close_pids(mi, mm, t, 1);
       for (i = 0; i < x->count; i++) {
@@ -982,7 +980,7 @@ mpegts_service_raw_update_pids(mpegts_service_t *t, mpegts_apids_t *pids)
         mpegts_input_open_pid(mi, mm, pi->pid, MPS_RAW, pi->weight, t, 0);
       }
     } else {
-      if (pids->all) {
+      if (pids && pids->all) {
         mpegts_input_close_pids(mi, mm, t, 1);
         mpegts_input_open_pid(mi, mm, MPEGTS_FULLMUX_PID, MPS_RAW, MPS_WEIGHT_RAW, t, 0);
       } else {
@@ -1094,9 +1092,6 @@ mpegts_service_t *
 mpegts_service_create_raw ( mpegts_mux_t *mm )
 {
   mpegts_service_t *s = calloc(1, sizeof(*s));
-  char buf[256];
-
-  mpegts_mux_nice_name(mm, buf, sizeof(buf));
 
   if (service_create0((service_t*)s, STYPE_RAW,
                       &mpegts_service_raw_class, NULL,
@@ -1132,10 +1127,10 @@ mpegts_service_create_raw ( mpegts_mux_t *mm )
 
   pthread_mutex_lock(&s->s_stream_mutex);
   free(s->s_nicename);
-  s->s_nicename = strdup(buf);
+  s->s_nicename = strdup(mm->mm_nicename);
   pthread_mutex_unlock(&s->s_stream_mutex);
 
-  tvhdebug(LS_MPEGTS, "%s - add raw service", buf);
+  tvhdebug(LS_MPEGTS, "%s - add raw service", mm->mm_nicename);
 
   return s;
 }

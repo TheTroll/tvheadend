@@ -151,12 +151,9 @@ mpegts_mux_alive(mpegts_mux_t *mm)
 static void
 dvb_bouquet_comment ( bouquet_t *bq, mpegts_mux_t *mm )
 {
-  char comment[128];
-
   if (bq->bq_comment && bq->bq_comment[0])
     return;
-  mpegts_mux_nice_name(mm, comment, sizeof(comment));
-  bouquet_change_comment(bq, comment, 0);
+  bouquet_change_comment(bq, mm->mm_nicename, 0);
 }
 
 static void
@@ -943,18 +940,17 @@ dvb_pat_callback
   mpegts_mux_t             *mm  = mt->mt_mux;
   mpegts_psi_table_state_t *st  = NULL;
   mpegts_service_t *s;
-  char buf[256];
 
   /* Begin */
   if (tableid != 0) return -1;
   tsid = extract_tsid(ptr);
   r    = dvb_table_begin((mpegts_psi_table_t *)mt, ptr, len,
-                         tableid, tsid, 5, &st, &sect, &last, &ver);
+                         tableid, tsid, 5, &st, &sect, &last, &ver,
+                         3600);
   if (r != 1) return r;
   if (tsid == 0 && !mm->mm_tsid_accept_zero_value) {
     if (tvhlog_limit(&mm->mm_tsid_loglimit, 2)) {
-      mpegts_mux_nice_name(mm, buf, sizeof(buf));
-      tvhwarn(mt->mt_subsys, "%s: %s: TSID zero value detected, ignoring", mt->mt_name, buf);
+      tvhwarn(mt->mt_subsys, "%s: %s: TSID zero value detected, ignoring", mt->mt_name, mm->mm_nicename);
     }
     goto end;
   }
@@ -964,14 +960,12 @@ dvb_pat_callback
   if (mm->mm_tsid != MPEGTS_TSID_NONE) {
     if (mm->mm_tsid && mm->mm_tsid != tsid) {
       if (++mm->mm_tsid_checks > 12) {
-        mpegts_mux_nice_name(mm, buf, sizeof(buf));
         tvhwarn(mt->mt_subsys, "%s: %s: TSID change detected - old %04x (%d), new %04x (%d)",
-                mt->mt_name, buf, mm->mm_tsid, mm->mm_tsid, tsid, tsid);
+                mt->mt_name, mm->mm_nicename, mm->mm_tsid, mm->mm_tsid, tsid, tsid);
       } else {
         if (tvhtrace_enabled()) {
-          mpegts_mux_nice_name(mm, buf, sizeof(buf));
           tvhtrace(mt->mt_subsys, "%s: %s: ignore TSID - old %04x (%d), new %04x (%d) (checks %d)",
-                   mt->mt_name, buf, mm->mm_tsid, mm->mm_tsid, tsid, tsid, mm->mm_tsid_checks);
+                   mt->mt_name, mm->mm_nicename, mm->mm_tsid, mm->mm_tsid, tsid, tsid, mm->mm_tsid_checks);
         }
         return 0; /* keep rolling */
       }
@@ -1041,7 +1035,7 @@ dvb_cat_callback
 
   /* Start */
   r = dvb_table_begin((mpegts_psi_table_t *)mt, ptr, len,
-                      tableid, 0, 5, &st, &sect, &last, &ver);
+                      tableid, 0, 5, &st, &sect, &last, &ver, 0);
   if (r != 1) return r;
   ptr += 5;
   len -= 5;
@@ -1112,7 +1106,7 @@ dvb_pmt_callback
   if (len < 2) return -1;
   sid = extract_svcid(ptr);
   r   = dvb_table_begin((mpegts_psi_table_t *)mt, ptr, len,
-                        tableid, sid, 9, &st, &sect, &last, &ver);
+                        tableid, sid, 9, &st, &sect, &last, &ver, 0);
   if (r != 1) return r;
   if (mm->mm_sid_filter > 0 && sid != mm->mm_sid_filter)
     goto end;
@@ -1272,7 +1266,7 @@ dvb_nit_mux
   const uint8_t *dlptr, *dptr, *lptr_orig = lptr;
   const char *charset;
   mpegts_network_t *mn;
-  char buf[128], dauth[256];
+  char dauth[256];
 
   if (mux && mux->mm_enabled != MM_ENABLE)
     bi = NULL;
@@ -1281,13 +1275,10 @@ dvb_nit_mux
   charset = discovery ? NULL : dvb_charset_find(mn, mux, NULL);
 
   if (!discovery || tvhtrace_enabled()) {
-    if (mux)
-      mpegts_mux_nice_name(mux, buf, sizeof(buf));
-    else
-      strcpy(buf, "<none>");
     tvhlog(discovery ? LOG_TRACE : LOG_DEBUG,
            mt->mt_subsys, "%s:  onid %04X (%d) tsid %04X (%d) mux %s%s",
-           mt->mt_name, onid, onid, tsid, tsid, buf,
+           mt->mt_name, onid, onid, tsid, tsid,
+           mm->mm_nicename ?: "<none>",
            discovery ? " (discovery)" : "");
   }
 
@@ -1458,7 +1449,7 @@ dvb_nit_callback
   }
 
   r = dvb_table_begin((mpegts_psi_table_t *)mt, ptr, len,
-                      tableid, nbid, 7, &st, &sect, &last, &ver);
+                      tableid, nbid, 7, &st, &sect, &last, &ver, 0);
   if (r == 0) {
     if (tableid == 0x4A || tableid == DVB_FASTSCAN_NIT_BASE) {
       if (tableid == DVB_FASTSCAN_NIT_BASE && bq) {
@@ -1641,11 +1632,8 @@ dvb_sdt_mux
   const uint8_t *lptr, *dptr;
   int llen, dlen;
   mpegts_network_t *mn = mm->mm_network;
-  char buf[128];
 
-  mpegts_mux_nice_name(mm, buf, sizeof(buf));
-
-  tvhdebug(mt->mt_subsys, "%s: mux %s", mt->mt_name, buf);
+  tvhdebug(mt->mt_subsys, "%s: mux %s", mt->mt_name, mm->mm_nicename);
 
   /* Service loop */
   while(len >= 5) {
@@ -1786,7 +1774,7 @@ dvb_sdt_callback
   extraid = ((int)onid) << 16 | tsid;
   if (tableid != 0x42 && tableid != 0x46) return -1;
   r = dvb_table_begin((mpegts_psi_table_t *)mt, ptr, len,
-                      tableid, extraid, 8, &st, &sect, &last, &ver);
+                      tableid, extraid, 8, &st, &sect, &last, &ver, 0);
   if (r != 1) return r;
 
   /* ID */
@@ -1848,7 +1836,7 @@ atsc_vct_callback
 
   /* Begin */
   r = dvb_table_begin((mpegts_psi_table_t *)mt, ptr, len,
-                      tableid, extraid, 7, &st, &sect, &last, &ver);
+                      tableid, extraid, 7, &st, &sect, &last, &ver, 0);
   if (r != 1) return r;
   tvhdebug(mt->mt_subsys, "%s: tsid %04X (%d)", mt->mt_name, tsid, tsid);
 
@@ -1961,7 +1949,7 @@ atsc_stt_callback
 
   /* Begin */
   r = dvb_table_begin((mpegts_psi_table_t *)mt, ptr, len, tableid, extraid, 7,
-                      &st, &sect, &last, &ver);
+                      &st, &sect, &last, &ver, 0);
   if (r != 1) return r;
 
   /* Parse fields */
@@ -2151,7 +2139,7 @@ dvb_fs_sdt_callback
       return 0;
   }
   r = dvb_table_begin((mpegts_psi_table_t *)mt, ptr, len,
-                      tableid, nbid, 7, &st, &sect, &last, &ver);
+                      tableid, nbid, 7, &st, &sect, &last, &ver, 0);
   if (r == 0) {
     mt->mt_working -= st->working;
     st->working = 0;
@@ -2274,7 +2262,7 @@ psi_desc_ca(mpegts_table_t *mt, mpegts_service_t *t, const uint8_t *buffer, int 
     if (caid == 0x4ad2)//streamguard
        provid=0;
     if (caid != 0x4aee && caid != 0x4ad2) { // Bulcrypt
-       provid = size < 4 ? 0 : buffer[4];
+       provid = size < 5 ? 0 : buffer[4];
     }
     break;
   case 0x1800: // Nagra
@@ -2458,7 +2446,7 @@ psi_parse_pmt
     case 0x06:
       /* 0x06 is Chinese Cable TV AC-3 audio track */
       /* but mark it so only when no more descriptors exist */
-      if (dllen > 1 || !mux || mux->mm_pmt_ac3 != MM_AC3_PMT_06)
+      if (dllen > 1 || mux->mm_pmt_ac3 != MM_AC3_PMT_06)
         break;
       /* fall through to SCT_AC3 */
     case 0x81:

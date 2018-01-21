@@ -85,7 +85,7 @@ void dvr_inotify_init ( void )
 void dvr_inotify_done ( void )
 {
   int fd = atomic_exchange(&_inot_fd, -1);
-  if (fd >= 0) close(fd);
+  if (fd >= 0) blacklisted_close(fd);
   pthread_kill(dvr_inotify_tid, SIGTERM);
   pthread_join(dvr_inotify_tid, NULL);
   SKEL_FREE(dvr_inotify_entry_skel);
@@ -379,7 +379,7 @@ void* _dvr_inotify_thread ( void *p )
   int fromfd;
   int cookie;
 
-  while (atomic_get(&tvheadend_running)) {
+  while (tvheadend_is_running()) {
 
     /* Read events */
     fromfd = 0;

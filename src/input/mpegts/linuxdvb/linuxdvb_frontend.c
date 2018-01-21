@@ -657,15 +657,14 @@ static void
 linuxdvb_frontend_stop_mux
   ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi )
 {
-  char buf1[256], buf2[256];
+  char buf1[256];
   linuxdvb_frontend_t *lfe = (linuxdvb_frontend_t*)mi, *lfe2;
 
   if (lfe->lfe_master)
     assert(lfe->lfe_type == DVB_TYPE_S);
 
   mi->mi_display_name(mi, buf1, sizeof(buf1));
-  mpegts_mux_nice_name(mmi->mmi_mux, buf2, sizeof(buf2));
-  tvhdebug(LS_LINUXDVB, "%s - stopping %s", buf1, buf2);
+  tvhdebug(LS_LINUXDVB, "%s - stopping %s", buf1, mmi->mmi_mux->mm_nicename);
 
   /* Stop thread */
   if (lfe->lfe_dvr_pipe.wr > 0) {
@@ -1223,6 +1222,7 @@ linuxdvb_frontend_monitor ( void *aux )
   sigstat.tc_bit       = mmi->tii_stats.tc_bit;
   sigstat.ec_block     = mmi->tii_stats.ec_block;
   sigstat.tc_block     = mmi->tii_stats.tc_block;
+  memset(&sm, 0, sizeof(sm));
   sm.sm_type = SMT_SIGNAL_STATUS;
   sm.sm_data = &sigstat;
 
@@ -1957,11 +1957,10 @@ linuxdvb_frontend_tune1
   ( linuxdvb_frontend_t *lfe, mpegts_mux_instance_t *mmi, uint32_t freq )
 {
   int r = 0, i, rep;
-  char buf1[256], buf2[256];
+  char buf1[256];
 
   lfe->mi_display_name((mpegts_input_t*)lfe, buf1, sizeof(buf1));
-  mpegts_mux_nice_name(mmi->mmi_mux, buf2, sizeof(buf2));
-  tvhdebug(LS_LINUXDVB, "%s - starting %s", buf1, buf2);
+  tvhdebug(LS_LINUXDVB, "%s - starting %s", buf1, mmi->mmi_mux->mm_nicename);
 
   /* Tune */
   tvhtrace(LS_LINUXDVB, "%s - tuning", buf1);
@@ -2071,6 +2070,13 @@ linuxdvb_frontend_create
   htsmsg_t *scconf;
   ssize_t r;
 
+  /* Internal config ID */
+  snprintf(id, sizeof(id), "%s #%d", dvb_type2str(type), number);
+  if (conf)
+    conf = htsmsg_get_map(conf, id);
+  if (conf)
+    uuid = htsmsg_get_str(conf, "uuid");
+
   /* Tuner slave */
   snprintf(id, sizeof(id), "master for #%d", number);
   if (conf && type == DVB_TYPE_S) {
@@ -2078,13 +2084,6 @@ linuxdvb_frontend_create
     if (muuid && uuid && !strcmp(muuid, uuid))
       muuid = NULL;
   }
-
-  /* Internal config ID */
-  snprintf(id, sizeof(id), "%s #%d", dvb_type2str(type), number);
-  if (conf)
-    conf = htsmsg_get_map(conf, id);
-  if (conf)
-    uuid = htsmsg_get_str(conf, "uuid");
 
   /* Fudge configuration for old network entry */
   if (conf) {
@@ -2203,17 +2202,17 @@ linuxdvb_frontend_create
 void
 linuxdvb_frontend_save ( linuxdvb_frontend_t *lfe, htsmsg_t *fe )
 {
-  char id[16], ubuf[UUID_HEX_SIZE];
+  char id[16];
   htsmsg_t *m = htsmsg_create_map();
 
   /* Save frontend */
   mpegts_input_save((mpegts_input_t*)lfe, m);
   htsmsg_add_str(m, "type", dvb_type2str(lfe->lfe_type));
-  htsmsg_add_str(m, "uuid", idnode_uuid_as_str(&lfe->ti_id, ubuf));
+  htsmsg_add_uuid(m, "uuid", &lfe->ti_id.in_uuid);
   if (lfe->lfe_satconf && !lfe->lfe_master) {
     htsmsg_t *s = htsmsg_create_map();
     linuxdvb_satconf_save(lfe->lfe_satconf, s);
-    htsmsg_add_str(s, "uuid", idnode_uuid_as_str(&lfe->lfe_satconf->ls_id, ubuf));
+    htsmsg_add_uuid(s, "uuid", &lfe->lfe_satconf->ls_id.in_uuid);
     htsmsg_add_msg(m, "satconf", s);
   }
   htsmsg_delete_field(m, "fe_master");
