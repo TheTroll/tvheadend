@@ -142,10 +142,11 @@ typedef struct cclient {
   int (*cc_init_session)(void *cc);
   int (*cc_read)(void *cc, sbuf_t *sbuf);
   void (*cc_keepalive)(void *cc);
-  uint32_t (*cc_send_ecm)(void *cc, cc_service_t *ct, cc_ecm_section_t *es,
-                          cc_card_data_t *pcard, const uint8_t *data, int len);
+  int (*cc_send_ecm)(void *cc, cc_service_t *ct, cc_ecm_section_t *es,
+                     cc_card_data_t *pcard, const uint8_t *data, int len);
   void (*cc_send_emm)(void *cc, cc_service_t *ct, cc_card_data_t *pcard,
                       uint32_t provid, const uint8_t *data, int len);
+  void (*cc_no_services)(void *cc);
 
   /* Connection */
   int cc_fd;

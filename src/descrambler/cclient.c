@@ -415,7 +415,7 @@ forbid:
       t->s_dvb_prefcapid = ct->cs_capid;
       tvhdebug(cc->cc_subsys, "%s: Saving prefered PID %d for %s",
                cc->cc_name, t->s_dvb_prefcapid, ct->td_nicename);
-      service_request_save((service_t*)t, 0);
+      service_request_save((service_t*)t);
     }
 
     tvhdebug(cc->cc_subsys,
@@ -967,13 +967,15 @@ found:
       goto end;
     }
 
-    es->es_seq = cc->cc_send_ecm(cc, ct, es, pcard, data, len);
-
-    tvhdebug(cc->cc_subsys,
-             "%s: Sending ECM%s section=%d/%d for service \"%s\" (seqno: %d)",
-             cc->cc_name, chaninfo, section,
-             ep->ep_last_section, t->s_dvb_svcname, es->es_seq);
-    es->es_time = getfastmonoclock();
+    if (cc->cc_send_ecm(cc, ct, es, pcard, data, len) == 0) {
+      tvhdebug(cc->cc_subsys,
+               "%s: Sending ECM%s section=%d/%d for service \"%s\" (seqno: %d)",
+               cc->cc_name, chaninfo, section,
+               ep->ep_last_section, t->s_dvb_svcname, es->es_seq);
+      es->es_time = getfastmonoclock();
+    } else {
+      es->es_pending = 0;
+    }
   } else {
     if (cc->cc_forward_emm && data[0] >= 0x82 && data[0] <= 0x92) {
       tvhtrace(cc->cc_subsys, "%s: sending EMM for %04X:%06X service \"%s\"",
@@ -993,7 +995,7 @@ end:
  * cc_mutex is held
  */
 static void
-cc_service_destroy0(th_descrambler_t *td)
+cc_service_destroy0(cclient_t *cc, th_descrambler_t *td)
 {
   cc_service_t *ct = (cc_service_t *)td;
   int i;
@@ -1010,6 +1012,9 @@ cc_service_destroy0(th_descrambler_t *td)
 
   free(ct->td_nicename);
   free(ct);
+
+  if (LIST_EMPTY(&cc->cc_services) && cc->cc_no_services)
+    cc->cc_no_services(cc);
 }
 
 /**
@@ -1022,7 +1027,7 @@ cc_service_destroy(th_descrambler_t *td)
   cclient_t *cc = ct->cs_client;
 
   pthread_mutex_lock(&cc->cc_mutex);
-  cc_service_destroy0(td);
+  cc_service_destroy0(cc, td);
   pthread_mutex_unlock(&cc->cc_mutex);
 }
 
@@ -1073,7 +1078,7 @@ cc_service_start(caclient_t *cac, service_t *t)
     if (st) break;
   }
   if (!pcard) {
-    if (ct) cc_service_destroy0((th_descrambler_t*)ct);
+    if (ct) cc_service_destroy0(cc, (th_descrambler_t*)ct);
     goto end;
   }
   if (ct) {
