@@ -105,9 +105,6 @@ static int parse_mpa123(service_t *t, elementary_stream_t *st);
 static int parse_ac3(service_t *t, elementary_stream_t *st, size_t len,
                      uint32_t next_startcode, int sc_offset);
 
-static int parse_eac3(service_t *t, elementary_stream_t *st, size_t len,
-                      uint32_t next_startcode, int sc_offset);
-
 static void parser_deliver(service_t *t, elementary_stream_t *st, th_pkt_t *pkt);
 
 static void parser_deliver_error(service_t *t, elementary_stream_t *st);
@@ -180,11 +177,8 @@ parse_mpeg_ts(service_t *t, elementary_stream_t *st, const uint8_t *data,
     break;
 
   case SCT_AC3:
-    parse_pes(t, st, data, len, start, parse_ac3);
-    break;
-
   case SCT_EAC3:
-    parse_pes(t, st, data, len, start, parse_eac3);
+    parse_pes(t, st, data, len, start, parse_ac3);
     break;
 
   case SCT_DVBSUB:
@@ -627,7 +621,7 @@ mpa_valid_frame(uint32_t h)
   if ((h & 0xffe00000) != 0xffe00000) return 0; /* start bits */
   if ((h & (3<<17)) == 0) return 0;             /* unknown MPEG audio layer */
   if ((h & (15<<12)) == (15<<12)) return 0;     /* invalid bitrate */
-  if ((h & (3<<10)) == (3<<10)) return 0;             /* invalid frequency */
+  if ((h & (3<<10)) == (3<<10)) return 0;       /* invalid frequency */
   return 1;
 }
 
@@ -637,16 +631,16 @@ mpa_valid_frame(uint32_t h)
 static int
 parse_mpa123(service_t *t, elementary_stream_t *st)
 {
-  int i, len, layer, lsf, mpeg25, br, sr, pad, fsize, channels, duration;
+  int i, len, layer, lsf, mpeg25, br, sr, pad;
+  int fsize, fsize2, channels, duration;
   int64_t dts;
   uint32_t h;
   const uint8_t *buf;
 
- again:
   buf = st->es_buf_a.sb_data;
   len = st->es_buf_a.sb_ptr;
 
-  for (i = 0; i < len - 4; i++) {
+  for (i = fsize2 = 0; i < len - 4; i++) {
     if (!mpa_valid_frame(h = RB32(buf + i))) continue;
 
     layer = 4 - ((h >> 17) & 3);
@@ -671,13 +665,6 @@ parse_mpa123(service_t *t, elementary_stream_t *st)
     default: fsize = 0;
     }
 
-    if (fsize && st->es_audio_version < layer) {
-      tvhtrace(LS_PARSER, "audio version change %02d: val=%d (old=%d)",
-               st->es_index, layer, st->es_audio_version);
-      st->es_audio_version = layer;
-      atomic_set(&t->s_pending_restart, 1);
-    }
-
     duration = 90000 * 1152 / sr;
     channels = ((h >> 6) & 3) == 3 ? 1 : 2;
     dts = st->es_curdts;
@@ -686,16 +673,28 @@ parse_mpa123(service_t *t, elementary_stream_t *st)
       if(dts == PTS_UNSET) continue;
     }
 
-    if(len < i + fsize + 4) continue;
+    if (len < i + fsize + 4) {
+      if (len - i == fsize && fsize == fsize2)
+        goto ok;
+      break;
+    }
 
-    h = RB32(buf + i + fsize);
-    if(mpa_valid_frame(h)) {
+    if (mpa_valid_frame(RB32(buf + i + fsize))) {
+ok:
+      if (st->es_audio_version < layer) {
+        tvhtrace(LS_PARSER, "mpeg audio version change %02d: val=%d (old=%d)",
+                 st->es_index, layer, st->es_audio_version);
+        st->es_audio_version = layer;
+        atomic_set(&t->s_pending_restart, 1);
+      }
       makeapkt(t, st, buf + i, fsize, dts, duration,
                channels, mpa_sri[(buf[i+2] >> 2) & 3]);
-      sbuf_cut(&st->es_buf_a, i + fsize);
-      goto again;
+      i += fsize - 1;
+      fsize2 = fsize;
     }
   }
+  assert(i <= st->es_buf_a.sb_ptr);
+  sbuf_cut(&st->es_buf_a, i);
 
   return PARSER_RESET;
 }
@@ -716,7 +715,7 @@ parse_mpa(service_t *t, elementary_stream_t *st, size_t ilen,
 
 
 /**
- * AC3 audio parser
+ * (E)AC3 audio parser
  */
 const static int ac3_freq_tab[4] = {48000, 44100, 32000, 0};
 
@@ -762,63 +761,100 @@ const static uint16_t ac3_frame_size_tab[38][3] = {
 };
 
 /**
- * Inspect 6 bytes AC3 header
+ * Inspect 6 bytes (E)AC3 header
  */
 static int
 ac3_valid_frame(const uint8_t *buf)
 {
-  if(buf[0] != 0x0b || buf[1] != 0x77 || buf[5] >> 3 > 10)
+  uint_fast8_t bs;
+
+  if (buf[0] != 0x0b || buf[1] != 0x77)
     return 0;
-  return (buf[4] & 0xc0) != 0xc0 && (buf[4] & 0x3f) < 0x26;
+  bs = buf[5] >> 3;
+  if (bs <= 10) {
+    return (buf[4] & 0xc0) != 0xc0 && (buf[4] & 0x3f) < 0x26 ? 1 : 0;
+  } else {
+    if (bs > 16) return 0;
+    return (buf[4] & 0xc0) != 0xc0 ? 2 : 0;
+  }
 }
 
 static const char acmodtab[8] = {2,1,2,3,3,4,4,5};
-
 
 static int 
 parse_ac3(service_t *t, elementary_stream_t *st, size_t ilen,
           uint32_t next_startcode, int sc_offset)
 {
-  int i, len;
-  const uint8_t *buf;
+  int i, len, count, ver, bsid, fscod, frmsizcod, fsize, fsize2, duration, sri;
+  int sr, sr2, rate, acmod, lfeon, channels, versions[2];
+  int64_t dts;
+  const uint8_t *buf, *p;
+  bitstream_t bs;
 
-  if((i = depacketize(t, st, ilen, next_startcode, sc_offset)) != PARSER_APPEND)
+  if ((i = depacketize(t, st, ilen, next_startcode, sc_offset)) != PARSER_APPEND)
     return i;
 
- again:
+  if (st->es_audio_version == 0)
+    st->es_audio_version = st->es_type == SCT_AC3 ? 1 : 2;
+
+again:
+  versions[0] = versions[1] = 0;
+
   buf = st->es_buf_a.sb_data;
   len = st->es_buf_a.sb_ptr;
 
-  for(i = 0; i < len - 6; i++) {
-    const uint8_t *p = buf + i;
-    if(ac3_valid_frame(p)) {
-      int bsid      = p[5] >> 3;
-      int fscod     = p[4] >> 6;
-      int frmsizcod = p[4] & 0x3f;
-      int fsize     = ac3_frame_size_tab[frmsizcod][fscod] * 2;
-      
+  for (i = count = fsize2 = 0; i < len - 6; i++) {
+    if (!(ver = ac3_valid_frame(p = buf + i))) continue;
+    versions[ver - 1]++;
+
+    if (ver == 1) {
+      bsid      = p[5] >> 3;
+      fscod     = p[4] >> 6;
+      frmsizcod = p[4] & 0x3f;
+      fsize     = ac3_frame_size_tab[frmsizcod][fscod] * 2;
+
       bsid -= 8;
-      if(bsid < 0)
-        bsid = 0;
-      int sr = ac3_freq_tab[fscod] >> bsid;
-      
-      if(sr) {
-        int duration = 90000 * 1536 / sr;
-        int64_t dts = st->es_curdts;
-        int sri = rate_to_sri(sr);
+      if (bsid < 0) bsid = 0;
+      rate = ac3_freq_tab[fscod] >> bsid;
 
-        if(dts == PTS_UNSET)
-          dts = st->es_nextdts;
+    } else {
+      fsize = ((((p[2] & 0x7) << 8) + p[3]) + 1) * 2;
 
-        if(dts != PTS_UNSET && len >= i + fsize + 6 &&
-           ac3_valid_frame(p + fsize)) {
+      sr = p[4] >> 6;
+      if (sr == 3) {
+        sr2 = (p[4] >> 4) & 0x3;
+        if (sr2 == 3) continue;
+        rate = ac3_freq_tab[sr2] / 2;
+      } else {
+        rate = ac3_freq_tab[sr];
+      }
+    }
 
-          bitstream_t bs;
+    if (rate == 0) continue;
+    duration = 90000 * 1536 / rate;
+    sri = rate_to_sri(rate);
+
+    dts = st->es_curdts;
+    if (dts == PTS_UNSET) {
+      dts = st->es_nextdts;
+      if(dts == PTS_UNSET) continue;
+    }
+
+    if (len < i + fsize + 6) {
+      if (len - i == fsize && fsize == fsize2)
+        goto ok;
+      break;
+    }
+
+    if ((ver = ac3_valid_frame(p + fsize)) != 0) {
+ok:
+      if (ver == st->es_audio_version) {
+        if (ver == 1) {
           init_rbits(&bs, p + 5, (fsize - 5) * 8);
 
           read_bits(&bs, 5); // bsid
           read_bits(&bs, 3); // bsmod
-          int acmod = read_bits(&bs, 3);
+          acmod = read_bits(&bs, 3);
 
           if((acmod & 0x1) && (acmod != 0x1))
             read_bits(&bs, 2); // cmixlen
@@ -827,87 +863,38 @@ parse_ac3(service_t *t, elementary_stream_t *st, size_t ilen,
           if(acmod == 0x2)
             read_bits(&bs, 2); // dsurmod
 
-          int lfeon = read_bits(&bs, 1);
-          int channels = acmodtab[acmod] + lfeon;
-
-          makeapkt(t, st, p, fsize, dts, duration, channels, sri);
-          sbuf_cut(&st->es_buf_a, i + fsize);
-          goto again;
+          lfeon = read_bits(&bs, 1);
+          channels = acmodtab[acmod] + lfeon;
+        } else {
+          acmod = (p[4] >> 1) & 0x7;
+          lfeon = p[4] & 1;
         }
-      }
-    }
-  }
-  return PARSER_RESET;
-}
-
-
-/**
- * EAC3 audio parser
- */
-
-
-static int
-eac3_valid_frame(const uint8_t *buf)
-{
-  if(buf[0] != 0x0b || buf[1] != 0x77 || buf[5] >> 3 <= 10)
-    return 0;
-  return (buf[4] & 0xc0) != 0xc0;
-}
-
-static int 
-parse_eac3(service_t *t, elementary_stream_t *st, size_t ilen,
-           uint32_t next_startcode, int sc_offset)
-{
-  int i, len;
-  const uint8_t *buf;
-
-  if((i = depacketize(t, st, ilen, next_startcode, sc_offset)) != PARSER_APPEND)
-    return i;
-
- again:
-  buf = st->es_buf_a.sb_data;
-  len = st->es_buf_a.sb_ptr;
-
-  for(i = 0; i < len - 6; i++) {
-    const uint8_t *p = buf + i;
-    if(eac3_valid_frame(p)) {
-
-      int fsize = ((((p[2] & 0x7) << 8) + p[3]) + 1) * 2;
-
-      int sr = p[4] >> 6;
-      int rate;
-      if(sr == 3) {
-        int sr2 = (p[4] >> 4) & 0x3;
-        if(sr2 == 3)
-          continue;
-        rate = ac3_freq_tab[sr2] / 2;
-      } else {
-        rate = ac3_freq_tab[sr];
-      }
-
-      int64_t dts = st->es_curdts;
-      int sri = rate_to_sri(rate);
-
-      int acmod = (p[4] >> 1) & 0x7;
-      int lfeon = p[4] & 1;
-
-      int channels = acmodtab[acmod] + lfeon;
-      int duration = 90000 * 1536 / rate;
-
-      if(dts == PTS_UNSET)
-        dts = st->es_nextdts;
-
-      if(dts != PTS_UNSET && len >= i + fsize + 6 &&
-         eac3_valid_frame(p + fsize)) {
+        channels = acmodtab[acmod] + lfeon;
         makeapkt(t, st, p, fsize, dts, duration, channels, sri);
-        sbuf_cut(&st->es_buf_a, i + fsize);
-        goto again;
+        count++;
+        fsize2 = fsize;
       }
+      i += fsize - 1;
     }
   }
+  assert(i <= st->es_buf_a.sb_ptr);
+  ver = versions[0] + versions[1];
+  printf("[0] = %d, [1] = %d, count = %d\n", versions[0], versions[1], count);
+  if (ver > 4 && ver - count > 2) {
+    if (versions[0] - 2 > versions[1]) {
+      tvhtrace(LS_PARSER, "%d: stream changed to AC3 type", st->es_index);
+      st->es_audio_version = 1;
+      goto again;
+    } else if (versions[0] < versions[1] - 2) {
+      tvhtrace(LS_PARSER, "%d: stream changed to EAC3 type", st->es_index);
+      st->es_audio_version = 2;
+      goto again;
+    }
+  }
+  sbuf_cut(&st->es_buf_a, i);
+
   return PARSER_RESET;
 }
-
 
 /**
  * PES header parser

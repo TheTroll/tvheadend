@@ -687,15 +687,9 @@ http_client_finish( http_client_t *hc )
 
   tvhtrace(LS_HTTPC, "%04X: finishing", shortid(hc));
 
-  if (hc->hc_in_rtp_data && hc->hc_rtp_data_complete) {
-    http_client_get(hc);
-    pthread_mutex_unlock(&hc->hc_mutex);
-    res = hc->hc_rtp_data_complete(hc);
-    pthread_mutex_lock(&hc->hc_mutex);
-    http_client_put(hc);
-    if (res < 0)
-      return http_client_flush(hc, res);
-  } else if (hc->hc_data_complete) {
+  assert(!hc->hc_in_rtp_data);
+
+  if (hc->hc_data_complete) {
     http_client_get(hc);
     pthread_mutex_unlock(&hc->hc_mutex);
     res = hc->hc_data_complete(hc);
@@ -723,8 +717,7 @@ http_client_finish( http_client_t *hc )
       return HTTP_CON_RECEIVING;
     }
   }
-  if (TAILQ_FIRST(&hc->hc_wqueue) && hc->hc_code == HTTP_STATUS_OK &&
-      !hc->hc_in_rtp_data) {
+  if (TAILQ_FIRST(&hc->hc_wqueue) && hc->hc_code == HTTP_STATUS_OK) {
     hc->hc_code = 0;
     return http_client_send_partial(hc);
   }
@@ -1149,9 +1142,15 @@ rtsp_data:
         return res;
     }
     r += hc->hc_csize;
-    hc->hc_in_rtp_data = 1;
     hc->hc_code = 0;
-    res = http_client_finish(hc);
+    res = 0;
+    if (hc->hc_rtp_data_complete) {
+      http_client_get(hc);
+      pthread_mutex_unlock(&hc->hc_mutex);
+      res = hc->hc_rtp_data_complete(hc);
+      pthread_mutex_lock(&hc->hc_mutex);
+      http_client_put(hc);
+    }
     hc->hc_in_rtp_data = 0;
     if (res < 0)
       return http_client_flush(hc, res);
@@ -1473,22 +1472,24 @@ http_client_reconnect
 
   free(hc->hc_scheme);
   free(hc->hc_host);
+  hc->hc_scheme = NULL;
+  hc->hc_host = NULL;
 
   if (scheme == NULL || host == NULL)
     goto errnval;
 
   port           = http_port(hc, scheme, port);
-  hc->hc_pevents = 0;
-  hc->hc_version = ver;
-  hc->hc_redirv  = ver;
-  hc->hc_scheme  = strdup(scheme);
-  hc->hc_host    = strdup(host);
-  hc->hc_port    = port;
   hc->hc_fd      = tcp_connect(host, port, hc->hc_bindaddr, errbuf, sizeof(errbuf), -1);
   if (hc->hc_fd < 0) {
     tvherror(LS_HTTPC, "%04X: Unable to connect to %s:%i - %s", shortid(hc), host, port, errbuf);
     goto errnval;
   }
+  hc->hc_pevents = 0;
+  hc->hc_version = ver;
+  hc->hc_redirv  = ver;
+  hc->hc_port    = port;
+  hc->hc_scheme  = strdup(scheme);
+  hc->hc_host    = strdup(host);
   hc->hc_einprogress = 1;
   tvhtrace(LS_HTTPC, "%04X: Connected to %s:%i", shortid(hc), host, port);
   http_client_ssl_free(hc);

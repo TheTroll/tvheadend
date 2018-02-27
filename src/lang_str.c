@@ -16,6 +16,7 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stddef.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -53,7 +54,7 @@ lang_str_t *lang_str_create2 ( const char *s, const char *lang )
 {
   lang_str_t *ls = lang_str_create();
   if (ls)
-    lang_str_add(ls, s, lang, 0);
+    lang_str_add(ls, s, lang);
   return ls;
 }
 
@@ -73,10 +74,13 @@ void lang_str_destroy ( lang_str_t *ls )
 /* Copy the lang_str instance */
 lang_str_t *lang_str_copy ( const lang_str_t *ls )
 {
-  lang_str_t *ret = lang_str_create();
+  lang_str_t *ret;
   lang_str_ele_t *e;
+  if (ls == NULL)
+    return NULL;
+  ret = lang_str_create();
   RB_FOREACH(e, ls, link)
-    lang_str_add(ret, e->str, e->lang, 0);
+    lang_str_add(ret, e->str, e->lang);
   return ret;
 }
 
@@ -85,21 +89,18 @@ lang_str_ele_t *lang_str_get2
   ( const lang_str_t *ls, const char *lang )
 {
   int i;
-  const char **langs;
+  const lang_code_list_t *langs;
   lang_str_ele_t skel, *e = NULL;
 
   if (!ls) return NULL;
   
   /* Check config/requested langs */
-  if ((langs = lang_code_split(lang))) {
-    i = 0;
-    while (langs[i]) {
-      strncpy(skel.lang, langs[i], sizeof(skel.lang));
+  if ((langs = lang_code_split(lang)) != NULL) {
+    for (i = 0; i < langs->codeslen; i++) {
+      strncpy(skel.lang, langs->codes[i]->code2b, sizeof(skel.lang));
       if ((e = RB_FIND(ls, &skel, link, _lang_cmp)))
         break;
-      i++;
     }
-    free(langs);
   }
 
   /* Use first available */
@@ -109,35 +110,29 @@ lang_str_ele_t *lang_str_get2
   return e;
 }
 
-/* Get string */
-const char *lang_str_get
-  ( const lang_str_t *ls, const char *lang )
-{
-  lang_str_ele_t *e = lang_str_get2(ls, lang);
-  return e ? e->str : NULL;
-}
-
 /* Internal insertion routine */
 static int _lang_str_add
   ( lang_str_t *ls, const char *str, const char *lang, int cmd )
 {
   int save = 0;
-  lang_str_ele_t *ae, *e;
+  lang_str_ele_t *e, *ae;
 
-  if (!str) return 0;
+  if (!ls || !str) return 0;
 
   /* Get proper code */
   if (!lang) lang = lang_code_preferred();
   if (!(lang = lang_code_get(lang))) return 0;
 
-  /* Create skel */
-  ae = malloc(sizeof(*e) + strlen(str) + 1);
-  strncpy(ae->lang, lang, sizeof(ae->lang));
+  /* Use 'dummy' ele pointer for _lang_cmp */
+  ae = (lang_str_ele_t *)(lang - offsetof(lang_str_ele_t, lang));
+  e = RB_FIND(ls, ae, link, _lang_cmp);
 
   /* Create */
-  e = RB_INSERT_SORTED(ls, ae, link, _lang_cmp);
   if (!e) {
-    strcpy(ae->str, str);
+    e = malloc(sizeof(*e) + strlen(str) + 1);
+    strncpy(e->lang, lang, sizeof(e->lang));
+    strcpy(e->str, str);
+    RB_INSERT_SORTED(ls, e, link, _lang_cmp);
     save = 1;
 
   /* Append */
@@ -150,12 +145,11 @@ static int _lang_str_add
     } else {
       ae = e;
     }
-    e = RB_INSERT_SORTED(ls, ae, link, _lang_cmp);
-    assert(!e);
+    RB_INSERT_SORTED(ls, ae, link, _lang_cmp);
 
   /* Update */
   } else if (cmd == LANG_STR_UPDATE && strcmp(str, e->str)) {
-    if (strlen(e->str) <= strlen(str)) {
+    if (strlen(e->str) >= strlen(str)) {
       strcpy(e->str, str);
       save = 1;
     } else {
@@ -167,8 +161,7 @@ static int _lang_str_add
       } else {
         ae = e;
       }
-      e = RB_INSERT_SORTED(ls, ae, link, _lang_cmp);
-      assert(!e);
+      RB_INSERT_SORTED(ls, ae, link, _lang_cmp);
     }
   }
   
@@ -177,7 +170,7 @@ static int _lang_str_add
 
 /* Add new string (or replace existing one) */
 int lang_str_add 
-  ( lang_str_t *ls, const char *str, const char *lang, int update )
+  ( lang_str_t *ls, const char *str, const char *lang )
 { 
   return _lang_str_add(ls, str, lang, LANG_STR_UPDATE);
 }
@@ -215,7 +208,7 @@ change:
   lang_str_destroy(*dst);
 change1:
   *dst = lang_str_create();
-  lang_str_add(*dst, str, lang, 1);
+  lang_str_add(*dst, str, lang);
   return 1;
 }
 
@@ -268,9 +261,11 @@ void lang_str_serialize_one
   ( htsmsg_t *m, const char *f, const char *str, const char *lang )
 {
   lang_str_t *l = lang_str_create();
-  lang_str_add(l, str, lang, 0);
-  lang_str_serialize(l, m, f);
-  lang_str_destroy(l);
+  if (l) {
+    lang_str_add(l, str, lang);
+    lang_str_serialize(l, m, f);
+    lang_str_destroy(l);
+  }
 }
 
 /* De-serialize map */
@@ -280,9 +275,11 @@ lang_str_t *lang_str_deserialize_map ( htsmsg_t *map )
   htsmsg_field_t *f;
   const char *str;
 
-  HTSMSG_FOREACH(f, map) {
-    if ((str = htsmsg_field_get_string(f))) {
-      lang_str_add(ret, str, f->hmf_name, 0);
+  if (ret) {
+    HTSMSG_FOREACH(f, map) {
+      if ((str = htsmsg_field_get_string(f))) {
+        lang_str_add(ret, str, f->hmf_name);
+      }
     }
   }
   return ret;
@@ -298,7 +295,7 @@ lang_str_t *lang_str_deserialize ( htsmsg_t *m, const char *n )
     return lang_str_deserialize_map(a);
   } else if ((str = htsmsg_get_str(m, n))) {
     lang_str_t *ret = lang_str_create();
-    lang_str_add(ret, str, NULL, 0);
+    lang_str_add(ret, str, NULL);
     return ret;
   }
   return NULL;

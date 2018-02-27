@@ -172,6 +172,7 @@ struct lang_str;
 
 #define DVB_DESC_BSKYB_NVOD           0xC0
 
+#define DVB_DESC_FREESAT_NIT          0xD2
 #define DVB_DESC_FREESAT_LCN          0xD3
 #define DVB_DESC_FREESAT_REGIONS      0xD4
 
@@ -286,6 +287,7 @@ do {\
  */
 
 #define MPEGTS_PSI_SECTION_SIZE 5000
+#define MPEGTS_PSI_VERSION_NONE 255
 
 typedef struct mpegts_psi_section
 {
@@ -306,6 +308,7 @@ typedef struct mpegts_psi_table_state
   int      tableid;
   uint64_t extraid;
   int      version;
+  int      last;
   int      complete;
   int      working;
   uint32_t sections[8];

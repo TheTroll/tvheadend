@@ -76,18 +76,20 @@ string_list_insert_lowercase(string_list_t *l, const char *id)
 
   if (!id) return;
   s = alloca(strlen(id) + 1);
-  for (s = p = alloca(strlen(id) + 1); *id; id++, p++)
+  for (p = s; *id; id++, p++)
     *p = tolower(*id);
+  *p = '\0';
   string_list_insert(l, s);
 }
 
 htsmsg_t *
 string_list_to_htsmsg(const string_list_t *l)
 {
-  htsmsg_t *ret = NULL;
+  htsmsg_t *ret;
   string_list_item_t *item;
-  if (RB_FIRST(l))
-    ret = htsmsg_create_list();
+  if (!RB_FIRST(l))
+    return NULL;
+  ret = htsmsg_create_list();
   RB_FOREACH(item, l, h_link)
     htsmsg_add_str(ret, NULL, item->id);
   return ret;

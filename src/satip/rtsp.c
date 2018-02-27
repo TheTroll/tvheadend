@@ -514,7 +514,7 @@ static void
 rtsp_manage_descramble(session_t *rs)
 {
   idnode_set_t *found;
-  mpegts_service_t *s, *snext, *master;
+  mpegts_service_t *s, *master;
   slave_subscription_t *sub;
   mpegts_apids_t pmt_pids;
   size_t si;
@@ -544,12 +544,14 @@ rtsp_manage_descramble(session_t *rs)
   }
 
   /* Remove already used or no-longer required services */
-  for (s = LIST_FIRST(&master->s_slaves); s; s = snext) {
-    snext = LIST_NEXT(s, s_slaves_link);
-    if (idnode_set_remove(found, &s->s_id))
+  for (si = 0; si < master->s_slaves.is_count; si++) {
+    s = (mpegts_service_t *)master->s_slaves.is_array[si];
+    if (idnode_set_remove(found, &s->s_id)) {
       used++;
-    else if (!idnode_set_exists(found, &s->s_id))
+    } else if (!idnode_set_exists(found, &s->s_id)) {
       rtsp_slave_remove(rs, master, s);
+      si--;
+    }
   }
 
   /* Add new ones */
@@ -921,7 +923,7 @@ parse_pids(char *p, mpegts_apids_t *pids)
   while (1) {
     if (x == NULL)
       break;
-    if (strcmp(x, "all") == 0) {
+    if (strcmp(x, "all") == 0 || strcmp(x, "8192") == 0) {
       if (satip_server_conf.satip_restrict_pids_all) {
         pids->all = 0;
         for (pid = 1; pid <= 2; pid++) /* CAT, TSDT */
@@ -1079,6 +1081,8 @@ rtsp_parse_cmd
     rs->rtp_peer_port = r;
     rs->frontend = fe > 0 ? fe : 1;
   } else {
+    if (!rs && !stream && cmd == RTSP_CMD_DESCRIBE)
+      rs = rtsp_new_session(hc->hc_peer_ipstr, msys, 0, -1);
     if (!rs || stream != rs->stream) {
       if (rs)
         errcode = HTTP_STATUS_NOT_FOUND;
@@ -1356,7 +1360,8 @@ rtsp_describe_session(session_t *rs, htsbuf_queue_t *q)
 {
   char buf[4096];
 
-  htsbuf_qprintf(q, "a=control:stream=%d\r\n", rs->stream);
+  if (rs->stream > 0)
+    htsbuf_qprintf(q, "a=control:stream=%d\r\n", rs->stream);
   htsbuf_qprintf(q, "a=tool:%s\r\n", config_get_http_server_name());
   htsbuf_append_str(q, "m=video 0 RTP/AVP 33\r\n");
   if (strchr(rtsp_ip, ':'))
@@ -1658,6 +1663,9 @@ rtsp_stream_status ( void *opaque, htsmsg_t *m )
 {
   http_connection_t *hc = opaque;
   char buf[128];
+  struct session *rs = NULL;
+  htsmsg_t *c, *tcp = NULL, *udp = NULL;
+  int udpport, s32;
 
   htsmsg_add_str(m, "type", "SAT>IP");
   if (hc->hc_proxy_ip) {
@@ -1666,6 +1674,31 @@ rtsp_stream_status ( void *opaque, htsmsg_t *m )
   }
   if (hc->hc_username)
     htsmsg_add_str(m, "user", hc->hc_username);
+
+  TAILQ_FOREACH(rs, &rtsp_sessions, link) {
+    if (hc->hc_session &&
+        strcmp(rs->session, hc->hc_session) == 0 &&
+        strcmp(rs->peer_ipstr, hc->hc_peer_ipstr) == 0 &&
+        (udpport = rs->rtp_peer_port) > 0) {
+      if (udpport == RTSP_TCP_DATA) {
+        if (rs->tcp_data == hc) {
+          s32 = htsmsg_get_s32_or_default(m, "peer_port", -1);
+          if (!tcp) tcp = htsmsg_create_list();
+          htsmsg_add_s32(tcp, NULL, s32);
+        }
+      } else {
+        if (!udp) udp = htsmsg_create_list();
+        htsmsg_add_s32(udp, NULL, udpport);
+        htsmsg_add_s32(udp, NULL, udpport+1);
+      }
+    }
+  }
+  if (tcp || udp) {
+    c = htsmsg_create_map();
+    if (tcp) htsmsg_add_msg(c, "tcp", tcp);
+    if (udp) htsmsg_add_msg(c, "udp", udp);
+    htsmsg_add_msg(m, "peer_extra_ports", c);
+  }
 }
 
 /*

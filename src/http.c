@@ -564,31 +564,33 @@ http_header_match(http_connection_t *hc, const char *name, const char *value)
 static char *
 http_get_header_value(const char *hdr, const char *name)
 {
-  char *tokbuf, *tok, *saveptr = NULL, *q, *s;
-
-  tokbuf = tvh_strdupa(hdr);
-  tok = strtok_r(tokbuf, ",", &saveptr);
-  while (tok) {
-    while (*tok == ' ')
-      tok++;
-    if ((q = strchr(tok, '=')) == NULL)
-      goto next;
-    *q = '\0';
-    if (strcasecmp(tok, name))
-      goto next;
-    s = q + 1;
-    if (*s == '"') {
-      q = strchr(++s, '"');
-      if (q)
-        *q = '\0';
-    } else {
-      q = strchr(s, ' ');
-      if (q)
-        *q = '\0';
+  char *s, *start, *val;
+  s = tvh_strdupa(hdr);
+  while (*s) {
+    while (*s && *s <= ' ') s++;
+    start = s;
+    while (*s && *s != '=') s++;
+    if (*s == '=') {
+      *s = '\0';
+      s++;
     }
-    return strdup(s);
-next:
-    tok = strtok_r(NULL, ",", &saveptr);
+    while (*s && *s <= ' ') s++;
+    if (*s == '"') {
+      val = ++s;
+      while (*s && *s != '"') s++;
+      if (*s == '"') {
+        *s = '\0';
+        s++;
+      }
+      while (*s && (*s <= ' ' || *s == ',')) s++;
+    } else {
+      val = s;
+      while (*s && *s != ',') s++;
+      *s = '\0';
+      s++;
+    }
+    if (*start && strcmp(name, start) == 0)
+      return strdup(val);
   }
   return NULL;
 }
@@ -660,9 +662,10 @@ http_error(http_connection_t *hc, int error)
       level = LOG_DEBUG;
     else if (error == HTTP_STATUS_BAD_REQUEST || error > HTTP_STATUS_UNAUTHORIZED)
       level = LOG_ERR;
-    tvhlog(level, hc->hc_subsys, "%s: %s %s %s -- %d",
+    if (hc->hc_cmd == 6 && strstr(hc->hc_url, "&pids")) abort();
+    tvhlog(level, hc->hc_subsys, "%s: %s %s (%d) %s -- %d",
 	   hc->hc_peer_ipstr, http_ver2str(hc->hc_version),
-           http_cmd2str(hc->hc_cmd), hc->hc_url, error);
+           http_cmd2str(hc->hc_cmd), hc->hc_cmd, hc->hc_url, error);
   }
 
   if (hc->hc_version != RTSP_VERSION_1_0) {
@@ -1391,19 +1394,16 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
   case RTSP_VERSION_1_0:
     hc->hc_keep_alive = 1;
     /* Extract CSeq */
-    if((v = http_arg_get(&hc->hc_args, "CSeq")) != NULL)
+    if((v = http_arg_get(&hc->hc_args, "CSeq")) != NULL) {
       hc->hc_cseq = strtoll(v, NULL, 10);
-    else
+    } else {
       hc->hc_cseq = 0;
+    }
     free(hc->hc_session);
     if ((v = http_arg_get(&hc->hc_args, "Session")) != NULL)
       hc->hc_session = tvh_strdupa(v);
     else
       hc->hc_session = NULL;
-    if(hc->hc_cseq == 0) {
-      http_error(hc, HTTP_STATUS_BAD_REQUEST);
-      return -1;
-    }
     break;
 
   case HTTP_VERSION_1_0:
@@ -1463,10 +1463,7 @@ process_request(http_connection_t *hc, htsbuf_queue_t *spill)
   case RTSP_VERSION_1_0:
     if (tvhtrace_enabled())
       dump_request(hc);
-    if (hc->hc_cseq)
-      rval = hc->hc_process(hc, spill);
-    else
-      http_error(hc, HTTP_STATUS_HTTP_VERSION);
+    rval = hc->hc_process(hc, spill);
     break;
 
   case HTTP_VERSION_1_0:

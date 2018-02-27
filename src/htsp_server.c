@@ -602,10 +602,8 @@ htsp_serierec_convert(htsp_connection_t *htsp, htsmsg_t *in, channel_t *ch, int 
       htsmsg_add_s64(conf, "start_extra", !retval ? (s64 < 0 ? 0 : s64)  : 0); // 0 = dvr config
     if (!(retval = htsmsg_get_s64(in, "stopExtra", &s64)) || add)
       htsmsg_add_s64(conf, "stop_extra", !retval ? (s64 < 0 ? 0 : s64) : 0);   // 0 = dvr config
-    if (!(retval = htsmsg_get_u32(in, "serieslinkId", &u32)) || add)
-      htsmsg_add_u32(conf, "serieslinkId", !retval ? u32 : 0);
-    if((str = htsmsg_get_str(in, "serieslinkUri")) || add)
-      htsmsg_add_str(conf, "serieslink", str ?: ""); // for compat reasons, htsp name is not same as internal name
+    if ((str = htsmsg_get_str(in, "serieslinkUri")) || add)
+      htsmsg_add_str(conf, "serieslink", str ?: "");
 
     if (add) { // for add, stay compatible with older "approxTime
       if(htsmsg_get_s32(in, "approxTime", &approx_time))
@@ -971,7 +969,6 @@ htsp_build_dvrentry(htsp_connection_t *htsp, dvr_entry_t *de, const char *method
   int64_t fsize = -1, start, stop;
   uint32_t u32;
   char ubuf[UUID_HEX_SIZE];
-  int subtitle_is_summary = 0;
 
   htsmsg_add_u32(out, "id", idnode_get_short_uuid(&de->de_id));
 
@@ -1018,18 +1015,28 @@ htsp_build_dvrentry(htsp_connection_t *htsp, dvr_entry_t *de, const char *method
 
     if(de->de_title && (s = lang_str_get(de->de_title, lang)))
       htsmsg_add_str(out, "title", s);
-    if(de->de_subtitle && (s = lang_str_get(de->de_subtitle, lang)))
-      htsmsg_add_str(out, "subtitle", s);
-    else if (htsp->htsp_version < 32 &&
-             de->de_summary && (s = lang_str_get(de->de_summary, lang))) {
-      htsmsg_add_str(out, "subtitle", s);
-      subtitle_is_summary = 1;
+    if (htsp->htsp_version < 32) {
+      if ((s = lang_str_get(de->de_desc, lang))) {
+        htsmsg_add_str(out, "description", s);
+        if ((s = lang_str_get(de->de_summary, lang)))
+          htsmsg_add_str(out, "summary", s);
+        if ((s = lang_str_get(de->de_subtitle, lang)))
+          htsmsg_add_str(out, "subtitle", s);
+      } else if ((s = lang_str_get(de->de_summary, lang))) {
+        htsmsg_add_str(out, "description", s);
+        if ((s = lang_str_get(de->de_subtitle, lang)))
+          htsmsg_add_str(out, "subtitle", s);
+      } else if ((s = lang_str_get(de->de_subtitle, lang))) {
+        htsmsg_add_str(out, "description", s);
+      }
+    } else {
+      if (de->de_subtitle && (s = lang_str_get(de->de_subtitle, lang)))
+        htsmsg_add_str(out, "subtitle", s);
+      if (de->de_summary && (s = lang_str_get(de->de_summary, lang)))
+        htsmsg_add_str(out, "summary", s);
+      if (de->de_desc && (s = lang_str_get(de->de_desc, lang)))
+        htsmsg_add_str(out, "description", s);
     }
-    if (!subtitle_is_summary &&
-        de->de_summary && (s = lang_str_get(de->de_summary, lang)))
-      htsmsg_add_str(out, "summary", s);
-    if(de->de_desc && (s = lang_str_get(de->de_desc, lang)))
-      htsmsg_add_str(out, "description", s);
     htsp_serialize_epnum(out, &de->de_epnum, "episode");
     htsmsg_add_str2(out, "owner", de->de_owner);
     htsmsg_add_str2(out, "creator", de->de_creator);
@@ -1171,12 +1178,8 @@ htsp_build_autorecentry(htsp_connection_t *htsp, dvr_autorec_entry_t *dae, const
   htsmsg_add_str2(out, "creator",    dae->dae_creator);
   if(dae->dae_channel)
     htsmsg_add_u32(out, "channel",   channel_get_id(dae->dae_channel));
-
-  if (dae->dae_serieslink) {
-    htsmsg_add_u32(out, "serieslinkId", dae->dae_serieslink->id);
-    if (dae->dae_serieslink->uri)
-      htsmsg_add_str(out, "serieslinkUri", dae->dae_serieslink->uri);
-  }
+  if (dae->dae_serieslink_uri)
+    htsmsg_add_str(out, "serieslinkUri", dae->dae_serieslink_uri);
   htsmsg_add_str(out, "method", method);
 
   return out;
@@ -1236,20 +1239,9 @@ htsp_build_event
   epg_genre_t *g;
   epg_episode_num_t epnum;
   const char *str;
-  epg_episode_t *ee = e->episode;
 
   /* Ignore? */
-  if (update) {
-    int ignore = 1;
-    if      (e->updated > update) ignore = 0;
-    else if (e->serieslink && e->serieslink->updated > update) ignore = 0;
-    else if (ee) {
-           if (ee->updated > update) ignore = 0;
-      else if (ee->brand  && ee->brand->updated > update)  ignore = 0;
-      else if (ee->season && ee->season->updated > update) ignore = 0;
-    }
-    if (ignore) return NULL;
-  }
+  if (update && e->updated <= update) return NULL;
 
   out = htsmsg_create_map();
 
@@ -1263,18 +1255,23 @@ htsp_build_event
   htsmsg_add_s64(out, "stop", e->stop);
   if ((str = epg_broadcast_get_title(e, lang)))
     htsmsg_add_str(out, "title", str);
-  if ((str = epg_broadcast_get_subtitle(e, lang)))
-    htsmsg_add_str(out, "subtitle", str);
-  else if (htsp->htsp_version < 32 && (str = epg_broadcast_get_summary(e, lang)))
-    htsmsg_add_str(out, "subtitle", str);
   if (htsp->htsp_version < 32) {
     if ((str = epg_broadcast_get_description(e, lang))) {
       htsmsg_add_str(out, "description", str);
       if ((str = epg_broadcast_get_summary(e, lang)))
         htsmsg_add_str(out, "summary", str);
-    } else if((str = epg_broadcast_get_summary(e, lang)))
+      if ((str = epg_broadcast_get_subtitle(e, lang)))
+        htsmsg_add_str(out, "subtitle", str);
+    } else if ((str = epg_broadcast_get_summary(e, lang))) {
       htsmsg_add_str(out, "description", str);
+      if ((str = epg_broadcast_get_subtitle(e, lang)))
+        htsmsg_add_str(out, "subtitle", str);
+    } else if ((str = epg_broadcast_get_subtitle(e, lang))) {
+      htsmsg_add_str(out, "description", str);
+    }
   } else {
+    if ((str = epg_broadcast_get_subtitle(e, lang)))
+      htsmsg_add_str(out, "subtitle", str);
     if ((str = epg_broadcast_get_summary(e, lang)))
       htsmsg_add_str(out, "summary", str);
     if ((str = epg_broadcast_get_description(e, lang)))
@@ -1291,38 +1288,30 @@ htsp_build_event
     htsmsg_add_msg(out, "keyword", string_list_to_htsmsg(e->keyword));
   }
 
-  if (e->serieslink) {
-    htsmsg_add_u32(out, "serieslinkId", e->serieslink->id);
-    if (e->serieslink->uri)
-      htsmsg_add_str(out, "serieslinkUri", e->serieslink->uri);
-  }
+  if (e->serieslink)
+    htsmsg_add_str(out, "serieslinkUri", e->serieslink->uri);
 
-  if (ee) {
-    htsmsg_add_u32(out, "episodeId", ee->id);
-    if (ee->uri && strncasecmp(ee->uri,"tvh://",6))  /* tvh:// uris are internal */
-      htsmsg_add_str(out, "episodeUri", ee->uri);
-    if (ee->brand)
-      htsmsg_add_u32(out, "brandId", ee->brand->id);
-    if (ee->season)
-      htsmsg_add_u32(out, "seasonId", ee->season->id);
-    if((g = LIST_FIRST(&ee->genre))) {
-      uint32_t code = g->code;
-      if (htsp->htsp_version < 6) code = (code >> 4) & 0xF;
-      htsmsg_add_u32(out, "contentType", code);
-    }
-    if (ee->age_rating)
-      htsmsg_add_u32(out, "ageRating", ee->age_rating);
-    if (ee->star_rating)
-      htsmsg_add_u32(out, "starRating", ee->star_rating);
-    if (ee->copyright_year)
-      htsmsg_add_u32(out, "copyrightYear", ee->copyright_year);
-    if (ee->first_aired)
-      htsmsg_add_s64(out, "firstAired", ee->first_aired);
-    epg_episode_get_epnum(ee, &epnum);
-    htsp_serialize_epnum(out, &epnum, NULL);
-    if (ee->image)
-      htsmsg_add_str(out, "image", ee->image);
+  /* tvh:// uris are internal */
+  if (e->episodelink && strncasecmp(e->episodelink->uri, "tvh://", 6))
+    htsmsg_add_str(out, "episodeUri", e->episodelink->uri);
+
+  if((g = LIST_FIRST(&e->genre))) {
+    uint32_t code = g->code;
+    if (htsp->htsp_version < 6) code = (code >> 4) & 0xF;
+    htsmsg_add_u32(out, "contentType", code);
   }
+  if (e->age_rating)
+    htsmsg_add_u32(out, "ageRating", e->age_rating);
+  if (e->star_rating)
+    htsmsg_add_u32(out, "starRating", e->star_rating);
+  if (e->copyright_year)
+    htsmsg_add_u32(out, "copyrightYear", e->copyright_year);
+  if (e->first_aired)
+    htsmsg_add_s64(out, "firstAired", e->first_aired);
+  epg_broadcast_get_epnum(e, &epnum);
+  htsp_serialize_epnum(out, &epnum, NULL);
+  if (e->image)
+    htsmsg_add_str(out, "image", e->image);
 
   if (e->channel) {
     LIST_FOREACH(de, &e->channel->ch_dvrs, de_channel_link) {

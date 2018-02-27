@@ -379,9 +379,7 @@ typedef struct dvr_autorec_entry {
 
   struct dvr_entry_list dae_spawns;
 
-  epg_brand_t *dae_brand;
-  epg_season_t *dae_season;
-  epg_serieslink_t *dae_serieslink;
+  const char *dae_serieslink_uri;
   epg_episode_num_t dae_epnum;
 
   int dae_minduration;
@@ -673,9 +671,6 @@ char * dvr_autorec_entry_class_weekdays_rend(uint32_t weekdays, const char *lang
 const char *dvr_entry_class_image_url_get(const dvr_entry_t *o);
 
 void dvr_autorec_check_event(epg_broadcast_t *e);
-void dvr_autorec_check_brand(epg_brand_t *b);
-void dvr_autorec_check_season(epg_season_t *s);
-void dvr_autorec_check_serieslink(epg_serieslink_t *s);
 
 void autorec_destroy_by_config(dvr_config_t *cfg, int delconf);
 

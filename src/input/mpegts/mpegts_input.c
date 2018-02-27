@@ -820,7 +820,7 @@ mpegts_input_open_service
         mpegts_input_open_pid(mi, mm, st->es_pid, MPS_SERVICE, mpegts_mps_weight(st), s, reopen);
       }
 
-    mpegts_service_update_slave_pids(s, 0);
+    mpegts_service_update_slave_pids(s, NULL, 0);
 
   } else {
     if ((pids = s->s_pids) != NULL) {
@@ -899,7 +899,7 @@ mpegts_input_close_service ( mpegts_input_t *mi, mpegts_service_t *s )
       }
     }
 
-    mpegts_service_update_slave_pids(s, 1);
+    mpegts_service_update_slave_pids(s, NULL, 1);
 
   } else {
     mpegts_input_close_pids(mi, mm, s, 1);
@@ -936,7 +936,7 @@ mpegts_input_started_mux
   tsdebug_started_mux(mi, mm);
 
   /* Deliver first TS packets as fast as possible */
-  mi->mi_last_dispatch = 0;
+  atomic_set_s64(&mi->mi_last_dispatch, 0);
 
   /* Arm timer */
   if (LIST_FIRST(&mi->mi_mux_active) == NULL)
@@ -1126,9 +1126,10 @@ ts_sync_count ( const uint8_t *tsb, int len )
 
 void
 mpegts_input_recv_packets
-  ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi, sbuf_t *sb,
+  ( mpegts_mux_instance_t *mmi, sbuf_t *sb,
     int flags, mpegts_pcr_t *pcr )
 {
+  mpegts_input_t *mi = mmi->mmi_input;
   int len, len2, off;
   mpegts_packet_t *mp;
   uint8_t *tsb;
@@ -1144,10 +1145,10 @@ retry:
   len  = sb->sb_ptr;
   if (len < (MIN_TS_PKT * 188) && (flags & MPEGTS_DATA_CC_RESTART) == 0) {
     /* For slow streams, check also against the clock */
-    if (monocmpfastsec(mclk(), mi->mi_last_dispatch))
+    if (monocmpfastsec(mclk(), atomic_add_s64(&mi->mi_last_dispatch, 0)))
       return;
   }
-  mi->mi_last_dispatch = mclk();
+  atomic_set_s64(&mi->mi_last_dispatch, mclk());
 
   /* Check for sync */
   while ( (len >= MIN_TS_SYN) &&
@@ -1591,20 +1592,27 @@ mpegts_input_postdemux
     if ((mp = mpegts_mux_find_pid(mm, pid, 0))) {
 
       type = mp->mp_type;
-      
+
+      if (type & MPS_NOPOSTDEMUX)
+        goto done;
+
       /* Stream service data */
       if (type & MPS_SERVICE) {
         LIST_FOREACH(mps, &mp->mp_svc_subs, mps_svcraw_link) {
           s = mps->mps_owner;
+          pthread_mutex_lock(&s->s_stream_mutex);
           st = service_stream_find(s, pid);
           ts_recv_packet0((mpegts_service_t*)s, st, tsb, llen);
+          pthread_mutex_unlock(&s->s_stream_mutex);
         }
       } else
       /* Stream table data */
       if (type & MPS_STREAM) {
         LIST_FOREACH(s, &mm->mm_transports, s_active_link) {
           if (s->s_type != STYPE_STD) continue;
+          pthread_mutex_lock(&s->s_stream_mutex);
           ts_recv_packet0((mpegts_service_t*)s, NULL, tsb, llen);
+          pthread_mutex_unlock(&s->s_stream_mutex);
         }
       }
 

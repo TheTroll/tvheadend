@@ -1454,7 +1454,7 @@ linuxdvb_frontend_input_thread ( void *aux )
     }
     
     /* Process */
-    mpegts_input_recv_packets((mpegts_input_t*)lfe, mmi, &sb, 0, NULL);
+    mpegts_input_recv_packets(mmi, &sb, 0, NULL);
   }
 
   sbuf_free(&sb);
@@ -2078,9 +2078,9 @@ linuxdvb_frontend_create
     uuid = htsmsg_get_str(conf, "uuid");
 
   /* Tuner slave */
-  snprintf(id, sizeof(id), "master for #%d", number);
+  snprintf(buf, sizeof(buf), "master for #%d", number);
   if (conf && type == DVB_TYPE_S) {
-    muuid = htsmsg_get_str(conf, id);
+    muuid = htsmsg_get_str(conf, buf);
     if (muuid && uuid && !strcmp(muuid, uuid))
       muuid = NULL;
   }

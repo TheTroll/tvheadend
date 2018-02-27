@@ -148,6 +148,56 @@ mpegts_mux_alive(mpegts_mux_t *mm)
   return !LIST_EMPTY(&mm->mm_services) && mm->mm_scan_result != MM_SCAN_FAIL;
 }
 
+static uint32_t
+dvb_priv_lookup(mpegts_table_t *mt, const uint8_t *lptr, int llen)
+{
+  uint32_t priv = 0;
+  uint8_t dtag;
+  int dllen, dlen;
+  const uint8_t *dlptr, *dptr;
+
+  DVB_DESC_FOREACH(mt, lptr, llen, 4, dlptr, dllen, dtag, dlen, dptr) {
+    if (dtag == DVB_DESC_PRIVATE_DATA) {
+      if (dlen == 4) {
+        priv = extract_4byte(dptr);
+        if (priv)
+          break;
+      }
+    }
+  }}
+dvberr:
+  return priv;
+}
+
+static int
+mpegts_mux_tsid_check(mpegts_mux_t *mm, mpegts_table_t *mt, uint16_t tsid)
+{
+  if (tsid == 0 && !mm->mm_tsid_accept_zero_value) {
+    if (tvhlog_limit(&mm->mm_tsid_loglimit, 2)) {
+      tvhwarn(mt->mt_subsys, "%s: %s: TSID zero value detected, ignoring", mt->mt_name, mm->mm_nicename);
+    }
+    return 1;
+  }
+  tvhdebug(mt->mt_subsys, "%s: %p: tsid %04X (%d)", mt->mt_name, mm, tsid, tsid);
+  if (mm->mm_tsid != MPEGTS_TSID_NONE) {
+    if (mm->mm_tsid && mm->mm_tsid != tsid) {
+      if (++mm->mm_tsid_checks > 12) {
+        tvhwarn(mt->mt_subsys, "%s: %s: TSID change detected - old %04x (%d), new %04x (%d)",
+                mt->mt_name, mm->mm_nicename, mm->mm_tsid, mm->mm_tsid, tsid, tsid);
+      } else {
+        if (tvhtrace_enabled()) {
+          tvhtrace(mt->mt_subsys, "%s: %s: ignore TSID - old %04x (%d), new %04x (%d) (checks %d)",
+                   mt->mt_name, mm->mm_nicename, mm->mm_tsid, mm->mm_tsid, tsid, tsid, mm->mm_tsid_checks);
+        }
+        return -1; /* keep rolling */
+      }
+    }
+    mm->mm_tsid_checks = -100;
+  }
+  mpegts_mux_set_tsid(mm, tsid, 1);
+  return 0;
+}
+
 static void
 dvb_bouquet_comment ( bouquet_t *bq, mpegts_mux_t *mm )
 {
@@ -249,6 +299,8 @@ dvb_desc_sat_del
   /* Not enough data */
   if(len < 11) return NULL;
 
+  if(!idnode_is_instance(&mm->mm_id, &dvb_mux_dvbs_class)) return NULL;
+
   /* Extract data */
   frequency = bcdtoint4(ptr);
   symrate   = bcdtoint41(ptr + 7);
@@ -333,6 +385,8 @@ dvb_desc_cable_del
   /* Not enough data */
   if(len < 11) return NULL;
 
+  if(!idnode_is_instance(&mm->mm_id, &dvb_mux_dvbc_class)) return NULL;
+
   /* Extract data */
   frequency  = bcdtoint4(ptr);
   symrate    = bcdtoint41(ptr + 7);
@@ -400,6 +454,8 @@ dvb_desc_terr_del
 
   /* Not enough data */
   if (len < 11) return NULL;
+
+  if(!idnode_is_instance(&mm->mm_id, &dvb_mux_dvbt_class)) return NULL;
 
   /* Extract data */
   frequency     = extract_4byte(ptr);
@@ -948,31 +1004,11 @@ dvb_pat_callback
                          tableid, tsid, 5, &st, &sect, &last, &ver,
                          3600);
   if (r != 1) return r;
-  if (tsid == 0 && !mm->mm_tsid_accept_zero_value) {
-    if (tvhlog_limit(&mm->mm_tsid_loglimit, 2)) {
-      tvhwarn(mt->mt_subsys, "%s: %s: TSID zero value detected, ignoring", mt->mt_name, mm->mm_nicename);
-    }
-    goto end;
-  }
 
   /* Multiplex */
-  tvhdebug(mt->mt_subsys, "%s: %p: tsid %04X (%d)", mt->mt_name, mm, tsid, tsid);
-  if (mm->mm_tsid != MPEGTS_TSID_NONE) {
-    if (mm->mm_tsid && mm->mm_tsid != tsid) {
-      if (++mm->mm_tsid_checks > 12) {
-        tvhwarn(mt->mt_subsys, "%s: %s: TSID change detected - old %04x (%d), new %04x (%d)",
-                mt->mt_name, mm->mm_nicename, mm->mm_tsid, mm->mm_tsid, tsid, tsid);
-      } else {
-        if (tvhtrace_enabled()) {
-          tvhtrace(mt->mt_subsys, "%s: %s: ignore TSID - old %04x (%d), new %04x (%d) (checks %d)",
-                   mt->mt_name, mm->mm_nicename, mm->mm_tsid, mm->mm_tsid, tsid, tsid, mm->mm_tsid_checks);
-        }
-        return 0; /* keep rolling */
-      }
-    }
-    mm->mm_tsid_checks = -100;
-  }
-  mpegts_mux_set_tsid(mm, tsid, 1);
+  r = mpegts_mux_tsid_check(mm, mt, tsid);
+  if (r < 0) return -1;
+  if (r > 0) goto end;
   
   /* Process each programme */
   ptr += 5;
@@ -1423,7 +1459,7 @@ dvb_nit_callback
 {
   int save = 0, retry = 0;
   int r, sect, last, ver;
-  uint32_t priv = 0;
+  uint32_t priv = 0, priv2 = 0;
   uint8_t  dtag;
   int llen, dlen;
   const uint8_t *lptr, *dptr;
@@ -1531,14 +1567,14 @@ dvb_nit_callback
         // TODO: implement this?
         break;
       case DVB_DESC_PRIVATE_DATA:
-        if (tableid == 0x4A && dlen == 4) {
+        if (dlen == 4) {
           priv = extract_4byte(dptr);
           tvhtrace(mt->mt_subsys, "%s:    private %08X", mt->mt_name, priv);
         }
         break;
-      case DVB_DESC_FREESAT_REGIONS:
+    case DVB_DESC_FREESAT_REGIONS:
 #if ENABLE_MPEGTS_DVB
-        if (priv == PRIV_FSAT)
+        if (tableid == 0x4A && priv == PRIV_FSAT)
           dvb_freesat_regions(bi, mt, dptr, dlen);
 #endif
         break;
@@ -1600,9 +1636,19 @@ dvb_nit_callback
         r = dvb_nit_mux(mt, mux, mm, onid, tsid, lptr, llen, tableid, bi, 0);
         if (r < 0)
           return r;
+        if (priv == 0 && priv2)
+          priv = priv2;
       }
       if (mm == mux && mux->mm_onid == 0xffff && mux->mm_tsid == tsid)
         retry = 1; /* keep rolling - perhaps SDT was not parsed yet */
+    }
+
+    if ((tableid == 0x40 || (mn->mn_nid && mn->mn_nid == nbid)) && priv == 0) {
+      priv2 = dvb_priv_lookup(mt, lptr, llen);
+      if (priv2) {
+        tvhtrace(mt->mt_subsys, "%s: using private2 data 0x%08x", mt->mt_name, priv2);
+        priv = priv2;
+      }
     }
       
     lptr += r;
@@ -1612,6 +1658,10 @@ dvb_nit_callback
   /* End */
   if (retry)
     return 0;
+
+  if (tableid == 0x40 || (mn->mn_nid && mn->mn_nid == nbid))
+    eit_nit_callback(mt, nbid, name, priv);
+
   return dvb_table_end((mpegts_psi_table_t *)mt, st, sect);
 
 dvberr:
@@ -1838,7 +1888,21 @@ atsc_vct_callback
   r = dvb_table_begin((mpegts_psi_table_t *)mt, ptr, len,
                       tableid, extraid, 7, &st, &sect, &last, &ver, 0);
   if (r != 1) return r;
-  tvhdebug(mt->mt_subsys, "%s: tsid %04X (%d)", mt->mt_name, tsid, tsid);
+
+  if (mm->mm_tsid == 0 && tsid) {
+    if (!LIST_EMPTY(&mm->mm_services)) {
+      mm->mm_tsid = tsid;
+    } else {
+      mpegts_table_t *mt2 = mpegts_table_find(mm, "pat", NULL);
+      if (mt2) mpegts_table_reset(mt2);
+      return -1;
+    }
+  }
+
+  mm->mm_tsid_accept_zero_value = 1; /* ohh, we saw that */
+  r = mpegts_mux_tsid_check(mm, mt, tsid);
+  if (r < 0) return -1;
+  if (r > 0) goto end;
 
   /* # channels */
   count = ptr[6];
@@ -1925,6 +1989,7 @@ next:
     len -= dlen + 32;
   }
 
+end:
   return dvb_table_end((mpegts_psi_table_t *)mt, st, sect);
 }
 

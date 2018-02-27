@@ -26,9 +26,7 @@
 #include "dvb_charset.h"
 #include "config.h"
 #include "epggrab.h"
-#if ENABLE_DDCI
 #include "descrambler/dvbcam.h"
-#endif
 
 /* **************************************************************************
  * Class definition
@@ -745,6 +743,7 @@ mpegts_service_delete ( service_t *t, int delconf )
     mms->s_unlink(mms, ms);
   }
   idnode_set_clear(&ms->s_masters);
+  idnode_set_clear(&ms->s_slaves);
 
   /* Remove PID lists */
   mpegts_pid_destroy(&ms->s_pids);
@@ -1014,19 +1013,14 @@ mpegts_service_raw_update_pids(mpegts_service_t *t, mpegts_apids_t *pids)
 }
 
 void
-mpegts_service_update_slave_pids ( mpegts_service_t *s, int del )
+mpegts_service_update_slave_pids
+  ( mpegts_service_t *s, mpegts_service_t *master, int del )
 {
   mpegts_service_t *s2;
   mpegts_apids_t *pids;
   elementary_stream_t *st;
   int i;
-#if ENABLE_DDCI
-  int is_ddci = dvbcam_is_ddci((service_t*)s);
-#define IS_DDCI  is_ddci
-#else
-#define IS_DDCI  0
-#endif
-
+  const int is_ddci = dvbcam_is_ddci((service_t*)s);
 
   lock_assert(&s->s_stream_mutex);
 
@@ -1040,12 +1034,13 @@ mpegts_service_update_slave_pids ( mpegts_service_t *s, int del )
 
   /* Ensure that filtered PIDs are not send in ts_recv_raw */
   TAILQ_FOREACH(st, &s->s_filt_components, es_filt_link)
-    if ((IS_DDCI || s->s_scrambled_pass || st->es_type != SCT_CA) &&
+    if ((is_ddci || s->s_scrambled_pass || st->es_type != SCT_CA) &&
         st->es_pid >= 0 && st->es_pid < 8192)
       mpegts_pid_add(pids, st->es_pid, mpegts_mps_weight(st));
 
   for (i = 0; i < s->s_masters.is_count; i++) {
     s2 = (mpegts_service_t *)s->s_masters.is_array[i];
+    if (master && master != s2) continue;
     pthread_mutex_lock(&s2->s_stream_mutex);
     if (!del)
       mpegts_pid_add_group(s2->s_slaves_pids, pids);
@@ -1063,12 +1058,12 @@ mpegts_service_link ( mpegts_service_t *master, mpegts_service_t *slave )
   pthread_mutex_lock(&slave->s_stream_mutex);
   pthread_mutex_lock(&master->s_stream_mutex);
   assert(!idnode_set_exists(&slave->s_masters, &master->s_id));
-  assert(LIST_SAFE_ENTRY(slave, s_slaves_link));
   idnode_set_alloc(&slave->s_masters, 16);
   idnode_set_add(&slave->s_masters, &master->s_id, NULL, NULL);
-  LIST_INSERT_HEAD(&master->s_slaves, slave, s_slaves_link);
+  idnode_set_alloc(&master->s_slaves, 16);
+  idnode_set_add(&master->s_slaves, &slave->s_id, NULL, NULL);
   pthread_mutex_unlock(&master->s_stream_mutex);
-  mpegts_service_update_slave_pids(slave, 0);
+  mpegts_service_update_slave_pids(slave, master, 0);
   pthread_mutex_unlock(&slave->s_stream_mutex);
   return 0;
 }
@@ -1077,12 +1072,14 @@ static int
 mpegts_service_unlink ( mpegts_service_t *master, mpegts_service_t *slave )
 {
   pthread_mutex_lock(&slave->s_stream_mutex);
-  mpegts_service_update_slave_pids(slave, 1);
+  mpegts_service_update_slave_pids(slave, master, 1);
   pthread_mutex_lock(&master->s_stream_mutex);
   idnode_set_remove(&slave->s_masters, &master->s_id);
-  if (slave->s_masters.is_count == 0)
+  if (idnode_set_empty(&slave->s_masters))
     idnode_set_clear(&slave->s_masters);
-  LIST_SAFE_REMOVE(slave, s_slaves_link);
+  idnode_set_remove(&master->s_slaves, &slave->s_id);
+  if (idnode_set_empty(&master->s_slaves))
+    idnode_set_clear(&master->s_slaves);
   pthread_mutex_unlock(&master->s_stream_mutex);
   pthread_mutex_unlock(&slave->s_stream_mutex);
   return 0;

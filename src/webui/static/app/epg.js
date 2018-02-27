@@ -292,7 +292,7 @@ tvheadend.epgDetails = function(event) {
             handler: recordSeries,
             iconCls: 'autoRec',
             tooltip: _('Create an automatic recording rule to record all future programs that match the current query.'),
-            text: event.serieslinkId ? _("Record series") : _("Autorec")
+            text: event.serieslinkUri ? _("Record series") : _("Autorec")
         }));
 
     } else {
@@ -475,6 +475,7 @@ tvheadend.epg = function() {
                 type: 'date',
                 dateFormat: 'U' /* unix time */
             },
+            { name: 'duration' },
             { name: 'starRating' },
             { name: 'credits' },
             { name: 'category' },
@@ -485,7 +486,7 @@ tvheadend.epg = function() {
             { name: 'genre' },
             { name: 'dvrUuid' },
             { name: 'dvrState' },
-            { name: 'serieslinkId' }
+            { name: 'serieslinkUri' }
         ])
     });
 
@@ -644,6 +645,7 @@ tvheadend.epg = function() {
                 id: 'duration',
                 header: _("Duration"),
                 tooltip: _("Duration"),
+                dataIndex: 'duration',
                 renderer: renderDuration
             },
             {

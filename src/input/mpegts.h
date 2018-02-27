@@ -153,14 +153,15 @@ typedef struct mpegts_pid_sub
   RB_ENTRY(mpegts_pid_sub) mps_link;
   LIST_ENTRY(mpegts_pid_sub) mps_raw_link;
   LIST_ENTRY(mpegts_pid_sub) mps_svcraw_link;
-#define MPS_NONE    0x00
-#define MPS_ALL     0x01
-#define MPS_RAW     0x02
-#define MPS_STREAM  0x04
-#define MPS_SERVICE 0x08
-#define MPS_TABLE   0x10
-#define MPS_FTABLE  0x20
-#define MPS_TABLES  0x40
+#define MPS_NONE         0x00
+#define MPS_ALL          0x01
+#define MPS_RAW          0x02
+#define MPS_STREAM       0x04
+#define MPS_SERVICE      0x08
+#define MPS_TABLE        0x10
+#define MPS_FTABLE       0x20
+#define MPS_TABLES       0x40
+#define MPS_NOPOSTDEMUX  0x80
   int   mps_type;
 #define MPS_WEIGHT_PAT     1000
 #define MPS_WEIGHT_CAT      999
@@ -350,6 +351,7 @@ struct mpegts_network
     (mpegts_mux_t*, uint16_t sid, uint16_t pmt_pid);
   const idclass_t*  (*mn_mux_class)   (mpegts_network_t*);
   mpegts_mux_t *    (*mn_mux_create2) (mpegts_network_t *mn, htsmsg_t *conf);
+ void              (*mn_scan)        (mpegts_network_t*);
 
   /*
    * Configuration
@@ -567,8 +569,7 @@ struct mpegts_service
 
   mpegts_apids_t             *s_pids;
   idnode_set_t                s_masters;
-  LIST_HEAD(, mpegts_service) s_slaves;
-  LIST_ENTRY(mpegts_service)  s_slaves_link;
+  idnode_set_t                s_slaves;
   mpegts_apids_t             *s_slaves_pids;
 
   /*
@@ -992,7 +993,7 @@ void mpegts_mux_update_pids ( mpegts_mux_t *mm );
 int mpegts_mux_compare ( mpegts_mux_t *a, mpegts_mux_t *b );
 
 void mpegts_input_recv_packets
-  (mpegts_input_t *mi, mpegts_mux_instance_t *mmi, sbuf_t *sb,
+  (mpegts_mux_instance_t *mmi, sbuf_t *sb,
    int flags, mpegts_pcr_t *pcr);
 
 void mpegts_input_postdemux
@@ -1055,18 +1056,14 @@ static inline ssize_t sbuf_tsdebug_read(mpegts_mux_t *mm, sbuf_t *sb, int fd) { 
 
 #endif
 
-void mpegts_table_dispatch
-  (const uint8_t *sec, size_t r, void *mt);
-static inline void mpegts_table_grab
-  (mpegts_table_t *mt)
+void mpegts_table_dispatch(const uint8_t *sec, size_t r, void *mt);
+static inline void mpegts_table_grab(mpegts_table_t *mt)
 {
   int v = atomic_add(&mt->mt_arefcount, 1);
   assert(v > 0);
 }
-void mpegts_table_release_
-  (mpegts_table_t *mt);
-static inline int mpegts_table_release
-  (mpegts_table_t *mt)
+void mpegts_table_release_(mpegts_table_t *mt);
+static inline int mpegts_table_release(mpegts_table_t *mt)
 {
   int v = atomic_dec(&mt->mt_arefcount, 1);
   assert(v > 0);
@@ -1077,20 +1074,20 @@ static inline int mpegts_table_release
   }
   return 0;
 }
-int mpegts_table_type
-  ( mpegts_table_t *mt );
+int mpegts_table_type(mpegts_table_t *mt);
 mpegts_table_t *mpegts_table_add
   (mpegts_mux_t *mm, int tableid, int mask,
    mpegts_table_callback_t callback, void *opaque,
    const char *name, int subsys, int flags, int pid, int weight);
-void mpegts_table_flush_all
-  (mpegts_mux_t *mm);
-void mpegts_table_destroy ( mpegts_table_t *mt );
+mpegts_table_t *mpegts_table_find
+  (mpegts_mux_t *mm, const char *name, void *opaque);
+void mpegts_table_flush_all(mpegts_mux_t *mm);
+void mpegts_table_destroy(mpegts_table_t *mt);
+static inline void mpegts_table_reset(mpegts_table_t *mt)
+  { dvb_table_reset((mpegts_psi_table_t *)mt); }
+void mpegts_table_consistency_check(mpegts_mux_t *mm);
 
-void mpegts_table_consistency_check( mpegts_mux_t *mm );
-
-void dvb_bat_destroy
-  (struct mpegts_table *mt);
+void dvb_bat_destroy(struct mpegts_table *mt);
 
 int dvb_pat_callback
   (struct mpegts_table *mt, const uint8_t *ptr, int len, int tableid);
@@ -1142,7 +1139,8 @@ mpegts_service_find_e2
 mpegts_service_t *
 mpegts_service_find_by_pid ( mpegts_mux_t *mm, int pid );
 
-void mpegts_service_update_slave_pids ( mpegts_service_t *t, int del );
+void mpegts_service_update_slave_pids
+  ( mpegts_service_t *t, mpegts_service_t *master_filter, int del );
 
 static inline mpegts_service_t *mpegts_service_find_by_uuid0(tvh_uuid_t *uuid)
   { return idnode_find0(uuid, &mpegts_service_class, NULL); }
@@ -1191,6 +1189,11 @@ LIST_HEAD(,mpegts_listener) mpegts_listeners;
   LIST_FOREACH(ml, &mpegts_listeners, ml_link)\
     if (ml->op) ml->op(t, ml->ml_opaque, arg1);\
 } (void)0
+
+/*
+ * misc
+ */
+void eit_nit_callback(mpegts_table_t *mt, uint16_t nbid, const char *name, uint32_t priv);
 
 #endif /* __TVH_MPEGTS_H__ */
 
