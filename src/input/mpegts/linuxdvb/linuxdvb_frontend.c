@@ -1315,27 +1315,33 @@ linuxdvb_update_pids ( linuxdvb_frontend_t *lfe, const char *name,
                        int pids_size )
 {
   mpegts_apids_t wpid, padd, pdel;
-  int i, max = MAX(14, lfe->lfe_pids_max);
+  int i, max = MAX(14, lfe->lfe_pids_max), overlimit;
   int all = lfe->lfe_pids.all;
+  char buf[512];
 
   pthread_mutex_lock(&lfe->lfe_dvr_lock);
 
   if (!all) {
-    mpegts_pid_weighted(&wpid, &lfe->lfe_pids, max);
-    if (wpid.count > max && lfe->lfe_pids_use_all) {
+    overlimit = mpegts_pid_weighted(&wpid, &lfe->lfe_pids, max);
+    if (tvhtrace_enabled()) {
+      mpegts_pid_dump(&wpid, buf, sizeof(buf), 1, 1);
+      tvhtrace(LS_LINUXDVB, "%s - weighted PIDs %s", name, buf);
+    }
+    if (overlimit && lfe->lfe_pids_use_all) {
       all = 1;
       mpegts_pid_done(&wpid);
     } else {
+      if (overlimit)
+        tvhwarn(LS_LINUXDVB, "%s - unable to set filter for %d PIDs", name, overlimit);
       mpegts_pid_compare(&wpid, tuned, &padd, &pdel);
-      mpegts_pid_done(&wpid);
       for (i = 0; i < pdel.count; i++)
         linuxdvb_frontend_close_pid0(lfe, name, pids, pids_size, pdel.pids[i].pid);
       for (i = 0; i < padd.count; i++)
        linuxdvb_frontend_open_pid0(lfe, name, pids, pids_size, padd.pids[i].pid);
       mpegts_pid_done(&padd);
       mpegts_pid_done(&pdel);
-      mpegts_pid_done(tuned);
-      mpegts_pid_weighted(tuned, &lfe->lfe_pids, max);
+      mpegts_pid_copy(tuned, &wpid);
+      mpegts_pid_done(&wpid);
     }
   }
 

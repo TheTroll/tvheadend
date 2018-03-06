@@ -489,14 +489,14 @@ mpegts_input_close_pids
       if (mps->mps_owner != owner) continue;
       pid = MPEGTS_FULLMUX_PID;
       if (mps->mps_type & MPS_TABLES) pid = MPEGTS_TABLES_PID;
-      mpegts_input_close_pid(mi, mm, pid, mps->mps_type, mps->mps_weight, mps->mps_owner);
+      mpegts_input_close_pid(mi, mm, pid, mps->mps_type, mps->mps_owner);
     }
   for (mp = RB_FIRST(&mm->mm_pids); mp; mp = mp_next) {
     mp_next = RB_NEXT(mp, mp_link);
     for (mps = RB_FIRST(&mp->mp_subs); mps; mps = mps_next) {
       mps_next = RB_NEXT(mps, mps_link);
       if (mps->mps_owner != owner) continue;
-      mpegts_input_close_pid(mi, mm, mp->mp_pid, mps->mps_type, mps->mps_weight, mps->mps_owner);
+      mpegts_input_close_pid(mi, mm, mp->mp_pid, mps->mps_type, mps->mps_owner);
     }
   }
 }
@@ -565,7 +565,7 @@ mpegts_input_open_pid
 
 int
 mpegts_input_close_pid
-  ( mpegts_input_t *mi, mpegts_mux_t *mm, int pid, int type, int weight, void *owner )
+  ( mpegts_input_t *mi, mpegts_mux_t *mm, int pid, int type, void *owner )
 {
   mpegts_pid_sub_t *mps, skel;
   mpegts_pid_t *mp;
@@ -592,7 +592,7 @@ mpegts_input_close_pid
     if (mps) return 0;
   } else {
     skel.mps_type   = type;
-    skel.mps_weight = weight;
+    skel.mps_weight = -1;
     skel.mps_owner  = owner;
     mps = RB_FIND(&mp->mp_subs, &skel, mps_link, mpegts_mps_cmp);
     if (pid == mm->mm_last_pid) {
@@ -622,6 +622,39 @@ mpegts_input_close_pid
     mp->mp_type = type;
   }
   return 0;
+}
+
+mpegts_pid_t *
+mpegts_input_update_pid_weight
+  ( mpegts_input_t *mi, mpegts_mux_t *mm, int pid, int type, int weight,
+    void *owner )
+{
+  mpegts_pid_sub_t *mps, skel;
+  mpegts_pid_t *mp;
+  assert(owner != NULL);
+  lock_assert(&mi->mi_output_lock);
+  if (!(mp = mpegts_mux_find_pid(mm, pid, 0)))
+    return NULL;
+  if (pid == MPEGTS_FULLMUX_PID || pid == MPEGTS_TABLES_PID) {
+    LIST_FOREACH(mps, &mm->mm_all_subs, mps_svcraw_link)
+      if (mps->mps_owner == owner) break;
+    if (mps == NULL) return NULL;
+    tvhdebug(LS_MPEGTS, "%s - update PID %s weight %d subscription [%04x/%p]",
+             mm->mm_nicename, pid == MPEGTS_TABLES_PID ? "tables" : "fullmux",
+             weight, type, owner);
+    mps->mps_weight = weight;
+  } else {
+    skel.mps_type   = type;
+    skel.mps_weight = -1;
+    skel.mps_owner  = owner;
+    mps = RB_FIND(&mp->mp_subs, &skel, mps_link, mpegts_mps_cmp);
+    if (mps == NULL) return NULL;
+    tvhdebug(LS_MPEGTS, "%s - update PID %04X (%d) weight %d [%d/%p]",
+             mm->mm_nicename, mp->mp_pid, mp->mp_pid, weight, type, owner);
+    mps->mps_weight = weight;
+    mm->mm_update_pids_flag = 1;
+  }
+  return mp;
 }
 
 elementary_stream_t *
@@ -885,17 +918,17 @@ mpegts_input_close_service ( mpegts_input_t *mi, mpegts_service_t *s )
     if (s->s_pmt_pid == SERVICE_PMT_AUTO)
       goto no_pids;
 
-    mpegts_input_close_pid(mi, mm, s->s_pmt_pid, MPS_SERVICE, MPS_WEIGHT_PMT, s);
-    mpegts_input_close_pid(mi, mm, s->s_pcr_pid, MPS_SERVICE, MPS_WEIGHT_PCR, s);
+    mpegts_input_close_pid(mi, mm, s->s_pmt_pid, MPS_SERVICE, s);
+    mpegts_input_close_pid(mi, mm, s->s_pcr_pid, MPS_SERVICE, s);
     if (s->s_cat_opened) {
-      mpegts_input_close_pid(mi, mm, DVB_CAT_PID, MPS_SERVICE, MPS_WEIGHT_CAT, s);
+      mpegts_input_close_pid(mi, mm, DVB_CAT_PID, MPS_SERVICE, s);
       s->s_cat_opened = 0;
     }
     /* Close all opened PIDs (the component filter may be changed at runtime) */
     TAILQ_FOREACH(st, &s->s_components, es_link) {
       if (st->es_pid_opened) {
         st->es_pid_opened = 0;
-        mpegts_input_close_pid(mi, mm, st->es_pid, MPS_SERVICE, mpegts_mps_weight(st), s);
+        mpegts_input_close_pid(mi, mm, st->es_pid, MPS_SERVICE, s);
       }
     }
 
@@ -1305,7 +1338,7 @@ mpegts_input_table_waiting ( mpegts_input_t *mi, mpegts_mux_t *mm )
       if (mt->mt_subscribed) {
         mt->mt_subscribed = 0;
         pthread_mutex_unlock(&mm->mm_tables_lock);
-        mpegts_input_close_pid(mi, mm, mt->mt_pid, mpegts_table_type(mt), mt->mt_weight, mt);
+        mpegts_input_close_pid(mi, mm, mt->mt_pid, mpegts_table_type(mt), mt);
       } else {
         pthread_mutex_unlock(&mm->mm_tables_lock);
       }

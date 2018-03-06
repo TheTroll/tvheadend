@@ -198,6 +198,8 @@ cc_new_card(cclient_t *cc, uint16_t caid, uint32_t cardid, uint8_t *ua,
   if (j > 0)
     tvhdebug(cc->cc_subsys, "%s: Providers: ID:%08x CAID:%04X:[%s]",
              cc->cc_name, cardid, caid, buf);
+  if (allocated)
+    LIST_INSERT_HEAD(&cc->cc_cards, pcard, cs_card);
   if (cc->cc_emm && ua) {
     ua = pcard->cs_ra.ua;
     i = ua[0] || ua[1] || ua[2] || ua[3] ||
@@ -207,8 +209,6 @@ cc_new_card(cclient_t *cc, uint16_t caid, uint32_t cardid, uint8_t *ua,
   }
 
   pcard->cs_running = 1;
-  if (allocated)
-    LIST_INSERT_HEAD(&cc->cc_cards, pcard, cs_card);
   return pcard;
 }
 
@@ -1268,19 +1268,19 @@ const idclass_t caclient_cc_class =
   .ic_caption    = N_("Card client"),
   .ic_groups     = (const property_group_t[]) {
     {
-      .name   = N_("Client"),
+      .name   = N_("General Settings"),
       .number = 1,
     },
     {
-      .name   = N_("Login information"),
+      .name   = N_("Login Settings"),
       .number = 2,
     },
     {
-      .name   = N_("EMM"),
+      .name   = N_("EMM Settings"),
       .number = 3,
     },
     {
-      .name   = N_("Connection"),
+      .name   = N_("Connection Settings"),
       .number = 4,
     },
     {}

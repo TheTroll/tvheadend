@@ -113,6 +113,8 @@ int mpegts_pid_copy ( mpegts_apids_t *dst, mpegts_apids_t *src );
 int mpegts_pid_cmp ( mpegts_apids_t *a, mpegts_apids_t *b );
 int mpegts_pid_compare ( mpegts_apids_t *dst, mpegts_apids_t *src,
                          mpegts_apids_t *add, mpegts_apids_t *del );
+int mpegts_pid_compare_weight ( mpegts_apids_t *dst, mpegts_apids_t *src,
+                                mpegts_apids_t *add, mpegts_apids_t *del );
 int mpegts_pid_weighted ( mpegts_apids_t *dst, mpegts_apids_t *src, int limit );
 int mpegts_pid_dump ( mpegts_apids_t *pids, char *buf, int len, int wflag, int raw );
 
@@ -1013,6 +1015,9 @@ mpegts_pid_t * mpegts_input_open_pid
     void *owner, int reopen );
 
 int mpegts_input_close_pid
+  ( mpegts_input_t *mi, mpegts_mux_t *mm, int pid, int type, void *owner );
+
+mpegts_pid_t * mpegts_input_update_pid_weight
   ( mpegts_input_t *mi, mpegts_mux_t *mm, int pid, int type, int weight,
     void *owner );
 

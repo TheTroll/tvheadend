@@ -261,9 +261,56 @@ mpegts_pid_cmp(mpegts_apids_t *a, mpegts_apids_t *b)
   return 0;
 }
 
+static void
+mpegts_pid_update_max_weight_by_index(mpegts_apids_t *a, int i, uint16_t weight)
+{
+  uint16_t *w = &a->pids[i].weight;
+  if (*w < weight)
+    *w = weight;
+}
+
 int
 mpegts_pid_compare(mpegts_apids_t *dst, mpegts_apids_t *src,
                    mpegts_apids_t *add, mpegts_apids_t *del)
+{
+  mpegts_apid_t *p;
+  int i, j;
+
+  assert(dst);
+  assert(add);
+  assert(del);
+  if (mpegts_pid_init(add) || mpegts_pid_init(del))
+    return -1;
+  if (src == NULL) {
+    mpegts_pid_copy(add, dst);
+    return add->count > 0;
+  }
+  for (i = 0; i < src->count; i++) {
+    p = &src->pids[i];
+    if (mpegts_pid_find_rindex(dst, p->pid) < 0) {
+      j = mpegts_pid_find_rindex(del, p->pid);
+      if (j < 0)
+        mpegts_pid_add(del, p->pid, p->weight);
+      else
+        mpegts_pid_update_max_weight_by_index(del, j, p->weight);
+    }
+  }
+  for (i = 0; i < dst->count; i++) {
+    p = &dst->pids[i];
+    if (mpegts_pid_find_rindex(src, p->pid) < 0) {
+      j = mpegts_pid_find_rindex(add, p->pid);
+      if (j < 0)
+        mpegts_pid_add(add, p->pid, p->weight);
+      else
+        mpegts_pid_update_max_weight_by_index(add, j, p->weight);
+    }
+  }
+  return add->count || del->count;
+}
+
+int
+mpegts_pid_compare_weight(mpegts_apids_t *dst, mpegts_apids_t *src,
+                          mpegts_apids_t *add, mpegts_apids_t *del)
 {
   mpegts_apid_t *p;
   int i;
@@ -293,20 +340,32 @@ mpegts_pid_compare(mpegts_apids_t *dst, mpegts_apids_t *src,
 int
 mpegts_pid_weighted(mpegts_apids_t *dst, mpegts_apids_t *pids, int limit)
 {
-  int i, j;
+  int i, j, overlimit = 0;
   mpegts_apids_t sorted;
+  mpegts_apid_t *p;
 
   mpegts_pid_init(&sorted);
   mpegts_pid_copy(&sorted, pids);
   qsort(sorted.pids, sorted.count, sizeof(mpegts_apid_t), pid_wcmp);
 
   mpegts_pid_init(dst);
-  for (i = j = 0; i < sorted.count && dst->count < limit; i++)
-    mpegts_pid_add(dst, sorted.pids[i].pid, 0);
+  for (i = 0; i < sorted.count && dst->count < limit; i++) {
+    p = &sorted.pids[i];
+    j = mpegts_pid_find_rindex(dst, p->pid);
+    if (j < 0)
+      mpegts_pid_add(dst, p->pid, p->weight);
+    else
+      mpegts_pid_update_max_weight_by_index(dst, j, p->weight);
+  }
+  for ( ; i < sorted.count; i++) {
+    p = &sorted.pids[i];
+    if (mpegts_pid_find_rindex(dst, sorted.pids[i].pid) < 0)
+      overlimit++;
+  }
   dst->all = pids->all;
 
   mpegts_pid_done(&sorted);
-  return 0;
+  return overlimit;
 }
 
 int
@@ -320,22 +379,21 @@ mpegts_pid_dump(mpegts_apids_t *pids, char *buf, int len, int wflag, int raw)
     return len;
   if (pids->all)
     return snprintf(buf, len, "all");
-  if (!raw)
+  if (!raw) {
     mpegts_pid_weighted(&spids, pids, len / 2);
-  else {
-    mpegts_pid_init(&spids);
-    mpegts_pid_copy(&spids, pids);
+    pids = &spids;
   }
   *buf = '\0';
   if (wflag) {
-    for (i = 0; i < spids.count && l + 1 < len; i++) {
-      p = &spids.pids[i];
+    for (i = 0; i < pids->count && l + 1 < len; i++) {
+      p = &pids->pids[i];
       tvh_strlcatf(buf, len, l, "%s%i(%i)", i > 0 ? "," : "", p->pid, p->weight);
     }
   } else {
-    for (i = 0; i < spids.count && l + 1 < len; i++)
-     tvh_strlcatf(buf, len, l, "%s%i", i > 0 ? "," : "", spids.pids[i].pid);
+    for (i = 0; i < pids->count && l + 1 < len; i++)
+     tvh_strlcatf(buf, len, l, "%s%i", i > 0 ? "," : "", pids->pids[i].pid);
   }
-  mpegts_pid_done(&spids);
+  if (pids == &spids)
+    mpegts_pid_done(&spids);
   return l;
 }
