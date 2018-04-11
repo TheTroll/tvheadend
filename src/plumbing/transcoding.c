@@ -541,7 +541,7 @@ transcoder_stream_audio(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   }
 
   if (pkt->pkt_pts > as->aud_dec_pts) {
-    tvhwarn(LS_TRANSCODE, "%04X: Detected framedrop in audio", shortid(t));
+//    tvhwarn(LS_TRANSCODE, "%04X: Detected framedrop in audio", shortid(t));
     as->aud_enc_pts += (pkt->pkt_pts - as->aud_dec_pts);
     as->aud_dec_pts += (pkt->pkt_pts - as->aud_dec_pts);
   }
