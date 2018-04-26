@@ -46,6 +46,9 @@ typedef struct tvhcsa
   uint8_t *csa_tsbcluster;
   int      csa_fill;
 
+  char even[8];
+  char odd[8];
+
 #if ENABLE_DVBCSA
   struct dvbcsa_bs_batch_s *csa_tsbbatch_even;
   struct dvbcsa_bs_batch_s *csa_tsbbatch_odd;

@@ -512,7 +512,8 @@ I18N-C += $(SRCS-LIBAV)
 
 # Tvhcsa
 SRCS-TVHCSA = \
-	src/descrambler/tvhcsa.c
+	src/descrambler/tvhcsa.c \
+	src/descrambler/ncclient.c
 SRCS-${CONFIG_TVHCSA} += $(SRCS-TVHCSA)
 I18N-C += $(SRCS-TVHCSA)
 

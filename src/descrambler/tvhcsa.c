@@ -28,6 +28,8 @@
 #include <unistd.h>
 #include <assert.h>
 
+#include "ncclient.h"
+
 static void
 tvhcsa_empty_flush
   ( tvhcsa_t *csa, struct mpegts_service *s )
@@ -72,8 +74,9 @@ static void
 tvhcsa_csa_cbc_flush
   ( tvhcsa_t *csa, struct mpegts_service *s )
 {
-#if ENABLE_DVBCSA
 
+
+#if ENABLE_DVBCSA
   if(csa->csa_fill_even) {
     csa->csa_tsbbatch_even[csa->csa_fill_even].data = NULL;
     dvbcsa_bs_decrypt(csa->csa_key_even, csa->csa_tsbbatch_even, 184);
@@ -90,7 +93,14 @@ tvhcsa_csa_cbc_flush
   csa->csa_fill = 0;
 
 #else
-#error "Unknown CSA descrambler"
+  nc_set_key(service_id16(s), 1, csa->even);
+  nc_set_key(service_id16(s), 0, csa->odd);
+
+  nc_descramble(service_id16(s), csa->csa_tsbcluster, csa->csa_fill * 188);
+  
+  ts_recv_packet2(s, csa->csa_tsbcluster, csa->csa_fill * 188);
+
+  csa->csa_fill = 0;
 #endif
 }
 
@@ -145,13 +155,27 @@ tvhcsa_csa_cbc_descramble
      }
    } while(0);
 
-   if(csa->csa_fill == csa->csa_cluster_size)
+   if(csa->csa_fill && csa->csa_fill == csa->csa_cluster_size)
      tvhcsa_csa_cbc_flush(csa, s);
 
   }
 
 #else
-#error "Unknown CSA descrambler"
+
+  uint8_t *pkt;
+
+  for ( ; tsb < tsb_end; tsb += 188) {
+
+
+   pkt = csa->csa_tsbcluster + csa->csa_fill * 188;
+   memcpy(pkt, tsb, 188);
+   csa->csa_fill++;
+
+   nc_add_pid(service_id16(s), (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF));
+
+   if(csa->csa_fill && csa->csa_fill == csa->csa_cluster_size)
+     tvhcsa_csa_cbc_flush(csa, s);
+  }
 #endif
 }
 
@@ -170,7 +194,7 @@ tvhcsa_set_type( tvhcsa_t *csa, int type )
 #if ENABLE_DVBCSA
     csa->csa_cluster_size  = dvbcsa_bs_batch_size();
 #else
-    csa->csa_cluster_size  = 0;
+    csa->csa_cluster_size  = 128;
 #endif
     /* Note: the optimized routines might read memory after last TS packet */
     /*       allocate safe memory and fill it with zeros */
@@ -217,6 +241,8 @@ void tvhcsa_set_key_even( tvhcsa_t *csa, const uint8_t *even )
   case DESCRAMBLER_CSA_CBC:
 #if ENABLE_DVBCSA
     dvbcsa_bs_key_set(even, csa->csa_key_even);
+#else
+    memcpy(csa->even, even, 8);
 #endif
     break;
   case DESCRAMBLER_DES_NCB:
@@ -239,6 +265,8 @@ void tvhcsa_set_key_odd( tvhcsa_t *csa, const uint8_t *odd )
   case DESCRAMBLER_CSA_CBC:
 #if ENABLE_DVBCSA
     dvbcsa_bs_key_set(odd, csa->csa_key_odd);
+#else
+    memcpy(csa->odd, odd, 8);
 #endif
     break;
   case DESCRAMBLER_DES_NCB:
