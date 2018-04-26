@@ -1096,33 +1096,22 @@ dvr_entry_create_from_htsmsg(htsmsg_t *conf, epg_broadcast_t *e)
 }
 
 /**
- * Determine stop time for the broadcast taking in
- * to account segmented programmes via EIT.
+ * Return the event for the last segment.
  */
-static time_t dvr_entry_get_segment_stop_extra( dvr_entry_t *de )
+static epg_broadcast_t *dvr_entry_get_segment_last( dvr_entry_t *de )
 {
-  time_t segment_stop_extra, start, stop, maximum_stop_time;
+  time_t start, stop, maximum_stop_time;
   int max_progs_to_check;
-  epg_broadcast_t *e, *next;
+  epg_broadcast_t *e, *next, *ret;
   epg_set_t *eplink1, *eplink2;
 
   if (!de)
-    return 0;
-
-  if (dvr_entry_get_epg_running(de))
-    return 0;
-
-  /* Return any cached value we have previous calculated. */
-  segment_stop_extra = de->de_segment_stop_extra;
-  if (segment_stop_extra) {
-    return segment_stop_extra;
-  }
+    return NULL;
 
   /* If we have no broadcast data then can not search for matches */
   e = de->de_bcast;
-  if (!e) {
-    return 0;
-  }
+  if (!e)
+    return NULL;
 
   eplink1 = e->episodelink;
 
@@ -1156,6 +1145,7 @@ static time_t dvr_entry_get_segment_stop_extra( dvr_entry_t *de )
     MAX_STOP_TIME = 9 * 60 * 60
   };
 
+  ret = NULL;
   start = e->start;
   stop  = e->stop;
   maximum_stop_time = start + MAX_STOP_TIME;
@@ -1170,16 +1160,45 @@ static time_t dvr_entry_get_segment_stop_extra( dvr_entry_t *de )
        * segment part of this programme. So extend our stop time
        * to include this programme.
        */
-      segment_stop_extra = next->stop - stop;
-      tvhinfo(LS_DVR, "Increasing stop for \"%s\" on \"%s\" \"%s\" by %"PRId64
-                      " seconds at start %"PRId64" and original stop %"PRId64,
-                      lang_str_get(e->title, NULL), DVR_CH_NAME(de), eplink1->uri,
-                      (int64_t)segment_stop_extra, (int64_t)start, (int64_t)stop);
+      ret = next;
     }
   }
 
-  /* Cache the value */
-  return de->de_segment_stop_extra = segment_stop_extra;
+  return ret;
+}
+
+/**
+ * Determine stop time for the broadcast taking in
+ * to account segmented programmes via EIT.
+ */
+static time_t dvr_entry_get_segment_stop_extra( dvr_entry_t *de )
+{
+  time_t segment_stop_extra;
+  epg_broadcast_t *e;
+
+  if (!de)
+    return 0;
+
+  /* Return any cached value we have previous calculated. */
+  if (de->de_segment_stop_extra)
+    return de->de_segment_stop_extra;
+
+  /* Do not update stop extra without the last segment */
+  e = dvr_entry_get_segment_last(de);
+  if (!e)
+    return 0;
+
+  segment_stop_extra = e->stop - de->de_bcast->stop;
+  if (segment_stop_extra != de->de_segment_stop_extra) {
+    tvhinfo(LS_DVR, "Increasing stop for \"%s\" on \"%s\" \"%s\" by %"PRId64
+                    " seconds at start %"PRId64" and original stop %"PRId64,
+                    lang_str_get(e->title, NULL), DVR_CH_NAME(de), e->episodelink->uri,
+                    (int64_t)segment_stop_extra, (int64_t)de->de_bcast->start,
+                    (int64_t)de->de_bcast->stop);
+    de->de_segment_stop_extra = segment_stop_extra;
+  }
+
+  return segment_stop_extra;
 }
 
 /**
@@ -2076,7 +2095,7 @@ static dvr_entry_t *_dvr_entry_update
   }
 
   /* Subtitle */
-  if (e &&& e->subtitle) {
+  if (e && e->subtitle) {
     save |= lang_str_set2(&de->de_subtitle, e->subtitle) ? DVR_UPDATED_SUBTITLE : 0;
   } else if (subtitle) {
     save |= lang_str_set(&de->de_subtitle, subtitle, lang) ? DVR_UPDATED_SUBTITLE : 0;
@@ -2286,6 +2305,7 @@ void dvr_event_updated(epg_broadcast_t *e)
 void dvr_event_running(epg_broadcast_t *e, epg_running_t running)
 {
   dvr_entry_t *de;
+  epg_broadcast_t *e2;
   const char *srcname;
   char ubuf[UUID_HEX_SIZE];
 
@@ -2328,10 +2348,16 @@ void dvr_event_running(epg_broadcast_t *e, epg_running_t running)
        * (by definition) the first segment will be marked as stop long
        * before the second segment is marked as started. Otherwise if we
        * processed the stop then we will stop the dvr_thread from
-       * recording tv packets.
+       * recording tv packets. But if the event is behind the last segment,
+       * stop it.
        */
       if (de->de_segment_stop_extra) {
-        continue;
+        e2 = dvr_entry_get_segment_last(de);
+        for ( ; e2; e2 = epg_broadcast_get_prev(e2))
+          if (e == e2)
+            break;
+        if (e2)
+          continue;
       }
       /*
        * make checking more robust
@@ -3003,11 +3029,12 @@ dvr_entry_class_autorec_caption_get(void *o)
   dvr_entry_t *de = (dvr_entry_t *)o;
   dvr_autorec_entry_t *dae = de->de_autorec;
   if (dae) {
+    const int comment = !strempty(dae->dae_comment);
     snprintf(prop_sbuf, PROP_SBUF_LEN, "%s%s%s%s",
              dae->dae_name ?: "",
-             dae->dae_comment ? " (" : "",
-             dae->dae_comment,
-             dae->dae_comment ? ")" : "");
+             comment ? " (" : "",
+             comment ? dae->dae_comment : "",
+             comment ? ")" : "");
   } else
     prop_sbuf[0] = '\0';
   return &prop_sbuf_ptr;
@@ -3662,7 +3689,7 @@ const idclass_t dvr_entry_class = {
       .get      = dvr_entry_class_channel_name_get,
       .set      = dvr_entry_class_channel_name_set,
       .off      = offsetof(dvr_entry_t, de_channel_name),
-      .opts     = PO_RDONLY,
+      .opts     = PO_HIDDEN | PO_RDONLY,
     },
     {
       .type     = PT_STR,

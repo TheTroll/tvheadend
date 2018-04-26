@@ -331,7 +331,7 @@ capmt_oscam_new(capmt_t *capmt)
   if (capmt_oscam_so_wrapper(capmt))
     return 0;
 #ifdef CAPMT_OSCAM_OLD
-  if (capmt->capmt_oscam = CAPMT_OSCAM_OLD)
+  if (capmt->capmt_oscam == CAPMT_OSCAM_OLD)
     return 0;
 #endif
   return 1;
@@ -800,7 +800,7 @@ capmt_send_stop(capmt_service_t *t)
     int i;
     // searching for socket to close
     for (i = 0; i < MAX_SOCKETS; i++)
-      if (capmt->sids[i] == s->s_dvb_service_id)
+      if (capmt->sids[i] == service_id16(s))
         break;
 
     if (i == MAX_SOCKETS) {
@@ -829,8 +829,8 @@ capmt_send_stop(capmt_service_t *t)
     buf[pos++] = 0; /* total length */
     buf[pos++] = 0; /* total length */
     buf[pos++] = CAPMT_LIST_ONLY;
-    buf[pos++] = s->s_dvb_service_id >> 8;
-    buf[pos++] = s->s_dvb_service_id;
+    buf[pos++] = service_id16(s) >> 8;
+    buf[pos++] = service_id16(s);
     buf[pos++] = capmt->capmt_pmtversion;
     capmt->capmt_pmtversion = (capmt->capmt_pmtversion + 1) & 0x1F;
     buf[pos++] = 0; /* room for length - program info tags */
@@ -852,7 +852,7 @@ capmt_send_stop(capmt_service_t *t)
     buf[4]  = ((pos - 6) >> 8);
     buf[5]  = ((pos - 6) & 0xFF);
   
-    capmt_queue_msg(capmt, t->ct_adapter, s->s_dvb_service_id,
+    capmt_queue_msg(capmt, t->ct_adapter, service_id16(s),
                     buf, pos, CAPMT_MSG_CLEAR);
   }
 #endif
@@ -1271,7 +1271,7 @@ capmt_process_notify(capmt_t *capmt, uint8_t adapter,
   LIST_FOREACH(ct, &capmt->capmt_services, ct_link) {
     t = (mpegts_service_t *)ct->td_service;
 
-    if (sid != t->s_dvb_service_id)
+    if (sid != service_id16(t))
       continue;
     if (adapter != ct->ct_adapter)
       continue;
@@ -2137,7 +2137,7 @@ capmt_caid_change(th_descrambler_t *td)
 
   /* add missing A/V PIDs and ECM PIDs */
   i = 0;
-  TAILQ_FOREACH(st, &t->s_filt_components, es_filt_link) {
+  TAILQ_FOREACH(st, &t->s_components.set_filter, es_filter_link) {
     if (i < MAX_PIDS && capmt_include_elementary_stream(st->es_type)) {
       if (capmt_update_elementary_stream(ct, &i, st))
         change = 1;
@@ -2172,7 +2172,7 @@ capmt_caid_change(th_descrambler_t *td)
         cce->cce_ecmpid != t->s_dvb_prefcapid) {
       st = NULL;
     } else {
-      TAILQ_FOREACH(st, &t->s_filt_components, es_filt_link) {
+      TAILQ_FOREACH(st, &t->s_components.set_filter, es_filter_link) {
         LIST_FOREACH(c, &st->es_caids, link)
           if (c->use && cce->cce_caid == c->caid &&
               cce->cce_providerid == c->providerid &&
@@ -2228,8 +2228,8 @@ capmt_send_request(capmt_service_t *ct, int lm)
 {
   capmt_t *capmt = ct->ct_capmt;
   mpegts_service_t *t = (mpegts_service_t *)ct->td_service;
-  uint16_t sid = t->s_dvb_service_id;
-  uint16_t pmtpid = t->s_pmt_pid;
+  uint16_t sid = service_id16(t);
+  uint16_t pmtpid = t->s_components.set_pmt_pid;
   uint16_t transponder = t->s_dvb_mux->mm_tsid;
   uint16_t onid = t->s_dvb_mux->mm_onid;
   const int adapter_num = ct->ct_adapter;
@@ -2513,7 +2513,7 @@ capmt_service_start(caclient_t *cac, service_t *s)
   ct->ct_multipid = descrambler_multi_pid((th_descrambler_t *)ct);
 
   i = 0;
-  TAILQ_FOREACH(st, &t->s_filt_components, es_filt_link) {
+  TAILQ_FOREACH(st, &t->s_components.set_filter, es_filter_link) {
     if (i < MAX_PIDS && capmt_include_elementary_stream(st->es_type))
       capmt_update_elementary_stream(ct, &i, st);
     if (t->s_dvb_prefcapid_lock == PREFCAPID_FORCE &&
@@ -2593,7 +2593,7 @@ static const struct strtab caclient_capmt_oscam_mode_tab[] = {
   { N_("OSCam net protocol (rev >= 10389)"), CAPMT_OSCAM_NET_PROTO },
 #endif
 #ifdef CAPMT_OSCAM_UNIX_SOCKET_NP
-  { N_("OSCam new pc-nodmx (rev >= 10389)"), CAPMT_OSCAM_UNIX_SOCKET_NP },
+  { N_("Problematic: OSCam new pc-nodmx (rev >= 10389)"), CAPMT_OSCAM_UNIX_SOCKET_NP },
 #endif
 #ifdef CAPMT_OSCAM_TCP
   { N_("OSCam TCP (rev >= 9574)"),           CAPMT_OSCAM_TCP },

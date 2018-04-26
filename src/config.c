@@ -31,6 +31,7 @@
 #include "profile.h"
 #include "avahi.h"
 #include "url.h"
+#include "http.h"
 #include "satip/server.h"
 #include "channels.h"
 #include "input/mpegts/scanfile.h"
@@ -1677,7 +1678,8 @@ config_check ( void )
 static int config_newcfg = 0;
 
 void
-config_boot ( const char *path, gid_t gid, uid_t uid )
+config_boot
+  ( const char *path, gid_t gid, uid_t uid, const char *http_user_agent )
 {
   struct stat st;
   char buf[1024];
@@ -1688,7 +1690,7 @@ config_boot ( const char *path, gid_t gid, uid_t uid )
   memset(&config, 0, sizeof(config));
   config.idnode.in_class = &config_class;
   config.ui_quicktips = 1;
-  config.digest = 1;
+  config.http_auth = HTTP_AUTH_DIGEST;
   config.proxy = 0;
   config.realm = strdup("tvheadend");
   config.info_area = strdup("login,storage,time");
@@ -1780,6 +1782,12 @@ config_boot ( const char *path, gid_t gid, uid_t uid )
     config.realm = strdup("tvheadend");
   if (tvh_str_default(config.http_server_name, NULL) == NULL)
     config.http_server_name = strdup("HTS/tvheadend");
+  if ((config.http_user_agent &&
+       strncmp(config.http_user_agent, "TVHeadend/", 10) == 0) ||
+      tvh_str_default(config.http_user_agent, NULL) == NULL) {
+    snprintf(buf, sizeof(buf), "TVHeadend/%s", tvheadend_version);
+    tvh_str_set(&config.http_user_agent, buf);
+  }
   if (!config_scanfile_ok)
     config_muxconfpath_notify(&config.idnode, NULL);
 }
@@ -1820,6 +1828,7 @@ void config_done ( void )
   free(config.wizard);
   free(config.full_version);
   free(config.http_server_name);
+  free(config.http_user_agent);
   free(config.server_name);
   free(config.language);
   free(config.language_ui);
@@ -2009,6 +2018,17 @@ config_class_piconscheme_list ( void *o, const char *lang )
   static const struct strtab tab[] = {
     { N_("Standard"),                PICON_STANDARD },
     { N_("Force service type to 1"), PICON_ISVCTYPE },
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
+static htsmsg_t *
+config_class_http_auth_list ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("Plain (insecure)"),      HTTP_AUTH_PLAIN },
+    { N_("Digest"),                HTTP_AUTH_DIGEST },
+    { N_("Both plain and digest"), HTTP_AUTH_PLAIN_DIGEST },
   };
   return strtab2htsmsg(tab, 1, lang);
 }
@@ -2331,13 +2351,14 @@ const idclass_t config_class = {
       .group  = 5
     },
     {
-      .type   = PT_BOOL,
+      .type   = PT_INT,
       .id     = "digest",
-      .name   = N_("Digest authentication"),
+      .name   = N_("Authentication type"),
       .desc   = N_("Digest access authentication is intended as a security trade-off. "
                    "It is intended to replace unencrypted HTTP basic access authentication. "
                    "This option should be enabled for standard usage."),
-      .off    = offsetof(config_t, digest),
+      .list   = config_class_http_auth_list,
+      .off    = offsetof(config_t, http_auth),
       .opts   = PO_EXPERT,
       .group  = 5
     },
@@ -2378,6 +2399,15 @@ const idclass_t config_class = {
       .off    = offsetof(config_t, cors_origin),
       .opts   = PO_EXPERT,
       .group  = 5
+    },
+    {
+      .type   = PT_STR,
+      .id     = "http_user_agent",
+      .name   = N_("HTTP User Agent"),
+      .desc   = N_("The user agent string for the build-in HTTP client."),
+      .off    = offsetof(config_t, http_user_agent),
+      .opts   = PO_HIDDEN | PO_EXPERT,
+      .group  = 6,
     },
     {
       .type   = PT_INT,

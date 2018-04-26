@@ -260,6 +260,7 @@ mpegts_mux_instance_start
 
   r = mi->mi_warm_mux(mi, mmi);
   if (r) return r;
+  mm->mm_input_pos = 0;
   r = mi->mi_start_mux(mi, mmi, weight);
   if (r) return r;
 
@@ -1078,7 +1079,8 @@ mpegts_mux_scan_service_check ( mpegts_mux_t *mm )
     if (s->s_enabled && s->s_auto != SERVICE_AUTO_OFF &&
         s->s_dvb_check_seen + 24 * 3600 < last_seen) {
       tvhinfo(LS_MPEGTS, "disabling service %s [sid %04X/%d] (missing in PAT/SDT)",
-              s->s_nicename ?: "<unknown>", s->s_dvb_service_id, s->s_dvb_service_id);
+              s->s_nicename ?: "<unknown>",
+              service_id16(s), service_id16(s));
       service_set_enabled((service_t *)s, 0, SERVICE_AUTO_PAT_MISSING);
     }
   }
@@ -1196,8 +1198,6 @@ mpegts_mux_create0
   ( mpegts_mux_t *mm, const idclass_t *class, const char *uuid,
     mpegts_network_t *mn, uint16_t onid, uint16_t tsid, htsmsg_t *conf )
 {
-  char buf[256];
-
   if (idnode_insert(&mm->mm_id, uuid, class, 0)) {
     if (uuid)
       tvherror(LS_MPEGTS, "invalid mux uuid '%s'", uuid);
@@ -1246,17 +1246,29 @@ mpegts_mux_create0
   mm->mm_last_pid            = -1;
   mm->mm_created             = gclk();
 
-#if ENABLE_TSDEBUG
-  pthread_mutex_init(&mm->mm_tsdebug_lock, NULL);
-  mm->mm_tsdebug_fd = mm->mm_tsdebug_fd2 = -1;
-#endif
-
   /* Configuration */
   if (conf)
     idnode_load(&mm->mm_id, conf);
 
+  return mm;
+}
+
+mpegts_mux_t *
+mpegts_mux_post_create ( mpegts_mux_t *mm )
+{
+  mpegts_network_t *mn;
+  char buf[256];
+
+  if (mm == NULL)
+    return NULL;
+
+  mn = mm->mm_network;
   if (mm->mm_enabled == MM_IGNORE)
     mm->mm_scan_result = MM_SCAN_IGNORE;
+
+  mpegts_mux_nice_name(mm, buf, sizeof(buf));
+  tvhtrace(LS_MPEGTS, "%s - created", buf);
+  mm->mm_nicename = strdup(buf);
 
   /* Initial scan */
   if (mm->mm_scan_result == MM_SCAN_NONE || !mn->mn_skipinitscan)
@@ -1265,10 +1277,6 @@ mpegts_mux_create0
   else if (mm->mm_network->mn_idlescan)
     mpegts_network_scan_queue_add(mm, SUBSCRIPTION_PRIO_SCAN_IDLE,
                                   SUBSCRIPTION_IDLESCAN, 10);
-
-  mpegts_mux_nice_name(mm, buf, sizeof(buf));
-  tvhtrace(LS_MPEGTS, "%s - created", buf);
-  mm->mm_nicename = strdup(buf);
 
   return mm;
 }
@@ -1456,7 +1464,7 @@ mpegts_mux_find_service ( mpegts_mux_t *mm, uint16_t sid )
 {
   mpegts_service_t *ms;
   LIST_FOREACH(ms, &mm->mm_services, s_dvb_mux_link)
-    if (ms->s_dvb_service_id == sid && ms->s_enabled)
+    if (service_id16(ms) == sid && ms->s_enabled)
       break;
   return ms;
 }

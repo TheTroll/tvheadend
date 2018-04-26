@@ -77,8 +77,8 @@ tvhlog_subsys_t tvhlog_subsystems[] = {
   [LS_CRASH]         = { "CRASH",         N_("CRASH") },
   [LS_CPU]           = { "CPU",           N_("CPU") },
   [LS_MAIN]          = { "main",          N_("Main") },
-  [LS_GTIMER]        = { "gtimer",        N_("Global timer") },
-  [LS_MTIMER]        = { "mtimer",        N_("Monitonic timer") },
+  [LS_TPROF]         = { "tprof",         N_("Time profiling") },
+  [LS_QPROF]         = { "qprof",         N_("Queue profiling") },
   [LS_THREAD]        = { "thread",        N_("Thread") },
   [LS_TVHPOLL]       = { "tvhpoll",       N_("Poll multiplexer") },
   [LS_TIME]          = { "time",          N_("Time") },
@@ -355,7 +355,8 @@ tvhlog_thread ( void *p )
     /* Copy options and path */
     if (!fp) {
       if (tvhlog_path) {
-        strncpy(buf, tvhlog_path, sizeof(buf));
+        strncpy(buf, tvhlog_path, sizeof(buf)-1);
+        buf[sizeof(buf)-1] = '\0';
         path = buf;
       } else {
         path = NULL;

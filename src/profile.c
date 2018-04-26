@@ -1287,6 +1287,7 @@ typedef struct profile_mpegts {
   int pro_rewrite_pmt;
   int pro_rewrite_pat;
   int pro_rewrite_sdt;
+  int pro_rewrite_nit;
   int pro_rewrite_eit;
 } profile_mpegts_t;
 
@@ -1300,6 +1301,7 @@ profile_pass_rewrite_sid_set (void *in, const void *v)
       pro->pro_rewrite_pmt =
       pro->pro_rewrite_pat =
       pro->pro_rewrite_sdt =
+      pro->pro_rewrite_nit =
       pro->pro_rewrite_eit = 1;
     }
     pro->pro_rewrite_sid = *val;
@@ -1337,6 +1339,12 @@ static int
 profile_pass_rewrite_sdt_set (void *in, const void *v)
 {
   return profile_pass_int_set(in, v, &((profile_mpegts_t *)in)->pro_rewrite_sdt);
+}
+
+static int
+profile_pass_rewrite_nit_set (void *in, const void *v)
+{
+  return profile_pass_int_set(in, v, &((profile_mpegts_t *)in)->pro_rewrite_nit);
 }
 
 static int
@@ -1415,6 +1423,19 @@ const idclass_t profile_mpegts_pass_class =
     },
     {
       .type     = PT_BOOL,
+      .id       = "rewrite_nit",
+      .name     = N_("Rewrite NIT"),
+      .desc     = N_("Rewrite NIT (Network Information Table) packets "
+                     "to only include information about the currently-"
+                     "streamed service."),
+      .off      = offsetof(profile_mpegts_t, pro_rewrite_nit),
+      .set      = profile_pass_rewrite_nit_set,
+      .opts     = PO_EXPERT,
+      .def.i    = 1,
+      .group    = 2
+    },
+    {
+      .type     = PT_BOOL,
       .id       = "rewrite_eit",
       .name     = N_("Rewrite EIT"),
       .desc     = N_("Rewrite EIT (Event Information Table) packets "
@@ -1448,6 +1469,7 @@ profile_mpegts_pass_reopen(profile_chain_t *prch,
   c.u.pass.m_rewrite_pat = pro->pro_rewrite_pat;
   c.u.pass.m_rewrite_pmt = pro->pro_rewrite_pmt;
   c.u.pass.m_rewrite_sdt = pro->pro_rewrite_sdt;
+  c.u.pass.m_rewrite_nit = pro->pro_rewrite_nit;
   c.u.pass.m_rewrite_eit = pro->pro_rewrite_eit;
 
   assert(!prch->prch_muxer);
@@ -1482,6 +1504,7 @@ profile_mpegts_pass_builder(void)
   pro->pro_rewrite_pat = 1;
   pro->pro_rewrite_pmt = 1;
   pro->pro_rewrite_sdt = 1;
+  pro->pro_rewrite_nit = 1;
   pro->pro_rewrite_eit = 1;
   return (profile_t *)pro;
 }
@@ -1577,6 +1600,7 @@ profile_mpegts_spawn_reopen(profile_chain_t *prch,
   c.u.pass.m_rewrite_pat = 1;
   c.u.pass.m_rewrite_pmt = 1;
   c.u.pass.m_rewrite_sdt = 1;
+  c.u.pass.m_rewrite_nit = 1;
   c.u.pass.m_rewrite_eit = 1;
   mystrset(&c.u.pass.m_cmdline, pro->pro_cmdline);
   mystrset(&c.u.pass.m_mime, pro->pro_mime);

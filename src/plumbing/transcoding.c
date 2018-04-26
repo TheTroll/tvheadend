@@ -1599,8 +1599,8 @@ transcoder_init_stream(transcoder_t *t, streaming_start_component_t *ssc)
 {
   transcoder_stream_t *ts = calloc(1, sizeof(transcoder_stream_t));
 
-  ts->ts_index      = ssc->ssc_index;
-  ts->ts_type       = ssc->ssc_type;
+  ts->ts_index      = ssc->es_index;
+  ts->ts_type       = ssc->es_type;
   ts->ts_target     = t->t_output;
   ts->ts_handle_pkt = transcoder_stream_packet;
   ts->ts_destroy    = transcoder_destroy_stream;
@@ -1614,8 +1614,8 @@ transcoder_init_stream(transcoder_t *t, streaming_start_component_t *ssc)
   }
 
   tvhinfo(LS_TRANSCODE, "%04X: %d:%s ==> Passthrough",
-	  shortid(t), ssc->ssc_index,
-	  streaming_component_type2txt(ssc->ssc_type));
+	  shortid(t), ssc->es_index,
+	  streaming_component_type2txt(ssc->es_type));
 
   return 1;
 }
@@ -1662,7 +1662,7 @@ transcoder_init_subtitle(transcoder_t *t, streaming_start_component_t *ssc)
   else if (!strcmp(tp->tp_scodec, "copy"))
     return transcoder_init_stream(t, ssc);
 
-  else if (!(icodec = transcoder_get_decoder(t, ssc->ssc_type)))
+  else if (!(icodec = transcoder_get_decoder(t, ssc->es_type)))
     return transcoder_init_stream(t, ssc);
 
   else if (!(ocodec = transcoder_get_encoder(t, tp->tp_scodec)))
@@ -1670,12 +1670,12 @@ transcoder_init_subtitle(transcoder_t *t, streaming_start_component_t *ssc)
 
   sct = codec_id2streaming_component_type(ocodec->id);
 
-  if (sct == ssc->ssc_type)
+  if (sct == ssc->es_type)
     return transcoder_init_stream(t, ssc);
 
   ss = calloc(1, sizeof(subtitle_stream_t));
 
-  ss->ts_index      = ssc->ssc_index;
+  ss->ts_index      = ssc->es_index;
   ss->ts_type       = sct;
   ss->ts_target     = t->t_output;
   ss->ts_handle_pkt = transcoder_stream_subtitle;
@@ -1694,12 +1694,12 @@ transcoder_init_subtitle(transcoder_t *t, streaming_start_component_t *ssc)
   LIST_INSERT_HEAD(&t->t_stream_list, (transcoder_stream_t*)ss, ts_link);
 
   tvhinfo(LS_TRANSCODE, "%04X: %d:%s ==> %s (%s)",
-	  shortid(t), ssc->ssc_index,
-	  streaming_component_type2txt(ssc->ssc_type),
+	  shortid(t), ssc->es_index,
+	  streaming_component_type2txt(ssc->es_type),
 	  streaming_component_type2txt(ss->ts_type),
 	  ocodec->name);
 
-  ssc->ssc_type = sct;
+  ssc->es_type = sct;
   ssc->ssc_gh = NULL;
 
   return 1;
@@ -1754,7 +1754,7 @@ transcoder_init_audio(transcoder_t *t, streaming_start_component_t *ssc)
   else if (!strcmp(tp->tp_acodec, "copy"))
     return transcoder_init_stream(t, ssc);
 
-  else if (!(icodec = transcoder_get_decoder(t, ssc->ssc_type)))
+  else if (!(icodec = transcoder_get_decoder(t, ssc->es_type)))
     return transcoder_init_stream(t, ssc);
 
   else if (!(ocodec = transcoder_get_encoder(t, tp->tp_acodec)))
@@ -1767,13 +1767,13 @@ transcoder_init_audio(transcoder_t *t, streaming_start_component_t *ssc)
   sct = codec_id2streaming_component_type(ocodec->id);
 
   // Don't transcode to identical output codec unless the streaming profile specifies a bitrate limiter.
-  if (sct == ssc->ssc_type && t->t_props.tp_abitrate < 16) {
+  if (sct == ssc->es_type && t->t_props.tp_abitrate < 16) {
     return transcoder_init_stream(t, ssc);
   }
 
   as = calloc(1, sizeof(audio_stream_t));
 
-  as->ts_index      = ssc->ssc_index;
+  as->ts_index      = ssc->es_index;
   as->ts_type       = sct;
   as->ts_target     = t->t_output;
   as->ts_handle_pkt = transcoder_stream_audio;
@@ -1792,12 +1792,12 @@ transcoder_init_audio(transcoder_t *t, streaming_start_component_t *ssc)
   LIST_INSERT_HEAD(&t->t_stream_list, (transcoder_stream_t*)as, ts_link);
 
   tvhinfo(LS_TRANSCODE, "%04X: %d:%s ==> %s (%s)",
-	  shortid(t), ssc->ssc_index,
-	  streaming_component_type2txt(ssc->ssc_type),
+	  shortid(t), ssc->es_index,
+	  streaming_component_type2txt(ssc->es_type),
 	  streaming_component_type2txt(as->ts_type),
 	  ocodec->name);
 
-  ssc->ssc_type     = sct;
+  ssc->es_type     = sct;
   ssc->ssc_gh       = NULL;
 
   if(tp->tp_channels > 0)
@@ -1880,17 +1880,17 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
 
   strncpy(codec_list, tp->tp_src_vcodec, sizeof(tp->tp_src_vcodec)-1);
 
-  tvhtrace(LS_TRANSCODE, "src_vcodec=\"%s\" ssc_type=%d (%s)\n",
+  tvhtrace(LS_TRANSCODE, "src_vcodec=\"%s\" es_type=%d (%s)\n",
 		  tp->tp_src_vcodec,
-		  ssc->ssc_type,
-		  streaming_component_type2txt(ssc->ssc_type));
+		  ssc->es_type,
+		  streaming_component_type2txt(ssc->es_type));
 
   if (codec_list[0] != '\0') {
     for (str=codec_list; ; str = NULL) {
       token = strtok_r(str," ,|;" , &saveptr);
       if (token == NULL)
         break; //no match found, use profile settings
-      if(!strcasecmp(token, streaming_component_type2txt(ssc->ssc_type))) { //match found
+      if(!strcasecmp(token, streaming_component_type2txt(ssc->es_type))) { //match found
 	codec_match=1;
 	break;
       }
@@ -1906,7 +1906,7 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
   else if (!strcmp(tp->tp_vcodec, "copy"))
     return transcoder_init_stream(t, ssc);
 
-  else if (!(icodec = transcoder_get_decoder(t, ssc->ssc_type)))
+  else if (!(icodec = transcoder_get_decoder(t, ssc->es_type)))
     return transcoder_init_stream(t, ssc);
 
   else if (!(ocodec = transcoder_get_encoder(t, tp->tp_vcodec)))
@@ -1916,7 +1916,7 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
 
   vs = calloc(1, sizeof(video_stream_t));
 
-  vs->ts_index      = ssc->ssc_index;
+  vs->ts_index      = ssc->es_index;
   vs->ts_type       = sct;
   vs->ts_target     = t->t_output;
   vs->ts_handle_pkt = transcoder_stream_video;
@@ -1951,11 +1951,11 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
 
   if(tp->tp_resolution > 0) {
 
-    vs->vid_height = MIN(tp->tp_resolution, ssc->ssc_height);
+    vs->vid_height = MIN(tp->tp_resolution, ssc->es_height);
 
     // SW scaling SD->SD crashes...
     if (	(vs->vid_height <= 576) &&
-		(ssc->ssc_height == vs->vid_height) &&
+		(ssc->es_height == vs->vid_height) &&
 		(strcmp(icodec->name, "mpeg2_qsv") && strcmp(icodec->name, "h264_qsv"))
        )
     {
@@ -1965,29 +1965,29 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
 
     vs->vid_height += vs->vid_height & 1; /* Must be even */
 
-    double aspect = (double)ssc->ssc_width / ssc->ssc_height;
+    double aspect = (double)ssc->es_width / ssc->es_height;
 
     vs->vid_width = vs->vid_height * aspect;
     vs->vid_width += vs->vid_width & 1;   /* Must be even */
   } else {
-    vs->vid_height = ssc->ssc_height;
-    vs->vid_width  = ssc->ssc_width;
+    vs->vid_height = ssc->es_height;
+    vs->vid_width  = ssc->es_width;
   }
 
   tvhinfo(LS_TRANSCODE, "%04X: %d:%s %dx%d ==> %s %dx%d (%s)",
           shortid(t),
-          ssc->ssc_index,
-          streaming_component_type2txt(ssc->ssc_type),
-          ssc->ssc_width,
-          ssc->ssc_height,
+          ssc->es_index,
+          streaming_component_type2txt(ssc->es_type),
+          ssc->es_width,
+          ssc->es_height,
           streaming_component_type2txt(vs->ts_type),
           vs->vid_width,
           vs->vid_height,
           ocodec->name);
 
-  ssc->ssc_type   = sct;
-  ssc->ssc_width  = vs->vid_width;
-  ssc->ssc_height = vs->vid_height;
+  ssc->es_type   = sct;
+  ssc->es_width  = vs->vid_width;
+  ssc->es_height = vs->vid_height;
   ssc->ssc_gh     = NULL;
 
   return 1;
@@ -2011,7 +2011,7 @@ transcoder_calc_stream_count(transcoder_t *t, streaming_start_t *ss) {
     if (ssc->ssc_disabled)
       continue;
 
-    if (SCT_ISVIDEO(ssc->ssc_type)) {
+    if (SCT_ISVIDEO(ssc->es_type)) {
       if (t->t_props.tp_vcodec[0] == '\0')
 	video = 0;
       else if (!strcmp(t->t_props.tp_vcodec, "copy"))
@@ -2019,7 +2019,7 @@ transcoder_calc_stream_count(transcoder_t *t, streaming_start_t *ss) {
       else
 	video = 1;
 
-    } else if (SCT_ISAUDIO(ssc->ssc_type)) {
+    } else if (SCT_ISAUDIO(ssc->es_type)) {
       if (t->t_props.tp_acodec[0] == '\0')
 	audio = 0;
       else if (!strcmp(t->t_props.tp_acodec, "copy"))
@@ -2027,7 +2027,7 @@ transcoder_calc_stream_count(transcoder_t *t, streaming_start_t *ss) {
       else
 	audio = 1;
 
-    } else if (SCT_ISSUBTITLE(ssc->ssc_type)) {
+    } else if (SCT_ISSUBTITLE(ssc->es_type)) {
       if (t->t_props.tp_scodec[0] == '\0')
 	subtitle = 0;
       else if (!strcmp(t->t_props.tp_scodec, "copy"))
@@ -2072,7 +2072,7 @@ transcoder_start(transcoder_t *t, streaming_start_t *src)
   {
       for (i = 0; i < src->ss_num_components; i++) {
         streaming_start_component_t *ssc_src = &src->ss_components[i];
-        if (SCT_ISAUDIO(ssc_src->ssc_type) && !strcmp(tp->tp_language, ssc_src->ssc_lang))
+        if (SCT_ISAUDIO(ssc_src->es_type) && !strcmp(tp->tp_language, ssc_src->es_lang))
           break;
       }
 
@@ -2092,19 +2092,19 @@ transcoder_start(transcoder_t *t, streaming_start_t *src)
 
     *ssc = *ssc_src;
 
-    if (SCT_ISVIDEO(ssc->ssc_type))
+    if (SCT_ISVIDEO(ssc->es_type))
       rc = transcoder_init_video(t, ssc);
-    else if (SCT_ISAUDIO(ssc->ssc_type) && (requested_lang[0] == '\0' || !strcmp(requested_lang, ssc->ssc_lang)))
+    else if (SCT_ISAUDIO(ssc->es_type) && (requested_lang[0] == '\0' || !strcmp(requested_lang, ssc->es_lang)))
       rc = transcoder_init_audio(t, ssc);
-    else if (SCT_ISSUBTITLE(ssc->ssc_type))
+    else if (SCT_ISSUBTITLE(ssc->es_type))
       rc = transcoder_init_subtitle(t, ssc);
     else
       rc = 0;
 
     if(!rc)
       tvhinfo(LS_TRANSCODE, "%04X: %d:%s ==> Filtered",
-	      shortid(t), ssc->ssc_index,
-	      streaming_component_type2txt(ssc->ssc_type));
+	      shortid(t), ssc->es_index,
+	      streaming_component_type2txt(ssc->es_type));
     else
       j++;
   }

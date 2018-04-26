@@ -102,7 +102,8 @@ iptv_auto_network_process_m3u_item(iptv_network_t *in,
     return;
 
   epgid = htsmsg_get_str(item, "tvh-chnum");
-  chnum2 = epgid ? prop_intsplit_from_str(epgid, CHANNEL_SPLIT) : 0;
+  if (!epgid) epgid = htsmsg_get_str(item, "tvg-chno");
+  chnum2 = epgid ? channel_get_number_from_str(epgid) : 0;
 
   muxprio = htsmsg_get_s32_or_default(item, "tvh-prio", -1);
   smuxprio = htsmsg_get_s32_or_default(item, "tvh-sprio", -1);
@@ -310,6 +311,7 @@ skip_url:
     htsmsg_add_s32(conf, "spriority", smuxprio);
 
   im = iptv_mux_create0(in, NULL, conf);
+  mpegts_mux_post_create((mpegts_mux_t *)im);
   htsmsg_destroy(conf);
 
   if (im) {

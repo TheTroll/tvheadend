@@ -25,6 +25,8 @@
 #endif
 
 #include "atomic.h"
+#include "tprofile.h"
+#include "sbuf.h"
 #include "input.h"
 #include "service.h"
 #include "mpegts/dvb.h"
@@ -115,7 +117,7 @@ int mpegts_pid_compare ( mpegts_apids_t *dst, mpegts_apids_t *src,
                          mpegts_apids_t *add, mpegts_apids_t *del );
 int mpegts_pid_compare_weight ( mpegts_apids_t *dst, mpegts_apids_t *src,
                                 mpegts_apids_t *add, mpegts_apids_t *del );
-int mpegts_pid_weighted ( mpegts_apids_t *dst, mpegts_apids_t *src, int limit );
+int mpegts_pid_weighted ( mpegts_apids_t *dst, mpegts_apids_t *src, int limit, int mweight );
 int mpegts_pid_dump ( mpegts_apids_t *pids, char *buf, int len, int wflag, int raw );
 
 /* **************************************************************************
@@ -165,28 +167,31 @@ typedef struct mpegts_pid_sub
 #define MPS_TABLES       0x40
 #define MPS_NOPOSTDEMUX  0x80
   int   mps_type;
-#define MPS_WEIGHT_PAT     1000
-#define MPS_WEIGHT_CAT      999
-#define MPS_WEIGHT_SDT      999
-#define MPS_WEIGHT_NIT      999
-#define MPS_WEIGHT_BAT      999
-#define MPS_WEIGHT_VCT      999
-#define MPS_WEIGHT_EIT      999
-#define MPS_WEIGHT_ETT      999
-#define MPS_WEIGHT_MGT      999
-#define MPS_WEIGHT_PMT      998
-#define MPS_WEIGHT_PCR      997
-#define MPS_WEIGHT_CA       996
-#define MPS_WEIGHT_VIDEO    900
-#define MPS_WEIGHT_AUDIO    800
-#define MPS_WEIGHT_SUBTITLE 700
-#define MPS_WEIGHT_ESOTHER  500
-#define MPS_WEIGHT_RAW      400
-#define MPS_WEIGHT_NIT2     300
-#define MPS_WEIGHT_SDT2     300
-#define MPS_WEIGHT_TDT      101
-#define MPS_WEIGHT_STT      101
-#define MPS_WEIGHT_PMT_SCAN 100
+#define MPS_WEIGHT_PAT       1000
+#define MPS_WEIGHT_CAT        999
+#define MPS_WEIGHT_SDT        999
+#define MPS_WEIGHT_NIT        999
+#define MPS_WEIGHT_BAT        999
+#define MPS_WEIGHT_VCT        999
+#define MPS_WEIGHT_EIT        999
+#define MPS_WEIGHT_ETT        999
+#define MPS_WEIGHT_MGT        999
+#define MPS_WEIGHT_PMT        998
+#define MPS_WEIGHT_PCR        997
+#define MPS_WEIGHT_CA         996
+#define MPS_WEIGHT_VIDEO      900
+#define MPS_WEIGHT_AUDIO      800
+#define MPS_WEIGHT_SUBTITLE   700
+#define MPS_WEIGHT_ESOTHER    500
+#define MPS_WEIGHT_RAW        400
+#define MPS_WEIGHT_NIT2       300
+#define MPS_WEIGHT_SDT2       300
+#define MPS_WEIGHT_ALLLIMIT   200 /* values under this limit does not switch */
+                                  /* input to the unfiltered PIDs (all) mode */
+#define MPS_WEIGHT_TDT        102
+#define MPS_WEIGHT_STT        102
+#define MPS_WEIGHT_PMT_SCAN   101
+#define MPS_WEIGHT_HBBTV_SCAN 100
   int   mps_weight;
   void *mps_owner;
 } mpegts_pid_sub_t;
@@ -265,6 +270,8 @@ struct mpegts_table
   struct mpegts_table_mux_cb *mt_mux_cb;
 
   mpegts_service_t *mt_service;
+
+  tprofile_t mt_profile;
   
   void (*mt_destroy) (mpegts_table_t *mt); // Allow customisable destroy hook
                                            // useful for dynamic allocation of
@@ -353,7 +360,7 @@ struct mpegts_network
     (mpegts_mux_t*, uint16_t sid, uint16_t pmt_pid);
   const idclass_t*  (*mn_mux_class)   (mpegts_network_t*);
   mpegts_mux_t *    (*mn_mux_create2) (mpegts_network_t *mn, htsmsg_t *conf);
- void              (*mn_scan)        (mpegts_network_t*);
+  void              (*mn_scan)        (mpegts_network_t*);
 
   /*
    * Configuration
@@ -421,12 +428,6 @@ enum mpegts_mux_ac3_flag
   MM_AC3_PMT_06,
   MM_AC3_PMT_N05,
 };
-
-typedef struct tsdebug_packet {
-  TAILQ_ENTRY(tsdebug_packet) link;
-  uint8_t pkt[188];
-  off_t pos;
-} tsdebug_packet_t;
 
 /* Multiplex */
 struct mpegts_mux
@@ -497,6 +498,7 @@ struct mpegts_mux
    * Data processing
    */
 
+  uint64_t                    mm_input_pos;
   RB_HEAD(, mpegts_pid)       mm_pids;
   LIST_HEAD(, mpegts_pid_sub) mm_all_subs;
   int                         mm_last_pid;
@@ -540,17 +542,6 @@ struct mpegts_mux
   int      mm_pmt_ac3;
   int      mm_eit_tsid_nocheck;
   uint16_t mm_sid_filter;
-
-  /*
-   * TSDEBUG
-   */
-#if ENABLE_TSDEBUG
-  pthread_mutex_t mm_tsdebug_lock;
-  int             mm_tsdebug_fd;
-  int             mm_tsdebug_fd2;
-  off_t           mm_tsdebug_pos;
-  TAILQ_HEAD(, tsdebug_packet) mm_tsdebug_packets;
-#endif
 };
 
 #define PREFCAPID_OFF      0
@@ -581,7 +572,6 @@ struct mpegts_service
   uint32_t s_dvb_channel_num;
   uint16_t s_dvb_channel_minor;
   uint8_t  s_dvb_channel_dtag;
-  uint16_t s_dvb_service_id;
   char    *s_dvb_svcname;
   char    *s_dvb_provider;
   char    *s_dvb_cridauth;
@@ -723,6 +713,7 @@ struct mpegts_input
   TAILQ_HEAD(,mpegts_packet)      mi_input_queue;
   uint64_t                        mi_input_queue_size;
   tvhlog_limit_t                  mi_input_queue_loglimit;
+  qprofile_t                      mi_qprofile;
   int                             mi_remove_scrambled_bits;
 
   /* Data processing/output */
@@ -899,6 +890,8 @@ mpegts_mux_t *mpegts_mux_create0
   mpegts_mux_create0(calloc(1, sizeof(mpegts_mux_t)), &mpegts_mux_class, uuid,\
                      mn, onid, tsid, conf)
 
+mpegts_mux_t *mpegts_mux_post_create(mpegts_mux_t *mm);
+
 static inline mpegts_mux_t *mpegts_mux_find0(tvh_uuid_t *uuid)
   { return idnode_find0(uuid, &mpegts_mux_class, NULL); }
 
@@ -1030,36 +1023,11 @@ elementary_stream_t *mpegts_input_open_service_pid
 
 void mpegts_input_open_cat_monitor ( mpegts_mux_t *mm, mpegts_service_t *s );
 
-#if ENABLE_TSDEBUG
+void tsdebug_encode_keys
+  ( uint8_t *dst, uint16_t sid, uint16_t pid,
+    uint8_t keytype, uint8_t keylen, uint8_t *even, uint8_t *odd );
 
-void tsdebug_started_mux(mpegts_input_t *mi, mpegts_mux_t *mm);
-void tsdebug_stopped_mux(mpegts_input_t *mi, mpegts_mux_t *mm);
-void tsdebug_check_tspkt(mpegts_mux_t *mm, uint8_t *pkt, int len);
-
-static inline void
-tsdebug_write(mpegts_mux_t *mm, uint8_t *buf, size_t len)
-{
-  if (mm && mm->mm_tsdebug_fd2 >= 0)
-    if (write(mm->mm_tsdebug_fd2, buf, len) != len)
-      tvherror(LS_TSDEBUG, "unable to write input data (%i)", errno);
-}
-
-static inline ssize_t
-sbuf_tsdebug_read(mpegts_mux_t *mm, sbuf_t *sb, int fd)
-{
-  ssize_t r = sbuf_read(sb, fd);
-  tsdebug_write(mm, sb->sb_data + sb->sb_ptr - r, r);
-  return r;
-}
-
-#else
-
-static inline void tsdebug_started_mux(mpegts_input_t *mi, mpegts_mux_t *mm) { return; }
-static inline void tsdebug_stopped_mux(mpegts_input_t *mi, mpegts_mux_t *mm) { return; }
-static inline void tsdebug_write(mpegts_mux_t *mm, uint8_t *buf, size_t len) { return; }
-static inline ssize_t sbuf_tsdebug_read(mpegts_mux_t *mm, sbuf_t *sb, int fd) { return sbuf_read(sb, fd); }
-
-#endif
+void tsdebug_check_tspkt( mpegts_mux_t *mm, uint8_t *pkt, int len );
 
 void mpegts_table_dispatch(const uint8_t *sec, size_t r, void *mt);
 static inline void mpegts_table_grab(mpegts_table_t *mt)
@@ -1144,6 +1112,8 @@ mpegts_service_find_e2
 mpegts_service_t *
 mpegts_service_find_by_pid ( mpegts_mux_t *mm, int pid );
 
+void mpegts_service_autoenable( mpegts_service_t *s, const char *where );
+
 void mpegts_service_update_slave_pids
   ( mpegts_service_t *t, mpegts_service_t *master_filter, int del );
 
@@ -1207,4 +1177,3 @@ void eit_nit_callback(mpegts_table_t *mt, uint16_t nbid, const char *name, uint3
  *
  * vim:sts=2:ts=2:sw=2:et
  *****************************************************************************/
-

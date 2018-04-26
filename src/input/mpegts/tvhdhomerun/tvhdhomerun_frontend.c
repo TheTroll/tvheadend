@@ -183,7 +183,7 @@ tvhdhomerun_frontend_input_thread ( void *aux )
     if (nfds < 1) continue;
     if (ev[0].ptr != hfe) break;
 
-    if((r = sbuf_tsdebug_read(mmi->mmi_mux, &sb, sockfd)) < 0) {
+    if((r = sbuf_read(&sb, sockfd)) < 0) {
       /* whoopsy */
       if(ERRNO_AGAIN(errno))
         continue;
@@ -521,7 +521,7 @@ static void tvhdhomerun_frontend_update_pids( mpegts_input_t *mi, mpegts_mux_t *
     }
   }
 
-  mpegts_pid_weighted(&wpids, &pids, 128 /* max? */);
+  mpegts_pid_weighted(&wpids, &pids, 128 /* max? */, MPS_WEIGHT_ALLLIMIT);
   for (i = 0; i < wpids.count; i++)
     tvhdhomerun_device_open_pid(hfe, wpids.pids[i].pid);
   if (wpids.all)

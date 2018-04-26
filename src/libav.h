@@ -24,7 +24,9 @@
 #if ENABLE_LIBAV
 
 #include <libavformat/avformat.h>
+#include <libavfilter/avfilter.h>
 #include "tvheadend.h"
+#include "esstream.h"
 
 /*
 Older versions of ffmpeg/libav don't have the AV_* prefix

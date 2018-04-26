@@ -544,12 +544,11 @@ streaming_start_copy(const streaming_start_t *src)
 streaming_start_component_t *
 streaming_start_component_find_by_index(streaming_start_t *ss, int idx)
 {
+  streaming_start_component_t *ssc;
   int i;
-  for(i = 0; i < ss->ss_num_components; i++) {
-    streaming_start_component_t *ssc = &ss->ss_components[i];
-    if(ssc->ssc_index == idx)
+  for(i = 0, ssc = ss->ss_components; i < ss->ss_num_components; i++, ssc++)
+    if(ssc->es_index == idx)
       return ssc;
-  }
   return NULL;
 }
 
@@ -611,6 +610,20 @@ streaming_component_audio_type2desc(int audio_type)
   }
 
   return N_("Reserved");
+}
+
+static struct strtab signal_statetab[] = {
+  { "GOOD",       SIGNAL_GOOD    },
+  { "BAD",        SIGNAL_BAD     },
+  { "FAINT",      SIGNAL_FAINT   },
+  { "NONE",       SIGNAL_NONE    },
+};
+
+const char *signal2str(signal_state_t st)
+{
+  const char *r = val2str(st, signal_statetab);
+  if (!r) r = "UNKNOWN";
+  return r;
 }
 
 /*

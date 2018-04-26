@@ -1322,7 +1322,7 @@ linuxdvb_update_pids ( linuxdvb_frontend_t *lfe, const char *name,
   pthread_mutex_lock(&lfe->lfe_dvr_lock);
 
   if (!all) {
-    overlimit = mpegts_pid_weighted(&wpid, &lfe->lfe_pids, max);
+    overlimit = mpegts_pid_weighted(&wpid, &lfe->lfe_pids, max, MPS_WEIGHT_ALLLIMIT);
     if (tvhtrace_enabled()) {
       mpegts_pid_dump(&wpid, buf, sizeof(buf), 1, 1);
       tvhtrace(LS_LINUXDVB, "%s - weighted PIDs %s", name, buf);
@@ -1437,7 +1437,7 @@ linuxdvb_frontend_input_thread ( void *aux )
     lfe->lfe_nodata = 0;
     
     /* Read */
-    if ((n = sbuf_tsdebug_read(mmi->mmi_mux, &sb, dvr)) < 0) {
+    if ((n = sbuf_read(&sb, dvr)) < 0) {
       if (ERRNO_AGAIN(errno))
         continue;
       if (errno == EOVERFLOW) {

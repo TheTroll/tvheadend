@@ -2,7 +2,7 @@
 #  Tvheadend streaming server.
 #  Copyright (C) 2007-2009 Andreas Öman
 #  Copyright (C) 2012-2015 Adam Sutton
-#  Copyright (C) 2012-2017 Jaroslav Kysela
+#  Copyright (C) 2012-2018 Jaroslav Kysela
 #
 #  This program is free software: you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -209,6 +209,7 @@ SRCS-1 = \
 	src/uuid.c \
 	src/main.c \
 	src/tvhlog.c \
+	src/tprofile.c \
 	src/idnode.c \
 	src/prop.c \
 	src/proplib.c \
@@ -227,6 +228,7 @@ SRCS-1 = \
 	src/epggrab.c\
 	src/spawn.c \
 	src/packet.c \
+	src/esstream.c \
 	src/streaming.c \
 	src/channels.c \
 	src/subscriptions.c \
@@ -314,6 +316,7 @@ SRCS-2 = \
 	src/api/api_wizard.c
 
 SRCS-2 += \
+        src/parsers/message.c \
 	src/parsers/parsers.c \
 	src/parsers/bitstream.c \
 	src/parsers/parser_h264.c \
@@ -382,10 +385,13 @@ SRCS-MPEGTS = \
 	src/input/mpegts/mpegts_table.c \
 	src/input/mpegts/dvb_support.c \
 	src/input/mpegts/dvb_charset.c \
+	src/input/mpegts/dvb_psi_pmt.c \
 	src/input/mpegts/dvb_psi.c \
 	src/input/mpegts/fastscan.c \
 	src/input/mpegts/mpegts_mux_sched.c \
-        src/input/mpegts/mpegts_network_scan.c
+        src/input/mpegts/mpegts_network_scan.c \
+        src/input/mpegts/mpegts_tsdebug.c \
+        src/descrambler/tsdebugcw.c
 SRCS-$(CONFIG_MPEGTS) += $(SRCS-MPEGTS)
 I18N-C += $(SRCS-MPEGTS)
 
@@ -555,29 +561,6 @@ SRCS-DDCI = \
 	src/input/mpegts/linuxdvb/linuxdvb_ddci.c
 SRCS-${CONFIG_DDCI} += $(SRCS-DDCI)
 I18N-C += $(SRCS-DDCI)
-
-# TSDEBUGCW
-SRCS-TSDEBUG = \
-	src/input/mpegts/mpegts_tsdebug.c \
-	src/descrambler/tsdebugcw.c
-SRCS-${CONFIG_TSDEBUG} += $(SRCS-TSDEBUG)
-I18N-C += $(SRCS-TSDEBUG)
-
-# FFdecsa
-ifneq ($(CONFIG_DVBCSA),yes)
-FFDECSA-$(CONFIG_CAPMT)   = yes
-FFDECSA-$(CONFIG_CWC)     = yes
-FFDECSA-$(CONFIG_CONSTCW) = yes
-endif
-
-ifeq ($(FFDECSA-yes),yes)
-SRCS-yes += src/descrambler/ffdecsa/ffdecsa_interface.c \
-	src/descrambler/ffdecsa/ffdecsa_int.c
-SRCS-${CONFIG_MMX}  += src/descrambler/ffdecsa/ffdecsa_mmx.c
-SRCS-${CONFIG_SSE2} += src/descrambler/ffdecsa/ffdecsa_sse2.c
-${BUILDDIR}/src/descrambler/ffdecsa/ffdecsa_mmx.o  : CFLAGS += -mmmx
-${BUILDDIR}/src/descrambler/ffdecsa/ffdecsa_sse2.o : CFLAGS += -msse2
-endif
 
 # crypto algorithms
 SRCS-${CONFIG_SSL} += src/descrambler/algo/libaesdec.c
@@ -861,3 +844,24 @@ $(ROOTDIR)/data/dvb-scan/dvb-s/.stamp: $(ROOTDIR)/data/satellites.xml \
 
 .PHONY: satellites_xml
 satellites_xml: $(ROOTDIR)/data/dvb-scan/dvb-s/.stamp
+
+#
+# perf
+#
+
+PERF_DATA = /tmp/tvheadend.perf.data
+PERF_SLEEP ?= 30
+
+$(PERF_DATA): FORCE
+	perf record -F 16000 -g -p $$(pidof tvheadend) -o $(PERF_DATA) sleep $(PERF_SLEEP)
+
+.PHONY: perf-record
+perf-record: $(PERF_DATA)
+
+.PHONY: perf-graph
+perf-graph:
+	perf report --stdio -g graph -i $(PERF_DATA)
+
+.PHONY: perf-report
+perf-report:
+	perf report --stdio -g none -i $(PERF_DATA)

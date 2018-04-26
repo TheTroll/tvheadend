@@ -332,7 +332,7 @@ dvbcam_pmt_data(mpegts_service_t *s, const uint8_t *ptr, int len)
   }
 
   r = en50221_capmt_build(s, bcmd,
-                          s->s_dvb_service_id,
+                          service_id16(s),
                           ac->caids, ac->caids_count,
                           as->last_pmt, as->last_pmt_len,
                           &capmt, &capmt_len);
@@ -363,7 +363,7 @@ dvbcam_service_destroy(th_descrambler_t *td)
     if (ac) {
       s = (mpegts_service_t *)td->td_service;
       r = en50221_capmt_build(s, EN50221_CAPMT_BUILD_DELETE,
-                              s->s_dvb_service_id,
+                              service_id16(s),
                               ac->caids, ac->caids_count,
                               as->last_pmt, as->last_pmt_len,
                               &capmt, &capmt_len);
@@ -485,7 +485,7 @@ dvbcam_service_start(caclient_t *cac, service_t *t)
       if (i > 0)
         break;
     }
-    TAILQ_FOREACH(st, &t->s_filt_components, es_link) {
+    TAILQ_FOREACH(st, &t->s_components.set_all, es_link) {
       if (st->es_type != SCT_CA) continue;
       LIST_FOREACH(c, &st->es_caids, link) {
         if (!c->use) continue;
@@ -539,7 +539,7 @@ end_of_search_for_cam:
         if (i > 0)
           break;
       }
-      TAILQ_FOREACH(st, &t->s_filt_components, es_link) {
+      TAILQ_FOREACH(st, &t->s_components.set_filter, es_link) {
         if (st->es_type != SCT_CA) continue;
         LIST_FOREACH(c, &st->es_caids, link) {
           if (i >= ARRAY_SIZE(as->caid_list)) {
@@ -600,7 +600,7 @@ end_of_search_for_cam:
 update_pid:
 #if ENABLE_DDCI
   /* open selected ECM PIDs */
-  TAILQ_FOREACH(st, &t->s_filt_components, es_link) {
+  TAILQ_FOREACH(st, &t->s_components.set_all, es_link) {
     if (st->es_type != SCT_CA) continue;
     LIST_FOREACH(c, &st->es_caids, link) {
       if (!c->use) continue;

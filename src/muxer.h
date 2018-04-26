@@ -19,6 +19,7 @@
 #ifndef MUXER_H_
 #define MUXER_H_
 
+#include "streaming.h"
 #include "htsmsg.h"
 
 #define MC_IS_EOS_ERROR(e) ((e) == EPIPE || (e) == ECONNRESET)
@@ -71,6 +72,7 @@ typedef struct muxer_config {
       int              m_rewrite_pat;
       int              m_rewrite_pmt;
       int              m_rewrite_sdt;
+      int              m_rewrite_nit;
       int              m_rewrite_eit;
       char            *m_cmdline;
       char            *m_mime;

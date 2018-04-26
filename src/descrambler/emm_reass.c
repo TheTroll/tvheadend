@@ -89,6 +89,7 @@ emm_irdeto
 {
   int i, emm_mode, emm_len, match = 0;
   emm_provider_t *ep;
+  char prov[4];
 
   if (len < 4)
     return;
@@ -96,22 +97,30 @@ emm_irdeto
   emm_mode = data[3] >> 3;
   emm_len = data[3] & 0x07;
 
-  if (4 + emm_len > len)
+  if (4 + emm_len > len || emm_len > 3)
     return;
 
-  if (emm_mode & 0x10){
+  if (emm_mode & 0x10) {
     // try to match card
-    match = (emm_mode == ra->ua[4] &&
-             (!emm_len || // zero length
-              !memcmp(&data[4], &ra->ua[5], emm_len))); // exact match
+    match = emm_mode == ra->ua[4] &&
+            (!emm_len || // zero length
+             !memcmp(&data[4], &ra->ua[5], emm_len)); // exact match
   } else {
-    // try to match provider
-    PROVIDERS_FOREACH(ra, i, ep) {
-      match = (emm_mode == ep->sa[4] &&
-               (!emm_len || // zero length
-                !memcmp(&data[4], &ep->sa[5], emm_len)));
-      // exact match
-      if (match) break;
+    if (emm_len && !memcmp(&data[4], &ra->ua[5], emm_len)) {
+      match = 1;
+    } else {
+      // try to match provider
+      PROVIDERS_FOREACH(ra, i, ep) {
+        prov[0] = ep->id >> 24;
+        prov[1] = ep->id >> 16;
+        prov[2] = ep->id >> 8;
+        prov[3] = ep->id;
+        match = emm_mode == prov[0] &&
+                (!emm_len || // zero length
+                 !memcmp(&data[4], prov + 1, emm_len));
+        // exact match
+        if (match) break;
+      }
     }
   }
 
@@ -336,7 +345,7 @@ emm_viaccess
 
       crc = tvh_crc32(ass2, len, 0xffffffff);
       if (!emm_cache_lookup(ra, crc)) {
-        tvhdebug(LS_CWC,
+        tvhdebug(ra->subsys,
                 "Send EMM "
                 "%02x.%02x.%02x.%02x.%02x.%02x.%02x.%02x"
                 "...%02x.%02x.%02x.%02x",
@@ -453,7 +462,7 @@ emm_streamguard
   if (len < 1)
     return;
 
-  tvhinfo(LS_CWC, "emm_streamguard streamguard card data emm get,here lots of works todo...");
+  tvhinfo(ra->subsys, "emm_streamguard streamguard card data emm get,here lots of works todo...");
 
   if (data[0] == 0x87) {
     match = len >= 7 && memcmp(&data[3], &ra->ua[4], 4) == 0;
@@ -593,16 +602,17 @@ void
 emm_filter(emm_reass_t *ra, const uint8_t *data, int len, void *mux,
            emm_send_t send, void *aux)
 {
-  tvhtrace(LS_CWC, "emm filter : %s - len %d mux %p", caid2name(ra->caid), len, mux);
-  tvhlog_hexdump(LS_CWC, data, len);
+  tvhtrace(ra->subsys, "emm filter : %s - len %d mux %p", caid2name(ra->caid), len, mux);
+  tvhlog_hexdump(ra->subsys, data, len);
   if (ra->do_emm)
     ra->do_emm(ra, data, len, mux, send, aux);
 }
 
 void
-emm_reass_init(emm_reass_t *ra, uint16_t caid)
+emm_reass_init(emm_reass_t *ra, int subsys, uint16_t caid)
 {
   memset(ra, 0, sizeof(*ra));
+  ra->subsys = subsys;
   ra->caid = caid;
   ra->type = detect_card_type(caid);
   switch (ra->type) {

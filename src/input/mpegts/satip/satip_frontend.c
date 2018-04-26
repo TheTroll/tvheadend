@@ -858,9 +858,9 @@ satip_frontend_update_pids
           RB_FOREACH(mps, &mp->mp_subs, mps_link)
             w = MAX(w, mps->mps_weight);
           LIST_FOREACH(s, &mm->mm_services, s_dvb_mux_link) {
-            mpegts_pid_add(&tr->sf_pids, s->s_pmt_pid, w);
-            mpegts_pid_add(&tr->sf_pids, s->s_pcr_pid, w);
-            TAILQ_FOREACH(st, &s->s_components, es_link)
+            mpegts_pid_add(&tr->sf_pids, s->s_components.set_pmt_pid, w);
+            mpegts_pid_add(&tr->sf_pids, s->s_components.set_pcr_pid, w);
+            TAILQ_FOREACH(st, &s->s_components.set_all, es_link)
               mpegts_pid_add(&tr->sf_pids, st->es_pid, w);
           }
         }
@@ -1065,7 +1065,7 @@ satip_frontend_pid_changed( http_client_t *rtsp,
   satip_tune_req_t *tr;
   satip_device_t *sd = lfe->sf_device;
   char *setup = NULL, *add = NULL, *del = NULL;
-  int i, j, r, pid;
+  int i, j, r, pid, overlimit;
   int max_pids_len = sd->sd_pids_len;
   int max_pids_count = sd->sd_pids_max;
   mpegts_apids_t wpid, padd, pdel;
@@ -1094,9 +1094,10 @@ all:
              tr->sf_pids_tuned.all ||
              tr->sf_pids.count == 0) {
 
-    mpegts_pid_weighted(&wpid, &tr->sf_pids, max_pids_count);
+    overlimit = mpegts_pid_weighted(&wpid, &tr->sf_pids,
+                                    max_pids_count, MPS_WEIGHT_ALLLIMIT);
 
-    if (wpid.count > max_pids_count && sd->sd_fullmux_ok) {
+    if (overlimit > 0 && sd->sd_fullmux_ok) {
       mpegts_pid_done(&wpid);
       goto all;
     }
@@ -1116,9 +1117,10 @@ all:
 
   } else {
 
-    mpegts_pid_weighted(&wpid, &tr->sf_pids, max_pids_count);
+    overlimit = mpegts_pid_weighted(&wpid, &tr->sf_pids,
+                                    max_pids_count, MPS_WEIGHT_ALLLIMIT);
 
-    if (wpid.count > max_pids_count && sd->sd_fullmux_ok) {
+    if (overlimit > 0 && sd->sd_fullmux_ok) {
       mpegts_pid_done(&wpid);
       goto all;
     }
@@ -1454,7 +1456,6 @@ satip_frontend_rtp_decode
     }
   } else {
 wrdata:
-    tsdebug_write((mpegts_mux_t *)lfe->sf_curmux, p + pos, len);
     sbuf_append(&lfe->sf_sbuf, p + pos, len);
   }
 next:

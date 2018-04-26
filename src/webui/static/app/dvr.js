@@ -183,6 +183,20 @@ tvheadend.dvrRowActions = function() {
     });
 }
 
+tvheadend.dvrChannelRenderer = function(st) {
+    return function(st) {
+        return function(v, meta, rec) {
+            if (v) {
+                var r = st.getById(v);
+                if (r) v = r.data.val;
+            }
+            if (!v)
+                v = rec.data['channelname'];
+            return v;
+        }
+    }
+}
+
 tvheadend.weekdaysRenderer = function(st) {
     return function(v) {
         var t = [];
@@ -224,39 +238,38 @@ tvheadend.filesizeRenderer = function(st) {
     }
 }
 
-
-tvheadend.displayDuplicate = function(value, meta, record) {
-    if (value == null)
+tvheadend.displayDuplicate = function(v, meta, rec) {
+    if (v == null)
         return '';
-    var is_dup = record.data['duplicate'];
+    var is_dup = rec.data['duplicate'];
     if (is_dup)
-        return "<span class='x-epg-duplicate'>" + value + "</span>";
+        return "<span class='x-epg-duplicate'>" + v + "</span>";
     else
-        return value;
+        return v;
 }
 
 /** Render an entry differently if it is a duplicate */
-tvheadend.displayWithDuplicateRenderer = function(value, meta, record) {
+tvheadend.displayWithDuplicateRenderer = function(v, meta, rec) {
     return function() {
-        return function(value, meta, record) {
-            return tvheadend.displayDuplicate(value, meta, record);
+        return function(v, meta, rec) {
+            return tvheadend.displayDuplicate(v, meta, rec);
         }
     }
 }
 
-tvheadend.displayWithYearAndDuplicateRenderer = function(value, meta, record) {
+tvheadend.displayWithYearAndDuplicateRenderer = function(v, meta, rec) {
     return function() {
-        return function(value, meta, record) {
-            var value = tvheadend.getDisplayTitle(value, record);
-            return tvheadend.displayDuplicate(value, meta, record);
+        return function(v, meta, rec) {
+            var v = tvheadend.getDisplayTitle(v, rec);
+            return tvheadend.displayDuplicate(v, meta, rec);
         }
     }
 }
 
-tvheadend.displayWithYearRenderer = function(value, meta, record) {
+tvheadend.displayWithYearRenderer = function(v, meta, rec) {
     return function() {
-        return function(value, meta, record) {
-            return tvheadend.getDisplayTitle(value, record);
+        return function(v, meta, rec) {
+            return tvheadend.getDisplayTitle(v, rec);
         }
     }
 }
@@ -471,6 +484,8 @@ tvheadend.dvr_finished = function(panel, index) {
 
     var actions = tvheadend.dvrRowActions();
     var buttonFcn = tvheadend.dvrButtonFcn;
+    var pageSize = 50;
+    var activePage = 0;
 
     var downloadButton = {
         name: 'download',
@@ -554,10 +569,18 @@ tvheadend.dvr_finished = function(panel, index) {
             this.setText(groupingText(store.groupField));
             if (!store.groupField){
                 select.grid.view.enableGrouping = true;
+                pageSize = select.grid.bottomToolbar.pageSize; // Store page size
+                activePage = select.grid.bottomToolbar.getPageData().activePage; // Store active page
+                select.grid.bottomToolbar.pageSize = 999999999 // Select all rows
+                select.grid.bottomToolbar.changePage(0);
+                store.reload();
                 select.grid.store.groupBy(store.sortInfo.field);
                 select.grid.fireEvent('groupchange', select.grid, store.getGroupState());
                 select.grid.view.refresh();
             }else{
+                select.grid.bottomToolbar.pageSize = pageSize // Restore page size
+                select.grid.bottomToolbar.changePage(activePage); // Restore previous active page
+                store.reload();
                 store.clearGrouping();
                 select.grid.view.enableGrouping = false;
                 select.grid.fireEvent('groupchange', select.grid, null);
@@ -593,12 +616,15 @@ tvheadend.dvr_finished = function(panel, index) {
             }
         },
         del: false,
-        list: 'disp_title,disp_extratext,episode_disp,channelname,' +
+        list: 'disp_title,disp_extratext,episode_disp,channel,channelname,' +
               'start_real,stop_real,duration,filesize,copyright_year,' +
               'sched_status,errors,data_errors,playcount,url,config_name,owner,creator,comment,',
         columns: {
             disp_title: {
                 renderer: tvheadend.displayWithYearRenderer(),
+            },
+            channel: {
+                renderer: tvheadend.dvrChannelRenderer(),
             },
             filesize: {
                 renderer: tvheadend.filesizeRenderer()
@@ -709,12 +735,15 @@ tvheadend.dvr_failed = function(panel, index) {
         del: true,
         delquestion: _('Do you really want to delete the selected recordings?') + '<br/><br/>' +
                      _('The associated file will be removed from storage.'),
-        list: 'disp_title,disp_extratext,episode_disp,channelname,' +
+        list: 'disp_title,disp_extratext,episode_disp,channel,channelname,' +
               'image,copyright_year,start_real,stop_real,duration,filesize,status,' +
               'sched_status,errors,data_errors,playcount,url,config_name,owner,creator,comment',
         columns: {
             disp_title: {
-              renderer: tvheadend.displayWithYearRenderer(),
+                renderer: tvheadend.displayWithYearRenderer(),
+            },
+            channel: {
+                renderer: tvheadend.dvrChannelRenderer(),
             },
             filesize: {
                 renderer: tvheadend.filesizeRenderer()
@@ -784,13 +813,16 @@ tvheadend.dvr_removed = function(panel, index) {
         uilevel: 'expert',
         edit: { params: { list: tvheadend.admin ? "retention,owner,disp_title,disp_extratext,episode_disp,comment" : "retention,comment" } },
         del: true,
-        list: 'disp_title,disp_extratext,episode_disp,channelname,image,' +
+        list: 'disp_title,disp_extratext,episode_disp,channel,channelname,image,' +
               'copyright_year,start_real,stop_real,duration,status,' +
               'sched_status,errors,data_errors,url,config_name,owner,creator,comment',
         columns: {
             disp_title: {
                 renderer: tvheadend.displayWithYearRenderer(),
             },
+            channel: {
+                renderer: tvheadend.dvrChannelRenderer(),
+            }
         },
         sort: {
           field: 'start_real',
@@ -897,7 +929,7 @@ tvheadend.autorec_editor = function(panel, index) {
         },
         del: true,
         list: 'enabled,name,title,fulltext,channel,tag,start,start_window,' +
-              'weekdays,minduration,maxduration,btype,content_type,cat1,cat2,cat3' +
+              'weekdays,minduration,maxduration,record,btype,content_type,cat1,cat2,cat3' +
               'star_rating,pri,dedup,directory,config_name,owner,creator,comment',
         sort: {
           field: 'name',

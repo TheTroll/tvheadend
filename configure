@@ -66,11 +66,9 @@ OPTIONS=(
   "tvhcsa:auto"
   "bundle:no"
   "pngquant:no"
-  "dvbcsa:no"
   "kqueue:no"
   "dbus_1:auto"
   "android:no"
-  "tsdebug:no"
   "gtimer_check:no"
   "slow_memoryinfo:no"
   "libsystemd_daemon:no"
@@ -646,13 +644,18 @@ fi
 #
 # libdvbcsa, tvhcsa
 #
-if enabled cwc || enabled cccam || enabled capmt || enabled constcw; then
-  enable tvhcsa
-  if enabled dvbcsa; then
-    (check_cc_header "dvbcsa/dvbcsa" dvbcsa_h &&\
-     check_cc_lib    dvbcsa dvbcsa_l) ||\
-    die "Failed to find dvbcsa support (use --disable-dvbcsa)"
-    LDFLAGS="$LDFLAGS -ldvbcsa"
+if enabled_or_auto tvhcsa; then
+  if enabled cwc || enabled cccam || enabled capmt || enabled constcw; then
+    enable tvhcsa
+    enable dvbcsa
+    if enabled dvbcsa; then
+      (check_cc_header "dvbcsa/dvbcsa" dvbcsa_h &&\
+       check_cc_lib    dvbcsa dvbcsa_l) ||\
+      die "Failed to find dvbcsa library"
+      LDFLAGS="$LDFLAGS -ldvbcsa"
+    fi
+  else
+    disable tvhcsa
   fi
 fi
 
@@ -722,13 +725,6 @@ if enabled_or_auto dbus_1; then
   elif enabled dbus-1; then
     die "DBus-1 development support not found (use --disable-dbus-1)"
   fi
-fi
-
-#
-# TSDebug
-#
-if enabled_or_auto tsdebug; then
-  enable mpegts_dvb
 fi
 
 #

@@ -29,6 +29,8 @@
 #include <libavutil/dict.h>
 #include <libavutil/audioconvert.h>
 
+#include "streaming.h"
+
 typedef struct transcoder_prop {
   char     tp_vcodec[32];
   char     tp_vcodec_preset[32];

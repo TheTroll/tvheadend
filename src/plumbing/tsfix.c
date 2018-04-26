@@ -161,9 +161,9 @@ tsfix_start(tsfix_t *tf, streaming_start_t *ss)
 
   for(i = 0; i < ss->ss_num_components; i++) {
     const streaming_start_component_t *ssc = &ss->ss_components[i];
-    tfs = tsfix_add_stream(tf, ssc->ssc_index, ssc->ssc_type);
+    tfs = tsfix_add_stream(tf, ssc->es_index, ssc->es_type);
     if (tfs->tfs_video) {
-      if (ssc->ssc_width == 0 || ssc->ssc_height == 0)
+      if (ssc->es_width == 0 || ssc->es_height == 0)
         /* only first video stream may be valid */
         vwait = !hasvideo ? 1 : 0;
       hasvideo = 1;
@@ -344,7 +344,7 @@ tsfix_update_ref(tsfix_t *tf, tfstream_t *tfs, th_pkt_t *pkt)
 
   if (tfs->tfs_audio) {
     diff = tsfix_ts_diff(tf->tf_tsref, pkt->pkt_dts);
-    if (diff > 2 * 90000) {
+    if (diff > 3 * 90000) {
       tvhwarn(LS_TSFIX, "The timediff for %s is big (%"PRId64"), using current dts",
               streaming_component_type2txt(tfs->tfs_type), diff);
       tfs->tfs_local_ref = pkt->pkt_dts;

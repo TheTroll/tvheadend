@@ -1,5 +1,4 @@
 {
-  "concurrent": false,
   "targets": {
     "trusty-amd64": {
       "buildenv": "trusty-amd64",
@@ -17,6 +16,7 @@
         "git-core",
         "liburiparser-dev",
         "libpcre3-dev",
+        "libdvbcsa-dev",
         "python",
         "debhelper",
         "ccache",
@@ -43,6 +43,7 @@
         "git-core",
         "liburiparser-dev",
         "libpcre3-dev",
+        "libdvbcsa-dev",
         "python",
         "debhelper",
         "ccache"
@@ -68,6 +69,7 @@
         "git-core",
         "liburiparser-dev",
         "libpcre2-dev",
+        "libdvbcsa-dev",
         "python",
         "debhelper",
         "ccache"
@@ -92,6 +94,7 @@
         "git-core",
         "liburiparser-dev",
         "libpcre2-dev",
+        "libdvbcsa-dev",
         "python",
         "debhelper",
         "ccache"
@@ -118,6 +121,7 @@
         "git-core",
         "liburiparser-dev",
         "libpcre3-dev",
+        "libdvbcsa-dev",
         "python",
         "debhelper",
         "ccache"
@@ -144,6 +148,7 @@
         "git-core",
         "liburiparser-dev",
         "libpcre3-dev",
+        "libdvbcsa-dev",
         "python",
         "debhelper",
         "ccache"
@@ -170,6 +175,7 @@
         "git-core",
         "liburiparser-dev",
         "libpcre3-dev",
+        "libdvbcsa-dev",
         "python",
         "debhelper",
         "ccache"
@@ -196,6 +202,7 @@
         "git-core",
         "liburiparser-dev",
         "libpcre3-dev",
+        "libdvbcsa-dev",
         "python",
         "debhelper",
         "ccache"
@@ -221,6 +228,7 @@
         "git-core",
         "liburiparser-dev",
         "libpcre2-dev",
+        "libdvbcsa-dev",
         "python",
         "debhelper",
         "ccache"
@@ -246,6 +254,7 @@
         "git-core",
         "liburiparser-dev",
         "libpcre3-dev",
+        "libdvbcsa-dev",
         "python",
         "debhelper",
         "ccache"
@@ -271,6 +280,7 @@
         "git-core",
         "liburiparser-dev",
         "libpcre2-dev",
+        "libdvbcsa-dev",
         "python",
         "debhelper",
         "ccache"
@@ -296,6 +306,7 @@
         "git-core",
         "liburiparser-dev",
         "libpcre2-dev",
+        "libdvbcsa-dev",
         "python",
         "debhelper",
         "ccache"
@@ -305,9 +316,10 @@
         "support/bintray.py publish filelist.txt"
       ]
     },
-    "fedora24-x86_64": {
-      "buildenv": "fedora24-x86_64",
+    "fedora27-x86_64": {
+      "buildenv": "docker:fedora:27",
       "builddeps": [
+        ["https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-27.noarch.rpm"],
         "gcc-c++",
         "which",
         "rpm-build",
@@ -320,6 +332,36 @@
         "avahi-devel",
         "openssl-devel",
         "zlib-devel",
+        "libdvbcsa-devel",
+        "wget",
+        "bzip2",
+        "uriparser-devel",
+        "pcre2-devel",
+        "python",
+        "ccache"
+      ],
+      "buildcmd": [
+        "./configure --disable-dvbscan && make -C rpm build-doozer",
+        "support/bintray.py publish filelist.txt"
+      ]
+    },
+    "fedora28-x86_64": {
+      "buildenv": "docker:fedora:28",
+      "builddeps": [
+        ["https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-28.noarch.rpm"],
+        "gcc-c++",
+        "which",
+        "rpm-build",
+        "rpmdevtools",
+        "git",
+        "make",
+        "cmake",
+        "gettext-devel",
+        "dbus-devel",
+        "avahi-devel",
+        "openssl-devel",
+        "zlib-devel",
+        "libdvbcsa-devel",
         "wget",
         "bzip2",
         "uriparser-devel",
@@ -333,8 +375,9 @@
       ]
     },
     "centos7-x86_64": {
-      "buildenv": "centos7-x86_64",
+      "buildenv": "docker:centos:7",
       "builddeps": [
+        ["https://download1.rpmfusion.org/free/el/rpmfusion-free-release-7.noarch.rpm"],
         "gcc-c++",
         "which",
         "rpm-build",
@@ -347,6 +390,7 @@
         "avahi-devel",
         "openssl-devel",
         "zlib-devel",
+        "libdvbcsa-devel",
         "wget",
         "bzip2",
         "uriparser-devel",
@@ -358,6 +402,31 @@
         "./configure --disable-dvbscan && make -C rpm build-doozer",
         "support/bintray.py publish filelist.txt"
       ]
-    }
+    },
+    "bionic-amd64": {
+      "buildenv": "docker:ubuntu:bionic",
+      "builddeps": [
+        "cmake",
+        "git",
+        "build-essential",
+        "pkg-config",
+        "gettext",
+        "libavahi-client-dev",
+        "libssl-dev",
+        "zlib1g-dev",
+        "wget",
+        "bzip2",
+        "git-core",
+        "liburiparser-dev",
+        "libpcre2-dev",
+        "libdvbcsa-dev",
+        "python",
+        "debhelper",
+        "ccache"
+      ],
+      "buildcmd": [
+        "AUTOBUILD_CONFIGURE_EXTRA=--enable-ccache\\ --enable-ffmpeg_static\\ --enable-hdhomerun_static ./Autobuild.sh -t ${TARGET} -j ${PARALLEL} -w ${WORKDIR}",
+      ]
+    },
   }
 }

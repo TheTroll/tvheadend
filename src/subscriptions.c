@@ -34,6 +34,7 @@
 #include "tvheadend.h"
 #include "subscriptions.h"
 #include "streaming.h"
+#include "parsers/parsers.h"
 #include "channels.h"
 #include "service.h"
 #include "profile.h"
@@ -88,9 +89,16 @@ static void
 subscription_link_service(th_subscription_t *s, service_t *t)
 {
   streaming_message_t *sm;
+  streaming_start_t *ss;
+
   subsetstate(s, SUBSCRIPTION_TESTING_SERVICE);
- 
   s->ths_service = t;
+
+  if ((s->ths_flags & SUBSCRIPTION_TYPE_MASK) == SUBSCRIPTION_PACKET) {
+    assert(s->ths_parser == NULL);
+    s->ths_output = s->ths_parser = parser_create(s->ths_output, s);
+  }
+
   LIST_INSERT_HEAD(&t->s_subscriptions, s, ths_service_link);
 
   tvhtrace(LS_SUBSCRIPTION, "%04X: linking sub %p to svc %p type %i",
@@ -98,13 +106,10 @@ subscription_link_service(th_subscription_t *s, service_t *t)
 
   pthread_mutex_lock(&t->s_stream_mutex);
 
-  if(TAILQ_FIRST(&t->s_filt_components) != NULL ||
-     t->s_type != STYPE_STD) {
-
+  if(elementary_set_has_streams(&t->s_components, 1) || t->s_type != STYPE_STD) {
     streaming_msg_free(s->ths_start_message);
-
-    s->ths_start_message =
-      streaming_msg_create_data(SMT_START, service_build_stream_start(t));
+    ss = service_build_streaming_start(t);
+    s->ths_start_message = streaming_msg_create_data(SMT_START, ss);
   }
 
   // Link to service output
@@ -155,9 +160,17 @@ subscription_unlink_service0(th_subscription_t *s, int reason, int resched)
     t->s_running = 0;
   }
 
+  if (s->ths_parser)
+    s->ths_output = parser_output(s->ths_parser);
+
   pthread_mutex_unlock(&t->s_stream_mutex);
 
   LIST_REMOVE(s, ths_service_link);
+
+  if (s->ths_parser) {
+    parser_destroy(s->ths_parser);
+    s->ths_parser = NULL;
+  }
 
   if (!resched && (s->ths_flags & SUBSCRIPTION_ONESHOT) != 0)
     mtimer_arm_rel(&s->ths_remove_timer, subscription_unsubscribe_cb, s, 0);
@@ -743,6 +756,11 @@ subscription_unsubscribe(th_subscription_t *s, int flags)
   mtimer_disarm(&s->ths_remove_timer);
   mtimer_disarm(&s->ths_ca_check_timer);
 
+  if (s->ths_parser) {
+    parser_destroy(s->ths_parser);
+    s->ths_parser = NULL;
+  }
+
   if ((flags & UNSUBSCRIBE_FINAL) != 0 ||
       (s->ths_flags & SUBSCRIPTION_ONESHOT) != 0)
     subscription_destroy(s);
@@ -767,24 +785,9 @@ subscription_create
   th_subscription_t *s = calloc(1, sizeof(th_subscription_t));
   profile_t *pro = prch ? prch->prch_pro : NULL;
   streaming_target_t *st = prch ? prch->prch_st : NULL;
-  int reject = 0;
   static int tally;
 
   TAILQ_INIT(&s->ths_instances);
-
-  switch (flags & SUBSCRIPTION_TYPE_MASK) {
-  case SUBSCRIPTION_NONE:
-    reject |= SMT_TO_MASK(SMT_PACKET) | SMT_TO_MASK(SMT_MPEGTS);
-    break;
-  case SUBSCRIPTION_MPEGTS:
-    reject |= SMT_TO_MASK(SMT_PACKET);  // Reject parsed frames
-    break;
-  case SUBSCRIPTION_PACKET:
-    reject |= SMT_TO_MASK(SMT_MPEGTS);  // Reject raw mpegts
-    break;
-  default:
-    abort();
-  }
 
   if (!ops) ops = &subscription_input_direct_ops;
   if (!st) {
@@ -792,7 +795,7 @@ subscription_create
     streaming_target_init(st, &subscription_input_null_ops, s, 0);
   }
 
-  streaming_target_init(&s->ths_input, ops, s, reject);
+  streaming_target_init(&s->ths_input, ops, s, 0);
 
   s->ths_prch              = prch && prch->prch_st ? prch : NULL;
   s->ths_title             = strdup(name);
