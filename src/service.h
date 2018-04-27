@@ -386,6 +386,11 @@ typedef struct service {
    */
   htsmsg_t *s_hbbtv;
 
+  /*
+   * NCServer
+   */
+  uint8_t ncserver;
+
 } service_t;
 
 

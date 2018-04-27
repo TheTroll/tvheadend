@@ -260,6 +260,15 @@ const idclass_t mpegts_service_class =
       .off      = offsetof(mpegts_service_t, s_dvb_last_seen),
       .opts     = PO_ADVANCED | PO_RDONLY,
     },
+    {
+      .type     = PT_BOOL,
+      .id       = "use_ncserver",
+      .name     = N_("NC Server"),
+      .desc     = N_("use NC server."),
+      .off      = offsetof(mpegts_service_t, ncserver),
+      .opts     = PO_EXPERT,
+    },
+
     {},
   }
 };

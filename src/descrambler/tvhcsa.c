@@ -74,33 +74,35 @@ static void
 tvhcsa_csa_cbc_flush
   ( tvhcsa_t *csa, struct mpegts_service *s )
 {
-
-
 #if ENABLE_DVBCSA
-  if(csa->csa_fill_even) {
-    csa->csa_tsbbatch_even[csa->csa_fill_even].data = NULL;
-    dvbcsa_bs_decrypt(csa->csa_key_even, csa->csa_tsbbatch_even, 184);
-    csa->csa_fill_even = 0;
+  if (!s->ncserver)
+  {
+    if(csa->csa_fill_even) {
+      csa->csa_tsbbatch_even[csa->csa_fill_even].data = NULL;
+      dvbcsa_bs_decrypt(csa->csa_key_even, csa->csa_tsbbatch_even, 184);
+      csa->csa_fill_even = 0;
+    }
+    if(csa->csa_fill_odd) {
+      csa->csa_tsbbatch_odd[csa->csa_fill_odd].data = NULL;
+      dvbcsa_bs_decrypt(csa->csa_key_odd, csa->csa_tsbbatch_odd, 184);
+      csa->csa_fill_odd = 0;
+    }
+
+    ts_recv_packet2(s, csa->csa_tsbcluster, csa->csa_fill * 188);
+
+    csa->csa_fill = 0;
   }
-  if(csa->csa_fill_odd) {
-    csa->csa_tsbbatch_odd[csa->csa_fill_odd].data = NULL;
-    dvbcsa_bs_decrypt(csa->csa_key_odd, csa->csa_tsbbatch_odd, 184);
-    csa->csa_fill_odd = 0;
+  else
+  {
+    nc_set_key(service_id16(s), 1, csa->even);
+    nc_set_key(service_id16(s), 0, csa->odd);
+
+    nc_descramble(service_id16(s), csa->csa_tsbcluster, csa->csa_fill * 188);
+
+    ts_recv_packet2(s, csa->csa_tsbcluster, csa->csa_fill * 188);
+
+    csa->csa_fill = 0;
   }
-
-  ts_recv_packet2(s, csa->csa_tsbcluster, csa->csa_fill * 188);
-
-  csa->csa_fill = 0;
-
-#else
-  nc_set_key(service_id16(s), 1, csa->even);
-  nc_set_key(service_id16(s), 0, csa->odd);
-
-  nc_descramble(service_id16(s), csa->csa_tsbcluster, csa->csa_fill * 188);
-  
-  ts_recv_packet2(s, csa->csa_tsbcluster, csa->csa_fill * 188);
-
-  csa->csa_fill = 0;
 #endif
 }
 
@@ -110,71 +112,75 @@ tvhcsa_csa_cbc_descramble
 {
   const uint8_t *tsb_end = tsb + tsb_len;
 
-  assert(csa->csa_fill >= 0 && csa->csa_fill < csa->csa_cluster_size);
 
 #if ENABLE_DVBCSA
-  uint8_t *pkt;
-  int ev_od;
-  int len;
-  int offset;
-  int n;
+  if (!s->ncserver)
+  {
+    uint8_t *pkt;
+    int ev_od;
+    int len;
+    int offset;
+    int n;
 
-  for ( ; tsb < tsb_end; tsb += 188) {
+    assert(csa->csa_fill >= 0 && csa->csa_fill < csa->csa_cluster_size);
 
-   pkt = csa->csa_tsbcluster + csa->csa_fill * 188;
-   memcpy(pkt, tsb, 188);
-   csa->csa_fill++;
+    for ( ; tsb < tsb_end; tsb += 188) {
 
-   do { // handle this packet
-     if((pkt[3] & 0x80) == 0) // clear or reserved (0x40)
-       break;
-     ev_od = pkt[3] & 0x40;
-     pkt[3] &= 0x3f;  // consider it decrypted now
-     if(pkt[3] & 0x20) { // incomplete packet
-       offset = 4 + pkt[4] + 1;
-       len = 188 - offset;
-       n = len >> 3;
-       // FIXME: //residue = len - (n << 3);
-       if(n == 0) { // decrypted==encrypted!
-         break; // this doesn't need more processing
+     pkt = csa->csa_tsbcluster + csa->csa_fill * 188;
+     memcpy(pkt, tsb, 188);
+     csa->csa_fill++;
+
+     do { // handle this packet
+       if((pkt[3] & 0x80) == 0) // clear or reserved (0x40)
+         break;
+       ev_od = pkt[3] & 0x40;
+       pkt[3] &= 0x3f;  // consider it decrypted now
+       if(pkt[3] & 0x20) { // incomplete packet
+         offset = 4 + pkt[4] + 1;
+         len = 188 - offset;
+         n = len >> 3;
+         // FIXME: //residue = len - (n << 3);
+         if(n == 0) { // decrypted==encrypted!
+           break; // this doesn't need more processing
+         }
+       } else {
+         len = 184;
+         offset = 4;
+         // FIXME: //n = 23;
+         // FIXME: //residue = 0;
        }
-     } else {
-       len = 184;
-       offset = 4;
-       // FIXME: //n = 23;
-       // FIXME: //residue = 0;
-     }
-     if(ev_od == 0) {
-       csa->csa_tsbbatch_even[csa->csa_fill_even].data = pkt + offset;
-       csa->csa_tsbbatch_even[csa->csa_fill_even].len = len;
-       csa->csa_fill_even++;
-     } else {
-       csa->csa_tsbbatch_odd[csa->csa_fill_odd].data = pkt + offset;
-       csa->csa_tsbbatch_odd[csa->csa_fill_odd].len = len;
-       csa->csa_fill_odd++;
-     }
-   } while(0);
+       if(ev_od == 0) {
+         csa->csa_tsbbatch_even[csa->csa_fill_even].data = pkt + offset;
+         csa->csa_tsbbatch_even[csa->csa_fill_even].len = len;
+         csa->csa_fill_even++;
+       } else {
+         csa->csa_tsbbatch_odd[csa->csa_fill_odd].data = pkt + offset;
+         csa->csa_tsbbatch_odd[csa->csa_fill_odd].len = len;
+         csa->csa_fill_odd++;
+       }
+     } while(0);
 
-   if(csa->csa_fill && csa->csa_fill == csa->csa_cluster_size)
-     tvhcsa_csa_cbc_flush(csa, s);
+     if(csa->csa_fill && csa->csa_fill == csa->csa_cluster_size)
+       tvhcsa_csa_cbc_flush(csa, s);
 
+    }
   }
+  else
+  {
+    uint8_t *pkt;
 
-#else
+    assert(csa->csa_fill >= 0 && csa->csa_fill < NC_CLUSTER_SIZE);
 
-  uint8_t *pkt;
+    for ( ; tsb < tsb_end; tsb += 188) {
+      pkt = csa->csa_tsbcluster + csa->csa_fill * 188;
+      memcpy(pkt, tsb, 188);
+      csa->csa_fill++;
 
-  for ( ; tsb < tsb_end; tsb += 188) {
+      nc_add_pid(service_id16(s), (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF));
 
-
-   pkt = csa->csa_tsbcluster + csa->csa_fill * 188;
-   memcpy(pkt, tsb, 188);
-   csa->csa_fill++;
-
-   nc_add_pid(service_id16(s), (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF));
-
-   if(csa->csa_fill && csa->csa_fill == csa->csa_cluster_size)
-     tvhcsa_csa_cbc_flush(csa, s);
+      if(csa->csa_fill && csa->csa_fill == NC_CLUSTER_SIZE)
+        tvhcsa_csa_cbc_flush(csa, s);
+    }
   }
 #endif
 }
@@ -182,6 +188,7 @@ tvhcsa_csa_cbc_descramble
 int
 tvhcsa_set_type( tvhcsa_t *csa, int type )
 {
+  int csa_cluster_size = (csa->csa_cluster_size>NC_CLUSTER_SIZE)?csa->csa_cluster_size:NC_CLUSTER_SIZE;
   if (csa->csa_type == type)
     return 0;
   if (csa->csa_descramble)
@@ -193,17 +200,15 @@ tvhcsa_set_type( tvhcsa_t *csa, int type )
     csa->csa_keylen        = 8;
 #if ENABLE_DVBCSA
     csa->csa_cluster_size  = dvbcsa_bs_batch_size();
-#else
-    csa->csa_cluster_size  = 1024;
 #endif
     /* Note: the optimized routines might read memory after last TS packet */
     /*       allocate safe memory and fill it with zeros */
-    csa->csa_tsbcluster    = malloc((csa->csa_cluster_size + 1) * 188);
-    memset(csa->csa_tsbcluster + csa->csa_cluster_size * 188, 0, 188);
+    csa->csa_tsbcluster    = malloc((csa_cluster_size + 1) * 188);
+    memset(csa->csa_tsbcluster + csa_cluster_size * 188, 0, 188);
 #if ENABLE_DVBCSA
-    csa->csa_tsbbatch_even = malloc((csa->csa_cluster_size + 1) *
+    csa->csa_tsbbatch_even = malloc((csa_cluster_size + 1) *
                                     sizeof(struct dvbcsa_bs_batch_s));
-    csa->csa_tsbbatch_odd  = malloc((csa->csa_cluster_size + 1) *
+    csa->csa_tsbbatch_odd  = malloc((csa_cluster_size + 1) *
                                     sizeof(struct dvbcsa_bs_batch_s));
     csa->csa_key_even      = dvbcsa_bs_key_alloc();
     csa->csa_key_odd       = dvbcsa_bs_key_alloc();
@@ -241,7 +246,6 @@ void tvhcsa_set_key_even( tvhcsa_t *csa, const uint8_t *even )
   case DESCRAMBLER_CSA_CBC:
 #if ENABLE_DVBCSA
     dvbcsa_bs_key_set(even, csa->csa_key_even);
-#else
     memcpy(csa->even, even, 8);
 #endif
     break;
@@ -265,7 +269,6 @@ void tvhcsa_set_key_odd( tvhcsa_t *csa, const uint8_t *odd )
   case DESCRAMBLER_CSA_CBC:
 #if ENABLE_DVBCSA
     dvbcsa_bs_key_set(odd, csa->csa_key_odd);
-#else
     memcpy(csa->odd, odd, 8);
 #endif
     break;

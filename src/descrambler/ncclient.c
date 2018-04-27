@@ -175,7 +175,7 @@ int nc_descramble(int service, unsigned char* buffer, int size)
 	if (task_idx < 0)
 		return 1;
 
-	// Set pid remotely
+	// Descramble
 	query_in.type = NC_QUERY_TYPE_DESCRAMBLE;
 	query_in.service_id = service;
 	query_in.data = (char*) buffer;
