@@ -194,7 +194,7 @@ tvhcsa_set_type( tvhcsa_t *csa, int type )
 #if ENABLE_DVBCSA
     csa->csa_cluster_size  = dvbcsa_bs_batch_size();
 #else
-    csa->csa_cluster_size  = 128;
+    csa->csa_cluster_size  = 1024;
 #endif
     /* Note: the optimized routines might read memory after last TS packet */
     /*       allocate safe memory and fill it with zeros */

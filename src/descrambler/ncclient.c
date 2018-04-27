@@ -134,7 +134,7 @@ int nc_add_pid(int service, int pid)
 	{
 		struct nc_query_in query_in = {0, };
 		struct nc_query_out query_out = {0, };
-		char pid_str[8];
+		char pid_str[5];
 
 		nc_task[task_idx].pid[nc_task[task_idx].nb_pids] = pid;
 		nc_task[task_idx].nb_pids++;
@@ -142,9 +142,9 @@ int nc_add_pid(int service, int pid)
 		// Set pid remotely
 		query_in.type = NC_QUERY_TYPE_ADD_PID;
 		query_in.service_id = service;
-		sprintf(pid_str, "%x", pid);
+		sprintf(pid_str, "%04X", pid);
 		query_in.data = pid_str;
-		query_in.data_size = strlen(pid_str);
+		query_in.data_size = 5;
 
 		// Go 
 		if (nc_query(task_idx, &query_in, &query_out))
@@ -301,7 +301,7 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 	struct timeval tv_timeout;
 	tv_timeout.tv_sec = NC_TIMEOUT_S;
 	tv_timeout.tv_usec = 0;
-        char header[NC_HEADER_SIZE];
+        char header[NC_HEADER_SIZE+1];
 	char status_buf[5];
 	char datasize_buf[9];
 
@@ -347,26 +347,41 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 	servaddr.sin_addr.s_addr=inet_addr(NC_IP);
 	servaddr.sin_port=htons(NC_PORT);
 
-	printf("[NC] Sending header\n");
-
 	// Send header
 	sent_size=sendto(nc_task[task_idx].socket_fd, header, NC_HEADER_SIZE, 0, (struct sockaddr *)&servaddr, sizeof(servaddr));
-	if (sent_size <= 0)
+	if (sent_size != NC_HEADER_SIZE)
 	{
 		printf("[NC] error sending to server (%s), closing socket\n", strerror(errno));
 		goto NC_QUERY_ERROR;
 	}
 
-	printf("[NC] Sending data\n");
-
 	// Send data
 	if (in->data_size)
 	{
-		sent_size=sendto(nc_task[task_idx].socket_fd, in->data, in->data_size, 0, (struct sockaddr *)&servaddr, sizeof(servaddr));
-		if (sent_size <= 0)
+		int total_sent_size = 0;
+
+		while (total_sent_size < in->data_size)
 		{
-			printf("[NC] error sending to server (%s), closing socket\n", strerror(errno));
-			goto NC_QUERY_ERROR;
+			// Send data
+			fd_set write_fd;
+			FD_ZERO(&write_fd);
+			FD_SET(nc_task[task_idx].socket_fd, &write_fd);
+
+			int t = select(nc_task[task_idx].socket_fd+1, NULL, &write_fd, NULL, &tv_timeout);
+			if (t <= 0)
+			{
+				printf("[NC] write select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+				goto NC_QUERY_ERROR;
+			}
+
+			sent_size=sendto(nc_task[task_idx].socket_fd, in->data+total_sent_size, in->data_size-total_sent_size, 0, (struct sockaddr *)&servaddr, sizeof(servaddr));
+			if (sent_size <= 0)
+			{
+				printf("[NC] error sending to server (%s), closing socket\n", strerror(errno));
+				goto NC_QUERY_ERROR;
+			}
+
+			total_sent_size += sent_size;
 		}
 	}
 
@@ -394,8 +409,6 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 		printf("[NC] error receiving from server (%s), closing socket\n", strerror(errno));
 		goto NC_QUERY_ERROR;
 	}
-
-	printf("[NC] Received header\n");
 
 	if (read_size != NC_HEADER_SIZE)
 	{
@@ -426,7 +439,19 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 
 		while (read_data < out->data_size)
 		{
-			int data_read_size = recv(nc_task[task_idx].socket_fd, out->data+read_data, out->data_size-read_data, 0);
+			t = select(nc_task[task_idx].socket_fd+1, &read_fd, NULL, NULL, &tv_timeout);
+			if (t < 0)
+			{
+				printf("[NC] read select error (%s), closing socket\n", strerror(errno));
+				goto NC_QUERY_ERROR;
+			}
+			else if (t == 0)
+			{
+				printf("[NC] read select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+				goto NC_QUERY_ERROR;
+			}
+
+			int data_read_size = recvfrom(nc_task[task_idx].socket_fd, out->data+read_data, out->data_size-read_data, 0, NULL, NULL);
 			if (data_read_size == 0)
 			{
 				printf("NC: server disconnected\n");
@@ -437,8 +462,8 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 				printf("NC: server error\n");
 				goto NC_QUERY_ERROR;
 			}
+			read_data+=data_read_size;
 		}
-		printf("NC: received %d bytes of data\n", out->data_size);
 	}
 
 NC_QUERY_END:
