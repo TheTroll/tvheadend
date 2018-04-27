@@ -10,14 +10,15 @@
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include "config.h"
 
 #include "ncclient.h"
 
 #define NC_TIMEOUT_S		10
 #define NC_MAX_TASKS		64
 #define NC_MAX_PIDS		16
-#define NC_IP			"192.168.0.122"
-#define NC_PORT			7777
+#define NC_IP			config.ncserver_ip
+#define NC_PORT			config.ncserver_port
 #define NC_MAX_MSG_SIZE		((256*1024))
 
 enum nc_query_type
@@ -231,6 +232,12 @@ static int get_task(int service)
 					printf("[NC] could not set NONBLOCK option (%s)\n", strerror(errno));
 			}
 
+			if (!NC_IP || !strlen(NC_IP) || !NC_PORT)
+			{
+				printf("[NC] server not set\n");
+				return -1;
+			}
+
 			// Set the Server address
 			struct sockaddr_in servaddr;
 			bzero(&servaddr,sizeof(servaddr));
@@ -337,6 +344,12 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 	if (t <= 0)
 	{
 		printf("[NC] write select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+		goto NC_QUERY_ERROR;
+	}
+
+	if (!NC_IP || !strlen(NC_IP) || !NC_PORT)
+	{
+		printf("[NC] server not set\n");
 		goto NC_QUERY_ERROR;
 	}
 

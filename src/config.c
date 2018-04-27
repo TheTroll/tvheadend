@@ -2514,6 +2514,24 @@ const idclass_t config_class = {
     },
     {
       .type   = PT_STR,
+      .id     = "ncserver_ip",
+      .name   = N_("NC Server IP"),
+      .desc   = N_("NC Server IP."),
+      .off    = offsetof(config_t, ncserver_ip),
+      .opts   = PO_HIDDEN | PO_EXPERT,
+      .group  = 6,
+    },
+    {
+      .type   = PT_U32,
+      .id     = "ncserver_port",
+      .name   = N_("NC Server PORT"),
+      .desc   = N_("NC Server PORT."),
+      .off    = offsetof(config_t, ncserver_port),
+      .opts   = PO_HIDDEN | PO_EXPERT,
+      .group  = 6,
+    },
+    {
+      .type   = PT_STR,
       .id     = "wizard",
       .name   = "Wizard level", /* untranslated */
       .off    = offsetof(config_t, wizard),
