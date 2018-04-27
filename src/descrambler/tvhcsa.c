@@ -97,7 +97,13 @@ tvhcsa_csa_cbc_flush
     nc_set_key(service_id16(s), 1, csa->even);
     nc_set_key(service_id16(s), 0, csa->odd);
 
+//  struct timeval stop, start;
+//  gettimeofday(&start, NULL);
+
     nc_descramble(service_id16(s), csa->csa_tsbcluster, csa->csa_fill * 188);
+
+//  gettimeofday(&stop, NULL);
+//  tvherror(0, "took %lu ms for %d bytes", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->csa_fill * 188);
 
     ts_recv_packet2(s, csa->csa_tsbcluster, csa->csa_fill * 188);
 
