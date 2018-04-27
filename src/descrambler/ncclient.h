@@ -1,4 +1,4 @@
-#define NC_CLUSTER_SIZE	512
+#define NC_CLUSTER_SIZE	1024
 
 int nc_set_key(int service, uint8_t is_even, char* key);
 int nc_add_pid(int service, int pid);
