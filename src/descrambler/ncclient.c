@@ -59,6 +59,9 @@ struct
 {
 	int service;
 
+	char server_ip[16];
+	int server_port;
+
 	int socket_fd;
 	int nb_pids;
 	int pid[NC_MAX_PIDS];
@@ -200,11 +203,26 @@ static int get_task(int service)
 	tv_timeout.tv_sec = NC_TIMEOUT_S;
 	tv_timeout.tv_usec = 0;
 
+
 	// Find service in tasks
 	for (task_idx=0; task_idx<NC_MAX_TASKS; task_idx++)
 	{
 		if (nc_task[task_idx].service == service)
+		{
+			// Check if IP/Port is still valid
+			if (NC_IP && strlen(NC_IP) & NC_PORT)
+			{
+				// It changed, discard this connection
+				if (nc_task[task_idx].server_port != NC_PORT || strcmp(nc_task[task_idx].server_ip, NC_IP))
+				{
+					close(nc_task[task_idx].socket_fd); nc_task[task_idx].socket_fd=0;
+					nc_task[task_idx].service = 0;
+					break;
+				}
+			}
+
 			return task_idx;
+		}
 	}
 
 	// Find first free index
@@ -278,6 +296,8 @@ static int get_task(int service)
 			printf("[NC] connected to server!\n");
 
 			nc_task[task_idx].nb_pids = 0;
+			nc_task[task_idx].server_port = NC_PORT;
+			strcpy(nc_task[task_idx].server_ip, NC_IP);
 			nc_task[task_idx].service = service;
 
 			return task_idx;
