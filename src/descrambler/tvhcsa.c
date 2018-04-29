@@ -94,19 +94,46 @@ tvhcsa_csa_cbc_flush
   }
   else
   {
-    nc_set_key(service_id16(s), 1, csa->even);
-    nc_set_key(service_id16(s), 0, csa->odd);
+    if (nc_set_key(service_id16(s), 1, csa->even) || nc_set_key(service_id16(s), 0, csa->odd))
+    {
+       nc_log(service_id16(s), "set key failed, restart task\n");
+       nc_release_service(service_id16(s));
+    }
+    else
+    {
+      // struct timeval stop, start;
+      // gettimeofday(&start, NULL);
 
-//  struct timeval stop, start;
-//  gettimeofday(&start, NULL);
+      if (nc_descramble(service_id16(s), csa->csa_tsbcluster, csa->csa_fill * 188) )
+      {
+        nc_log(service_id16(s), "decoding failed, try again..\n");
+        nc_release_service(service_id16(s));
+        nc_set_key(service_id16(s), 1, csa->even);
+        nc_set_key(service_id16(s), 0, csa->odd);
+        for (unsigned char* pkt = csa->csa_tsbcluster; pkt < (csa->csa_tsbcluster+csa->csa_fill*188); pkt += 188)
+          nc_add_pid(service_id16(s), (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF));
 
-    nc_descramble(service_id16(s), csa->csa_tsbcluster, csa->csa_fill * 188);
+        if (nc_descramble(service_id16(s), csa->csa_tsbcluster, csa->csa_fill * 188))
+        {
+          nc_log(service_id16(s), "decoding failed again, dropping packets..\n");
+          nc_release_service(service_id16(s));
+        }
+        else
+        {
+          // gettimeofday(&stop, NULL);
+          // nc_log(service_id16(s), "took %lu ms for %d bytes", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->csa_fill * 188);
 
-//  gettimeofday(&stop, NULL);
-//  tvherror(0, "took %lu ms for %d bytes", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->csa_fill * 188);
+          ts_recv_packet2(s, csa->csa_tsbcluster, csa->csa_fill * 188);
+        }
+      }
+      else
+      {
+        // gettimeofday(&stop, NULL);
+        // nc_log(service_id16(s), "took %lu ms for %d bytes", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->csa_fill * 188);
 
-    ts_recv_packet2(s, csa->csa_tsbcluster, csa->csa_fill * 188);
-
+        ts_recv_packet2(s, csa->csa_tsbcluster, csa->csa_fill * 188);
+      }
+    }
     csa->csa_fill = 0;
   }
 #endif

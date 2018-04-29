@@ -15,6 +15,8 @@
 #include "settings.h"
 #include "ncclient.h"
 
+int nc_verbose = 0;
+
 #define NC_TIMEOUT_S		10
 #define NC_MAX_TASKS		64
 #define NC_MAX_PIDS		16
@@ -117,7 +119,8 @@ int nc_set_key(int service, uint8_t is_even, char* key)
 	}
 
 	memcpy(existing_key, key, 8);
-	nc_log(service, "set %s key\n", is_even?"EVEN":"ODD");
+	nc_log(service, "set %s key [%02X %02X %02X %02X %02X %02X %02X %02X]\n", is_even?"EVEN":"ODD ",
+			key[0], key[1], key[2], key[3], key[4], key[5], key[6], key[7]);
 
 	return 0;
 }
@@ -222,10 +225,7 @@ int nc_release_service(int service)
 
 	// Go 
 	if (nc_query(task_idx, &query_in, &query_out))
-	{
 		nc_log(service,"remote demux release failed\n");
-		return 1;
-	}
 
 	nc_log(service, "disconnecting from server, closing socket\n");
 
@@ -453,6 +453,9 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 	servaddr.sin_addr.s_addr=inet_addr(NC_IP);
 	servaddr.sin_port=htons(NC_PORT);
 
+	if (nc_verbose)
+		nc_log(nc_task[task_idx].service, "sending header [%s]\n", header);
+
 	// Send header
 	sent_size=sendto(nc_task[task_idx].socket_fd, header, NC_HEADER_SIZE, 0, (struct sockaddr *)&servaddr, sizeof(servaddr));
 	if (sent_size != NC_HEADER_SIZE)
@@ -522,7 +525,8 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 		goto NC_QUERY_ERROR;
 	}
 
-	//nc_log(nc_task[task_idx].service, "received header [%s]\n", header);
+	if (nc_verbose)
+		nc_log(nc_task[task_idx].service, "received header [%s]\n", header);
 
 	// Get values
 	memcpy(status_buf, header+4, 4);
