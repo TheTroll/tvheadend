@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include "config.h"
 
+#include "settings.h"
 #include "ncclient.h"
 
 #define NC_TIMEOUT_S		10
@@ -111,10 +112,13 @@ int nc_set_key(int service, uint8_t is_even, char* key)
 	// Go 
 	if (nc_query(task_idx, &query_in, &query_out))
 	{
+		nc_log(service, "faild to set %s key\n", is_even?"EVEN":"ODD");
 		return 1;
 	}
 
 	memcpy(existing_key, key, 8);
+	nc_log(service, "set %s key\n", is_even?"EVEN":"ODD");
+
 	return 0;
 }
 
@@ -155,13 +159,17 @@ int nc_add_pid(int service, int pid)
 		if (nc_query(task_idx, &query_in, &query_out))
 		{
 			nc_task[task_idx].nb_pids--;
+			nc_log(service, "query failed to add pid 0x%x\n", pid);
 			return 1;
 		}
+
+		nc_log(service, "added pid 0x%x\n", pid);
 
 		return 0;	
 	}
 
 	// No more room
+	nc_log(service, "no more room to add pid 0x%x\n", pid);
 	return 1;
 }
 
@@ -201,7 +209,7 @@ int nc_release_service(int service)
 	struct nc_query_in query_in = {0, };
 	struct nc_query_out query_out = {0, };
 
-	printf("[NC] releasing service 0x%x\n", service);
+	nc_log(service, "releasing service\n");
 
 	// Get task
 	task_idx = get_task(service);
@@ -215,11 +223,11 @@ int nc_release_service(int service)
 	// Go 
 	if (nc_query(task_idx, &query_in, &query_out))
 	{
-		printf("[NC] remote demux release failed\n");
+		nc_log(service,"remote demux release failed\n");
 		return 1;
 	}
 
-	printf("[NC] disconnecting from server, closing socket\n");
+	nc_log(service, "disconnecting from server, closing socket\n");
 
 	close(nc_task[task_idx].socket_fd);
 
@@ -229,6 +237,32 @@ int nc_release_service(int service)
 	return 1;
 }
 
+void nc_log(int srvid, const char* format, ...)
+{
+  char t[128], path[512];
+  struct tm tm;
+  struct timeval time;
+  FILE *file = NULL;
+
+  hts_settings_buildpath(path, sizeof(path), "nc.log");
+
+  file=fopen(path, "a");
+  if (file)
+  {
+    va_list argptr;
+    va_start(argptr, format);
+
+    gettimeofday(&time, NULL);
+    localtime_r(&time.tv_sec, &tm);
+    strftime(t, sizeof(t), "%F %T", &tm);// %d %H:%M:%S", &tm);
+
+    fprintf(file, "[%s] 0x%04X: ", t, srvid);
+    vfprintf(file, format, argptr);
+    va_end(argptr);
+
+    fclose(file);
+  }
+}
 
 //////////////////////////////////////////////////////////////////
 
@@ -273,22 +307,22 @@ static int get_task(int service)
 			int optval = 1;
 			socklen_t optlen = sizeof(optval);
 			if(setsockopt(nc_task[task_idx].socket_fd, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen) < 0)
-				printf("[NC] could not set KEEPALIVE option (%s)\n", strerror(errno));
+				nc_log(service, "could not set KEEPALIVE option (%s)\n", strerror(errno));
 
 			// Set non blocking
 			int opts = fcntl(nc_task[task_idx].socket_fd,F_GETFL);
 			if (opts < 0)
-				printf("[NC] could not set NONBLOCK option (%s)\n", strerror(errno));
+				nc_log(service, "could not set NONBLOCK option (%s)\n", strerror(errno));
 			else
 			{
 				opts = (opts | O_NONBLOCK);
 				if (fcntl(nc_task[task_idx].socket_fd,F_SETFL,opts) < 0)
-					printf("[NC] could not set NONBLOCK option (%s)\n", strerror(errno));
+					nc_log(service, "could not set NONBLOCK option (%s)\n", strerror(errno));
 			}
 
 			if (!NC_IP || !strlen(NC_IP) || !NC_PORT)
 			{
-				printf("[NC] server not set\n");
+				nc_log(service, "server not set\n");
 				return -1;
 			}
 
@@ -311,25 +345,25 @@ static int get_task(int service)
 					int select_ret = select(nc_task[task_idx].socket_fd+1, NULL, &connect_fd, NULL, &tv_timeout);
 					if (select_ret < 0)
 					{
-						printf("[NC] connect select error (%s), closing socket\n", strerror(errno));
+						nc_log(service, "connect select error (%s), closing socket\n", strerror(errno));
 						close(nc_task[task_idx].socket_fd); nc_task[task_idx].socket_fd=0;
 						return -1;
 					}
 					else if (select_ret == 0)
 					{
-						printf("[NC] connect select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+						nc_log(service, "connect select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
 						close(nc_task[task_idx].socket_fd); nc_task[task_idx].socket_fd=0;
 						return -1;
 					}
 				}
 				else
 				{
-					printf("[NC] connect error (%s), closing socket\n", strerror(errno));
+					nc_log(service, "connect error (%s), closing socket\n", strerror(errno));
 					close(nc_task[task_idx].socket_fd); nc_task[task_idx].socket_fd=0;
 					return -1;
 				}
 			}
-			printf("[NC] connected to server!\n");
+			nc_log(service, "task %d, connected to server!\n", task_idx);
 
 			nc_task[task_idx].nb_pids = 0;
 			nc_task[task_idx].server_port = NC_PORT;
@@ -402,13 +436,13 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 	int t = select(nc_task[task_idx].socket_fd+1, NULL, &write_fd, NULL, &tv_timeout);
 	if (t <= 0)
 	{
-		printf("[NC] write select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+		nc_log(nc_task[task_idx].service, "write select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
 		goto NC_QUERY_ERROR;
 	}
 
 	if (!NC_IP || !strlen(NC_IP) || !NC_PORT)
 	{
-		printf("[NC] server not set\n");
+		nc_log(nc_task[task_idx].service, "server not set\n");
 		goto NC_QUERY_ERROR;
 	}
 
@@ -423,7 +457,7 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 	sent_size=sendto(nc_task[task_idx].socket_fd, header, NC_HEADER_SIZE, 0, (struct sockaddr *)&servaddr, sizeof(servaddr));
 	if (sent_size != NC_HEADER_SIZE)
 	{
-		printf("[NC] error sending to server (%s), closing socket\n", strerror(errno));
+		nc_log(nc_task[task_idx].service, "error sending to server (%s), closing socket\n", strerror(errno));
 		goto NC_QUERY_ERROR;
 	}
 
@@ -442,14 +476,14 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 			int t = select(nc_task[task_idx].socket_fd+1, NULL, &write_fd, NULL, &tv_timeout);
 			if (t <= 0)
 			{
-				printf("[NC] write select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+				nc_log(nc_task[task_idx].service, "write select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
 				goto NC_QUERY_ERROR;
 			}
 
 			sent_size=sendto(nc_task[task_idx].socket_fd, in->data+total_sent_size, in->data_size-total_sent_size, 0, (struct sockaddr *)&servaddr, sizeof(servaddr));
 			if (sent_size <= 0)
 			{
-				printf("[NC] error sending to server (%s), closing socket\n", strerror(errno));
+				nc_log(nc_task[task_idx].service, "error sending to server (%s), closing socket\n", strerror(errno));
 				goto NC_QUERY_ERROR;
 			}
 
@@ -465,12 +499,12 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 	t = select(nc_task[task_idx].socket_fd+1, &read_fd, NULL, NULL, &tv_timeout);
 	if (t < 0)
 	{
-		printf("[NC] read select error (%s), closing socket\n", strerror(errno));
+		nc_log(nc_task[task_idx].service, "read select error (%s), closing socket\n", strerror(errno));
 		goto NC_QUERY_ERROR;
 	}
 	else if (t == 0)
 	{
-		printf("[NC] read select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+		nc_log(nc_task[task_idx].service, "read select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
 		goto NC_QUERY_ERROR;
 	}
 
@@ -478,17 +512,17 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 	read_size=recvfrom(nc_task[task_idx].socket_fd, header, NC_HEADER_SIZE, 0, NULL, NULL);
 	if (read_size <= 0)
 	{
-		printf("[NC] error receiving from server (%s), closing socket\n", strerror(errno));
+		nc_log(nc_task[task_idx].service, "error receiving from server (%s), closing socket\n", strerror(errno));
 		goto NC_QUERY_ERROR;
 	}
 
 	if (read_size != NC_HEADER_SIZE)
 	{
-		printf("NC: invalid header size %d\n", read_size);
+		nc_log(nc_task[task_idx].service, "invalid header size %d\n", read_size);
 		goto NC_QUERY_ERROR;
 	}
 
-	//printf("NC: received header [%s]\n", header);
+	//nc_log(nc_task[task_idx].service, "received header [%s]\n", header);
 
 	// Get values
 	memcpy(status_buf, header+4, 4);
@@ -516,24 +550,24 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 			t = select(nc_task[task_idx].socket_fd+1, &read_fd, NULL, NULL, &tv_timeout);
 			if (t < 0)
 			{
-				printf("[NC] read select error (%s), closing socket\n", strerror(errno));
+				nc_log(nc_task[task_idx].service, "read select error (%s), closing socket\n", strerror(errno));
 				goto NC_QUERY_ERROR;
 			}
 			else if (t == 0)
 			{
-				printf("[NC] read select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+				nc_log(nc_task[task_idx].service, "read select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
 				goto NC_QUERY_ERROR;
 			}
 
 			int data_read_size = recvfrom(nc_task[task_idx].socket_fd, out->data+read_data, out->data_size-read_data, 0, NULL, NULL);
 			if (data_read_size == 0)
 			{
-				printf("NC: server disconnected\n");
+				nc_log(nc_task[task_idx].service, "server disconnected\n");
 				goto NC_QUERY_ERROR;
 			}
 			else if (data_read_size == -1)
 			{
-				printf("NC: server error\n");
+				nc_log(nc_task[task_idx].service, "server error\n");
 				goto NC_QUERY_ERROR;
 			}
 			read_data+=data_read_size;
