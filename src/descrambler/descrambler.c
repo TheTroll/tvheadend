@@ -398,7 +398,7 @@ descrambler_service_start ( service_t *t )
       tk = &dr->dr_keys[i];
       tk->key_index = 0xff;
       tk->key_interval = tk->key_initial_interval = ms2mono(interval);
-      tvhcsa_init(&tk->key_csa);
+      tvhcsa_init(&tk->key_csa, t);
       if (!multipid) break;
     }
     dr->dr_paritycheck = MINMAX(paritycheck, 1, 200) * 188;
@@ -444,7 +444,7 @@ descrambler_service_stop ( service_t *t )
   if (dr) {
     for (i = 0; i < DESCRAMBLER_MAX_KEYS; i++) {
       tk = &dr->dr_keys[i];
-      tvhcsa_destroy(&tk->key_csa);
+      tvhcsa_destroy(&tk->key_csa, t);
       if (!dr->dr_key_multipid) break;
     }
     while ((dd = TAILQ_FIRST(&dr->dr_queue)) != NULL)
@@ -698,8 +698,8 @@ descrambler_keys ( th_descrambler_t *td, int type, uint16_t pid,
             "Overwrite key%s type from %s to %s for service \"%s\"",
             pidname, descrambler_keytype2str(tk->key_csa.csa_type),
             ktype, ((mpegts_service_t *)t)->s_dvb_svcname);
-    tvhcsa_destroy(&tk->key_csa);
-    tvhcsa_init(&tk->key_csa);
+    tvhcsa_destroy(&tk->key_csa, td->td_service);
+    tvhcsa_init(&tk->key_csa, td->td_service);
     if (tvhcsa_set_type(&tk->key_csa, type) < 0)
       goto end;
     tk->key_valid = 0;

@@ -27,6 +27,7 @@ enum nc_query_type
 	NC_QUERY_TYPE_SET_EVEN_KEY =	(1<<1),
 	NC_QUERY_TYPE_SET_ODD_KEY =	(1<<2),
 	NC_QUERY_TYPE_DESCRAMBLE =	(1<<3),
+	NC_QUERY_TYPE_RELEASE =		(1<<4),
 };
 
 enum nc_query_status
@@ -194,6 +195,41 @@ int nc_descramble(int service, unsigned char* buffer, int size)
 	return 0;
 }
 
+int nc_release_service(int service)
+{
+	int task_idx;
+	struct nc_query_in query_in = {0, };
+	struct nc_query_out query_out = {0, };
+
+	printf("[NC] releasing service 0x%x\n", service);
+
+	// Get task
+	task_idx = get_task(service);
+	if (task_idx < 0)
+		return 1;
+
+	// Release remote
+	query_in.type = NC_QUERY_TYPE_RELEASE;
+	query_in.service_id = service;
+
+	// Go 
+	if (nc_query(task_idx, &query_in, &query_out))
+	{
+		printf("[NC] remote demux release failed\n");
+		return 1;
+	}
+
+	printf("[NC] disconnecting from server, closing socket\n");
+
+	close(nc_task[task_idx].socket_fd);
+
+	// Remove locally
+	memset(&nc_task[task_idx], 0, sizeof(nc_task[task_idx]));
+
+	return 1;
+}
+
+
 //////////////////////////////////////////////////////////////////
 
 static int get_task(int service)
@@ -349,6 +385,9 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 		case NC_QUERY_TYPE_DESCRAMBLE:
 			cmd = "DESC";
 			break;
+		case NC_QUERY_TYPE_RELEASE:
+			cmd = "RELS";
+			break;
 		default:
 			return 1;
 	}
@@ -448,6 +487,8 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
 		printf("NC: invalid header size %d\n", read_size);
 		goto NC_QUERY_ERROR;
 	}
+
+	//printf("NC: received header [%s]\n", header);
 
 	// Get values
 	memcpy(status_buf, header+4, 4);

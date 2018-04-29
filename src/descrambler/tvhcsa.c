@@ -194,18 +194,27 @@ tvhcsa_csa_cbc_descramble
 int
 tvhcsa_set_type( tvhcsa_t *csa, int type )
 {
-  int csa_cluster_size = (csa->csa_cluster_size>NC_CLUSTER_SIZE)?csa->csa_cluster_size:NC_CLUSTER_SIZE;
   if (csa->csa_type == type)
     return 0;
   if (csa->csa_descramble)
     return -1;
-  switch (type) {
+
+#if ENABLE_DVBCSA
+  int csa_cluster_size;
+
+  if (csa->service && csa->service->ncserver)
+    csa_cluster_size = NC_CLUSTER_SIZE;
+  else
+    csa_cluster_size = dvbcsa_bs_batch_size();
+#endif
+
+ switch (type) {
   case DESCRAMBLER_CSA_CBC:
     csa->csa_descramble    = tvhcsa_csa_cbc_descramble;
     csa->csa_flush         = tvhcsa_csa_cbc_flush;
     csa->csa_keylen        = 8;
 #if ENABLE_DVBCSA
-    csa->csa_cluster_size  = dvbcsa_bs_batch_size();
+    csa->csa_cluster_size  = csa_cluster_size;
 #endif
     /* Note: the optimized routines might read memory after last TS packet */
     /*       allocate safe memory and fill it with zeros */
@@ -293,15 +302,19 @@ void tvhcsa_set_key_odd( tvhcsa_t *csa, const uint8_t *odd )
 }
 
 void
-tvhcsa_init ( tvhcsa_t *csa )
+tvhcsa_init ( tvhcsa_t *csa , service_t *service )
 {
   csa->csa_type          = 0;
   csa->csa_keylen        = 0;
+  csa->service            = service;
 }
 
 void
-tvhcsa_destroy ( tvhcsa_t *csa )
+tvhcsa_destroy ( tvhcsa_t *csa , service_t *service )
 {
+  if (service && service_id16(service))
+    nc_release_service(service_id16(service));
+
 #if ENABLE_DVBCSA
   if (csa->csa_key_odd)
     dvbcsa_bs_key_free(csa->csa_key_odd);
