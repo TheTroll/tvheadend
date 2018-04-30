@@ -241,7 +241,9 @@ tvhcsa_set_type( tvhcsa_t *csa, int type )
     csa->csa_flush         = tvhcsa_csa_cbc_flush;
     csa->csa_keylen        = 8;
 #if ENABLE_DVBCSA
-    csa->csa_cluster_size  = csa_cluster_size;
+    csa->csa_cluster_size  = dvbcsa_bs_batch_size();
+#else
+    csa->csa_cluster_size  = 0;
 #endif
     /* Note: the optimized routines might read memory after last TS packet */
     /*       allocate safe memory and fill it with zeros */
@@ -339,7 +341,7 @@ tvhcsa_init ( tvhcsa_t *csa , service_t *service )
 void
 tvhcsa_destroy ( tvhcsa_t *csa , service_t *service )
 {
-  if (service && service_id16(service))
+  if (service && service->ncserver && service_id16(service))
     nc_release_service(service_id16(service));
 
 #if ENABLE_DVBCSA
