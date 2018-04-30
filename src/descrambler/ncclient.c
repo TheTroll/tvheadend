@@ -75,7 +75,7 @@ struct
 
 } nc_task[NC_MAX_TASKS];
 
-static int get_task(int service);
+static int get_task(int service, int dont_create);
 static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_out* out);
 
 /***********************************************/
@@ -89,7 +89,7 @@ int nc_set_key(int service, uint8_t is_even, char* key)
 	struct nc_query_out query_out = {0, };
 
 	// Get task
-	task_idx = get_task(service);
+	task_idx = get_task(service, 0);
 	if (task_idx < 0)
 		return 1;
 
@@ -130,7 +130,7 @@ int nc_add_pid(int service, int pid)
 	int task_idx, pid_idx;
 
 	// Get task
-	task_idx = get_task(service);
+	task_idx = get_task(service, 0);
 	if (task_idx < 0)
 		return 1;
 
@@ -187,7 +187,7 @@ int nc_descramble(int service, unsigned char* buffer, int size)
 		return 0;
 
 	// Get task
-	task_idx = get_task(service);
+	task_idx = get_task(service, 0);
 	if (task_idx < 0)
 		return 1;
 
@@ -215,7 +215,7 @@ int nc_release_service(int service)
 	nc_log(service, "releasing service\n");
 
 	// Get task
-	task_idx = get_task(service);
+	task_idx = get_task(service, 1);
 	if (task_idx < 0)
 		return 1;
 
@@ -266,7 +266,7 @@ void nc_log(int srvid, const char* format, ...)
 
 //////////////////////////////////////////////////////////////////
 
-static int get_task(int service)
+static int get_task(int service, int dont_create)
 {
 	int task_idx;
 	struct timeval tv_timeout;
@@ -294,6 +294,9 @@ static int get_task(int service)
 			return task_idx;
 		}
 	}
+
+	if (dont_create)
+		return -1;
 
 	// Find first free index
 	for (task_idx=0; task_idx<NC_MAX_TASKS; task_idx++)
@@ -338,20 +341,35 @@ static int get_task(int service)
 			{
 				if (errno == EINPROGRESS)
 				{
-					fd_set connect_fd;
-					FD_ZERO(&connect_fd);
-					FD_SET(nc_task[task_idx].socket_fd, &connect_fd);
+					fd_set wset;
+					FD_ZERO(&wset);
+					FD_SET(nc_task[task_idx].socket_fd, &wset);
 
-					int select_ret = select(nc_task[task_idx].socket_fd+1, NULL, &connect_fd, NULL, &tv_timeout);
-					if (select_ret < 0)
+					int select_ret = select(nc_task[task_idx].socket_fd+1, NULL, &wset, NULL, &tv_timeout);
+					if (select_ret == 0)
 					{
-						nc_log(service, "connect select error (%s), closing socket\n", strerror(errno));
+						nc_log(service, "select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
 						close(nc_task[task_idx].socket_fd); nc_task[task_idx].socket_fd=0;
 						return -1;
 					}
-					else if (select_ret == 0)
+					if (FD_ISSET(nc_task[task_idx].socket_fd, &wset))
 					{
-						nc_log(service, "connect select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+						int error;
+						unsigned int len = sizeof(error);
+						if (getsockopt(nc_task[task_idx].socket_fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0 || error)
+						{
+							nc_log(service, "select error (%s), closing socket\n", strerror(errno));
+							close(nc_task[task_idx].socket_fd); nc_task[task_idx].socket_fd=0;
+							return -1;
+						}
+						else
+						{
+							/* OK */
+						}
+					}
+					else
+					{
+						nc_log(service, "select error (%s), closing socket\n", strerror(errno));
 						close(nc_task[task_idx].socket_fd); nc_task[task_idx].socket_fd=0;
 						return -1;
 					}
@@ -363,7 +381,8 @@ static int get_task(int service)
 					return -1;
 				}
 			}
-			nc_log(service, "task %d, connected to server!\n", task_idx);
+
+			nc_log(service, "task %d, connected to server\n", task_idx);
 
 			nc_task[task_idx].nb_pids = 0;
 			nc_task[task_idx].server_port = NC_PORT;
