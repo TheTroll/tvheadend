@@ -371,7 +371,7 @@ tsfix_update_ref(tsfix_t *tf, tfstream_t *tfs, th_pkt_t *pkt)
   } else if (tfs->tfs_type == SCT_TELETEXT) {
     diff = tsfix_ts_diff(tf->tf_tsref, pkt->pkt_dts);
     if (diff > 2 * 90000) {
-      tvhwarn(LS_TSFIX, "The timediff for TELETEXT is big (%"PRId64"), using current dts", diff);
+      //tvhwarn(LS_TSFIX, "The timediff for TELETEXT is big (%"PRId64"), using current dts", diff);
       tfs->tfs_local_ref = pkt->pkt_dts;
     } else {
       tfs->tfs_local_ref = tf->tf_tsref;
