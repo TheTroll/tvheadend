@@ -26,7 +26,7 @@ struct elementary_stream;
 #include "build.h"
 #if ENABLE_DVBCSA
 #include <dvbcsa/dvbcsa.h>
-struct service;
+struct mpegts_service;
 #endif
 
 typedef struct tvhcsa
@@ -56,7 +56,7 @@ typedef struct tvhcsa
   struct dvbcsa_bs_key_s *csa_key_even;
   struct dvbcsa_bs_key_s *csa_key_odd;
 
-  struct service *service;
+  struct mpegts_service *service;
   char even[8];
   char odd[8];
 #endif
@@ -71,8 +71,8 @@ int  tvhcsa_set_type( tvhcsa_t *csa, int type );
 void tvhcsa_set_key_even( tvhcsa_t *csa, const uint8_t *even );
 void tvhcsa_set_key_odd ( tvhcsa_t *csa, const uint8_t *odd );
 
-void tvhcsa_init    ( tvhcsa_t *csa , struct service *service );
-void tvhcsa_destroy ( tvhcsa_t *csa , struct service *service );
+void tvhcsa_init    ( tvhcsa_t *csa , struct mpegts_service *service );
+void tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service );
 
 #else
 
@@ -81,8 +81,8 @@ static inline int tvhcsa_set_type( tvhcsa_t *csa, int type ) { return -1; }
 static inline void tvhcsa_set_key_even( tvhcsa_t *csa, const uint8_t *even ) { };
 static inline void tvhcsa_set_key_odd ( tvhcsa_t *csa, const uint8_t *odd ) { };
 
-static inline void tvhcsa_init ( tvhcsa_t *csa , service_t *service ) { };
-static inline void tvhcsa_destroy ( tvhcsa_t *csa , service_t *service ) { };
+static inline void tvhcsa_init ( tvhcsa_t *csa , struct mpegts_service *service ) { };
+static inline void tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service ) { };
 
 #endif
 

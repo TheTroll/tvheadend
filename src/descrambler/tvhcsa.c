@@ -94,29 +94,34 @@ tvhcsa_csa_cbc_flush
   }
   else
   {
-    if (nc_set_key(service_id16(s), 1, csa->even) || nc_set_key(service_id16(s), 0, csa->odd))
+    th_subscription_t *ths;
+    LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
+            if (ths->ths_state == SUBSCRIPTION_BAD_SERVICE)
+                    return;
+
+    if (nc_set_key(s, 1, csa->even) || nc_set_key(s, 0, csa->odd))
     {
-       nc_log(service_id16(s), "set key failed, restart task\n");
-       nc_release_service(service_id16(s));
+       nc_log(service_id16(s), "set key failed\n");
+       nc_release_service(s);
     }
     else
     {
       // struct timeval stop, start;
       // gettimeofday(&start, NULL);
 
-      if (nc_descramble(service_id16(s), csa->csa_tsbcluster, csa->csa_fill * 188) )
+      if (nc_descramble(s, csa->csa_tsbcluster, csa->csa_fill * 188) )
       {
         nc_log(service_id16(s), "decoding failed, try again..\n");
-        nc_release_service(service_id16(s));
-        nc_set_key(service_id16(s), 1, csa->even);
-        nc_set_key(service_id16(s), 0, csa->odd);
+        nc_release_service(s);
+        nc_set_key(s, 1, csa->even);
+        nc_set_key(s, 0, csa->odd);
         for (unsigned char* pkt = csa->csa_tsbcluster; pkt < (csa->csa_tsbcluster+csa->csa_fill*188); pkt += 188)
-          nc_add_pid(service_id16(s), (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF));
+          nc_add_pid(s, (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF));
 
-        if (nc_descramble(service_id16(s), csa->csa_tsbcluster, csa->csa_fill * 188))
+        if (nc_descramble(s, csa->csa_tsbcluster, csa->csa_fill * 188))
         {
           nc_log(service_id16(s), "decoding failed again, dropping packets..\n");
-          nc_release_service(service_id16(s));
+          nc_release_service(s);
         }
         else
         {
@@ -204,13 +209,24 @@ tvhcsa_csa_cbc_descramble
   else
   {
     uint8_t *pkt;
+    th_subscription_t *ths;
+
+    LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
+            if (ths->ths_state == SUBSCRIPTION_BAD_SERVICE)
+                    return;
 
     for ( ; tsb < tsb_end; tsb += 188) {
       pkt = csa->csa_tsbcluster + csa->csa_fill * 188;
       memcpy(pkt, tsb, 188);
       csa->csa_fill++;
 
-      nc_add_pid(service_id16(s), (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF));
+      if (nc_add_pid(s, (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF)))
+      {
+        nc_log(service_id16(s), "add pid failed\n");
+        nc_release_service(s);
+        csa->csa_fill = 0;
+        break;
+      }
 
       if(csa->csa_fill && csa->csa_fill == NC_CLUSTER_SIZE)
         tvhcsa_csa_cbc_flush(csa, s);
@@ -332,7 +348,7 @@ void tvhcsa_set_key_odd( tvhcsa_t *csa, const uint8_t *odd )
 }
 
 void
-tvhcsa_init ( tvhcsa_t *csa , service_t *service )
+tvhcsa_init ( tvhcsa_t *csa , struct mpegts_service *service )
 {
   csa->csa_type          = 0;
   csa->csa_keylen        = 0;
@@ -340,10 +356,10 @@ tvhcsa_init ( tvhcsa_t *csa , service_t *service )
 }
 
 void
-tvhcsa_destroy ( tvhcsa_t *csa , service_t *service )
+tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service )
 {
   if (service && service->ncserver && service_id16(service))
-    nc_release_service(service_id16(service));
+    nc_release_service(service);
 
 #if ENABLE_DVBCSA
   if (csa->csa_key_odd)

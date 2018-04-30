@@ -13,11 +13,13 @@
 #include "config.h"
 
 #include "settings.h"
+#include "input.h"
+#include "subscriptions.h"
 #include "ncclient.h"
 
 int nc_verbose = 0;
 
-#define NC_TIMEOUT_S		10
+#define NC_TIMEOUT_S		1
 #define NC_MAX_TASKS		64
 #define NC_MAX_PIDS		16
 #define NC_IP			config.ncserver_ip
@@ -75,21 +77,24 @@ struct
 
 } nc_task[NC_MAX_TASKS];
 
-static int get_task(int service, int dont_create);
+static int get_task(struct mpegts_service *s, int dont_create);
 static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_out* out);
 
 /***********************************************/
 /***********************************************/
 
-int nc_set_key(int service, uint8_t is_even, char* key)
+int nc_set_key(struct mpegts_service *s, uint8_t is_even, char* key)
 {
 	int task_idx;
 	char* existing_key;
 	struct nc_query_in query_in = {0, };
 	struct nc_query_out query_out = {0, };
+	if (!s)
+		return 1;
+	int service = service_id16(s);
 
 	// Get task
-	task_idx = get_task(service, 0);
+	task_idx = get_task(s, 0);
 	if (task_idx < 0)
 		return 1;
 
@@ -125,12 +130,15 @@ int nc_set_key(int service, uint8_t is_even, char* key)
 	return 0;
 }
 
-int nc_add_pid(int service, int pid)
+int nc_add_pid(struct mpegts_service *s, int pid)
 {
 	int task_idx, pid_idx;
+	if (!s)
+		return 1;
+	int service = service_id16(s);
 
 	// Get task
-	task_idx = get_task(service, 0);
+	task_idx = get_task(s, 0);
 	if (task_idx < 0)
 		return 1;
 
@@ -177,17 +185,20 @@ int nc_add_pid(int service, int pid)
 }
 
 
-int nc_descramble(int service, unsigned char* buffer, int size)
+int nc_descramble(struct mpegts_service *s, unsigned char* buffer, int size)
 {
 	int task_idx;
 	struct nc_query_in query_in = {0, };
 	struct nc_query_out query_out = {0, };
+	if (!s)
+		return 1;
+	int service = service_id16(s);
 
 	if (!size || !buffer)
 		return 0;
 
 	// Get task
-	task_idx = get_task(service, 0);
+	task_idx = get_task(s, 0);
 	if (task_idx < 0)
 		return 1;
 
@@ -206,16 +217,19 @@ int nc_descramble(int service, unsigned char* buffer, int size)
 	return 0;
 }
 
-int nc_release_service(int service)
+int nc_release_service(struct mpegts_service *s)
 {
 	int task_idx;
 	struct nc_query_in query_in = {0, };
 	struct nc_query_out query_out = {0, };
+	if (!s)
+		return 1;
+	int service = service_id16(s);
 
 	nc_log(service, "releasing service\n");
 
 	// Get task
-	task_idx = get_task(service, 1);
+	task_idx = get_task(s, 1);
 	if (task_idx < 0)
 		return 1;
 
@@ -266,13 +280,20 @@ void nc_log(int srvid, const char* format, ...)
 
 //////////////////////////////////////////////////////////////////
 
-static int get_task(int service, int dont_create)
+static int get_task(struct mpegts_service *s, int dont_create)
 {
 	int task_idx;
+	th_subscription_t *ths;
 	struct timeval tv_timeout;
 	tv_timeout.tv_sec = NC_TIMEOUT_S;
 	tv_timeout.tv_usec = 0;
+	if (!s)
+		return -1;
+	int service = service_id16(s);
 
+	LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
+		if (ths->ths_state == SUBSCRIPTION_BAD_SERVICE)
+			return -1;
 
 	// Find service in tasks
 	for (task_idx=0; task_idx<NC_MAX_TASKS; task_idx++)
@@ -326,7 +347,7 @@ static int get_task(int service, int dont_create)
 			if (!NC_IP || !strlen(NC_IP) || !NC_PORT)
 			{
 				nc_log(service, "server not set\n");
-				return -1;
+				break;
 			}
 
 			// Set the Server address
@@ -349,8 +370,7 @@ static int get_task(int service, int dont_create)
 					if (select_ret == 0)
 					{
 						nc_log(service, "select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
-						close(nc_task[task_idx].socket_fd); nc_task[task_idx].socket_fd=0;
-						return -1;
+						break;
 					}
 					if (FD_ISSET(nc_task[task_idx].socket_fd, &wset))
 					{
@@ -359,8 +379,7 @@ static int get_task(int service, int dont_create)
 						if (getsockopt(nc_task[task_idx].socket_fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0 || error)
 						{
 							nc_log(service, "select error (%s), closing socket\n", strerror(errno));
-							close(nc_task[task_idx].socket_fd); nc_task[task_idx].socket_fd=0;
-							return -1;
+							break;
 						}
 						else
 						{
@@ -370,15 +389,13 @@ static int get_task(int service, int dont_create)
 					else
 					{
 						nc_log(service, "select error (%s), closing socket\n", strerror(errno));
-						close(nc_task[task_idx].socket_fd); nc_task[task_idx].socket_fd=0;
-						return -1;
+						break;
 					}
 				}
 				else
 				{
 					nc_log(service, "connect error (%s), closing socket\n", strerror(errno));
-					close(nc_task[task_idx].socket_fd); nc_task[task_idx].socket_fd=0;
-					return -1;
+					break;
 				}
 			}
 
@@ -391,6 +408,21 @@ static int get_task(int service, int dont_create)
 
 			return task_idx;
 		}
+	}
+
+
+	if (nc_task[task_idx].socket_fd)
+	{
+		close(nc_task[task_idx].socket_fd);
+		nc_task[task_idx].socket_fd=0;
+	}
+
+	// Bad service
+	nc_log(service, "setting service as BAD\n");
+	LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
+	{
+		atomic_set(&ths->ths_testing_error, SM_CODE_NO_SOURCE);
+		atomic_set(&ths->ths_state, SUBSCRIPTION_BAD_SERVICE);
 	}
 
 	return -1;
