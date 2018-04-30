@@ -145,6 +145,11 @@ tvhcsa_csa_cbc_descramble
 {
   const uint8_t *tsb_end = tsb + tsb_len;
 
+  if (csa->csa_fill > csa->csa_cluster_size)
+  {
+    csa->csa_fill = 0;
+    return;
+  }
 
 #if ENABLE_DVBCSA
   if (!s->ncserver)
@@ -154,8 +159,6 @@ tvhcsa_csa_cbc_descramble
     int len;
     int offset;
     int n;
-
-    assert(csa->csa_fill >= 0 && csa->csa_fill < csa->csa_cluster_size);
 
     for ( ; tsb < tsb_end; tsb += 188) {
 
@@ -202,8 +205,6 @@ tvhcsa_csa_cbc_descramble
   {
     uint8_t *pkt;
 
-    assert(csa->csa_fill >= 0 && csa->csa_fill < NC_CLUSTER_SIZE);
-
     for ( ; tsb < tsb_end; tsb += 188) {
       pkt = csa->csa_tsbcluster + csa->csa_fill * 188;
       memcpy(pkt, tsb, 188);
@@ -241,7 +242,7 @@ tvhcsa_set_type( tvhcsa_t *csa, int type )
     csa->csa_flush         = tvhcsa_csa_cbc_flush;
     csa->csa_keylen        = 8;
 #if ENABLE_DVBCSA
-    csa->csa_cluster_size  = dvbcsa_bs_batch_size();
+    csa->csa_cluster_size  = csa_cluster_size;
 #else
     csa->csa_cluster_size  = 0;
 #endif
