@@ -101,6 +101,7 @@ tvhcsa_csa_cbc_flush
 
     csa->cluster[csa->cluster_wptr].ready = 1;
     csa->cluster_wptr = (csa->cluster_wptr+1) % MAX_CSA_CLUSTERS;
+//    nc_log(service_id16(s), "POST WPTR=%d\n", csa->cluster_wptr);
     sem_post(&csa->nc_flush_sem);
   }
 #endif
@@ -114,10 +115,24 @@ nc_flush ( void *p )
 
   while (csa->nc_flush_task_running)
   {
-    sem_wait(&csa->nc_flush_sem);
+    // Wait for semphore
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {
+     nc_log(service_id16(s), "failed getting time for sem_wait\n");
+     nc_release_service(s);
+     continue;
+    }
+    ts.tv_sec+=10;
+    sem_timedwait(&csa->nc_flush_sem, &ts);
+//    nc_log(service_id16(s), "GOT SEM READY=%d at index %d\n", csa->cluster[csa->cluster_rptr].ready, csa->cluster_rptr);
     if (!csa->nc_flush_task_running)
       break;
 
+    int level = (csa->cluster_wptr >= csa->cluster_rptr)?(csa->cluster_wptr - csa->cluster_rptr):(MAX_CSA_CLUSTERS+csa->cluster_wptr - csa->cluster_rptr);
+    if (level >= 5)
+	    nc_log(service_id16(s), "fifo level is high  %d/%d\n", level, MAX_CSA_CLUSTERS);
+
+    // Now check if we have a packet ready
     if (csa->cluster[csa->cluster_rptr].ready)
     {
       uint8_t tries = 0;
@@ -251,7 +266,7 @@ tvhcsa_csa_cbc_descramble
       memcpy(pkt, tsb, 188);
       csa->cluster[csa->cluster_wptr].csa_fill++;
 
-      if(csa->cluster[csa->cluster_wptr].csa_fill && csa->cluster[csa->cluster_wptr].csa_fill == NC_CLUSTER_SIZE)
+      if(csa->cluster[csa->cluster_wptr].csa_fill == NC_CLUSTER_SIZE)
         tvhcsa_csa_cbc_flush(csa, s);
     }
   }
@@ -399,9 +414,6 @@ tvhcsa_init ( tvhcsa_t *csa , struct mpegts_service *service )
 void
 tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service )
 {
-  if (service && service->ncserver && service_id16(service))
-    nc_release_service(service);
-
 #if ENABLE_DVBCSA
   if (csa->csa_key_odd)
     dvbcsa_bs_key_free(csa->csa_key_odd);
@@ -420,7 +432,9 @@ tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service )
     usleep(100000);
     sem_destroy(&csa->nc_flush_sem);
     pthread_join(csa->nc_flush_task_id, NULL);
+    nc_release_service(service);
   }
+
 
   for (int cluster = 0; cluster < MAX_CSA_CLUSTERS; cluster++)
   {
