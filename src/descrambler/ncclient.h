@@ -1,7 +1,8 @@
 #ifndef __TVH_NCSERVER_H__
 #define __TVH_NCSERVER___
 
-#define NC_CLUSTER_SIZE	1024
+#define NC_CSA_CLUSTER_SIZE	1024
+#define NC_CLEAR_CLUSTER_SIZE	128
 
 int nc_set_key(struct mpegts_service *s, uint8_t is_even, char* key);
 int nc_add_pid(struct mpegts_service *s, int pid);

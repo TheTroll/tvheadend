@@ -98,7 +98,7 @@ tvhcsa_csa_cbc_flush
     LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
             if (ths->ths_state == SUBSCRIPTION_BAD_SERVICE)
                     return;
-    if (csa->cluster[csa->cluster_wptr].csa_fill)
+    if (csa->cluster[csa->cluster_wptr].csa_fill || csa->cluster[csa->cluster_wptr].clear_fill)
     {
       csa->cluster[csa->cluster_wptr].ready = 1;
       csa->cluster_wptr = (csa->cluster_wptr+1) % MAX_CSA_CLUSTERS;
@@ -142,8 +142,9 @@ nc_flush ( void *p )
     if (csa->cluster[csa->cluster_rptr].ready)
     {
       uint8_t tries = 0;
+      // nc_log(service_id16(s), "CSA=%d, CLEAR=%d\n", csa->cluster[csa->cluster_rptr].csa_fill, csa->cluster[csa->cluster_rptr].clear_fill);
 NC_RETRY:
-      // Adding pids
+      // Adding crypted pids
       for (unsigned char* pkt=csa->cluster[csa->cluster_rptr].csa_tsbcluster; pkt<csa->cluster[csa->cluster_rptr].csa_tsbcluster + csa->cluster[csa->cluster_rptr].csa_fill * 188; pkt += 188)
       {
         if (nc_add_pid(s, (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF)))
@@ -189,11 +190,15 @@ NC_RETRY:
           if (ths->ths_state == SUBSCRIPTION_BAD_SERVICE)
             break;
 
-        ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
+        if (csa->cluster[csa->cluster_rptr].csa_fill)
+          ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
+        if (csa->cluster[csa->cluster_rptr].clear_fill)
+          ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].clear_tsbcluster, csa->cluster[csa->cluster_rptr].clear_fill * 188);
       }
     } 
 
     csa->cluster[csa->cluster_rptr].csa_fill = 0;
+    csa->cluster[csa->cluster_rptr].clear_fill = 0;
     csa->cluster[csa->cluster_rptr].ready = 0;
     csa->cluster_rptr = (csa->cluster_rptr+1) % MAX_CSA_CLUSTERS;
   }
@@ -299,11 +304,38 @@ tvhcsa_csa_cbc_descramble
     }
 
     for ( ; tsb < tsb_end; tsb += 188) {
-      pkt = csa->cluster[csa->cluster_wptr].csa_tsbcluster + csa->cluster[csa->cluster_wptr].csa_fill * 188;
-      memcpy(pkt, tsb, 188);
-      csa->cluster[csa->cluster_wptr].csa_fill++;
+      int i, pid = (tsb[1] & 0x1f)<<8 | (tsb[2] & 0xFF);
 
-      if(csa->cluster[csa->cluster_wptr].csa_fill == NC_CLUSTER_SIZE)
+      // Mark crypted PIDS
+      if ((tsb[3] & 0x80) && csa->crypted_pid_count < 64)
+      {
+        csa->crypted_pid[csa->crypted_pid_count] = pid;
+        csa->crypted_pid_count++;
+      }
+
+      // Is PID crypted ?
+      for (i=0; i<csa->crypted_pid_count; i++)
+      {
+        if (csa->crypted_pid[i] == pid)
+        {
+          pkt = csa->cluster[csa->cluster_wptr].csa_tsbcluster + csa->cluster[csa->cluster_wptr].csa_fill * 188;
+          memcpy(pkt, tsb, 188);
+          csa->cluster[csa->cluster_wptr].csa_fill++;
+//        nc_log(service_id16(s), "Adding crypted PID 0x%x 0x%02X\n", (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF), tsb[3]);
+          break;
+        }
+      }
+
+      // Clear PID ?
+      if (i == csa->crypted_pid_count)
+      {
+        pkt = csa->cluster[csa->cluster_wptr].clear_tsbcluster + csa->cluster[csa->cluster_wptr].clear_fill * 188;
+        memcpy(pkt, tsb, 188);
+        csa->cluster[csa->cluster_wptr].clear_fill++;
+//        nc_log(service_id16(s), "Adding clear PID 0x%x 0x%02X\n", (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF), tsb[3]);
+      }
+
+      if (csa->cluster[csa->cluster_wptr].csa_fill == NC_CSA_CLUSTER_SIZE || csa->cluster[csa->cluster_wptr].clear_fill == NC_CLEAR_CLUSTER_SIZE)
         tvhcsa_csa_cbc_flush(csa, s);
     }
   }
@@ -318,41 +350,34 @@ tvhcsa_set_type( tvhcsa_t *csa, int type )
   if (csa->csa_descramble)
     return -1;
 
-#if ENABLE_DVBCSA
-  int csa_cluster_size;
-
-  if (csa->service && csa->service->ncserver)
-    csa_cluster_size = NC_CLUSTER_SIZE;
-  else
-    csa_cluster_size = dvbcsa_bs_batch_size();
-#endif
-
  switch (type) {
   case DESCRAMBLER_CSA_CBC:
     csa->csa_descramble    = tvhcsa_csa_cbc_descramble;
     csa->csa_flush         = tvhcsa_csa_cbc_flush;
     csa->csa_keylen        = 8;
-#if ENABLE_DVBCSA
-    csa->csa_cluster_size  = csa_cluster_size;
-#else
-    csa->csa_cluster_size  = 0;
-#endif
     /* Note: the optimized routines might read memory after last TS packet */
     /*       allocate safe memory and fill it with zeros */
     if (csa->service && csa->service->ncserver)
     {
       for (int cluster=0; cluster<MAX_CSA_CLUSTERS; cluster++) {
-        csa->cluster[cluster].csa_tsbcluster    = malloc((csa_cluster_size + 1) * 188);
-        memset(csa->cluster[cluster].csa_tsbcluster + csa_cluster_size * 188, 0, 188);
+        csa->cluster[cluster].csa_tsbcluster    = malloc((NC_CSA_CLUSTER_SIZE + 1) * 188);
+        csa->cluster[cluster].clear_tsbcluster    = malloc((NC_CLEAR_CLUSTER_SIZE + 1) * 188);
+        memset(csa->cluster[cluster].csa_tsbcluster + NC_CSA_CLUSTER_SIZE * 188, 0, 188);
+        memset(csa->cluster[cluster].clear_tsbcluster + NC_CLEAR_CLUSTER_SIZE * 188, 0, 188);
       }
     } else {
-      csa->cluster[0].csa_tsbcluster    = malloc((csa_cluster_size + 1) * 188);
-      memset(csa->cluster[0].csa_tsbcluster + csa_cluster_size * 188, 0, 188);
+#if ENABLE_DVBCSA
+      csa->csa_cluster_size = dvbcsa_bs_batch_size();
+#else
+      csa->csa_cluster_size = 0;
+#endif
+      csa->cluster[0].csa_tsbcluster    = malloc((dvbcsa_bs_batch_size() + 1) * 188);
+      memset(csa->cluster[0].csa_tsbcluster + dvbcsa_bs_batch_size() * 188, 0, 188);
     }
 #if ENABLE_DVBCSA
-    csa->csa_tsbbatch_even = malloc((csa_cluster_size + 1) *
+    csa->csa_tsbbatch_even = malloc((dvbcsa_bs_batch_size() + 1) *
                                     sizeof(struct dvbcsa_bs_batch_s));
-    csa->csa_tsbbatch_odd  = malloc((csa_cluster_size + 1) *
+    csa->csa_tsbbatch_odd  = malloc((dvbcsa_bs_batch_size() + 1) *
                                     sizeof(struct dvbcsa_bs_batch_s));
     csa->csa_key_even      = dvbcsa_bs_key_alloc();
     csa->csa_key_odd       = dvbcsa_bs_key_alloc();
@@ -435,11 +460,12 @@ tvhcsa_init ( tvhcsa_t *csa , struct mpegts_service *service )
 {
   csa->csa_type          = 0;
   csa->csa_keylen        = 0;
-  csa->service            = service;
+  csa->service           = service;
 
   if (service->ncserver)
   {
     // Spawn descrambling task
+    csa->crypted_pid_count = 0;
     csa->cluster_rptr = 0;
     csa->cluster_wptr = 0;
     sem_init(&csa->nc_flush_sem, 0, 0);
@@ -476,6 +502,8 @@ tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service )
   {
     if (csa->cluster[cluster].csa_tsbcluster)
       free(csa->cluster[cluster].csa_tsbcluster);
+    if (csa->cluster[cluster].clear_tsbcluster)
+      free(csa->cluster[cluster].clear_tsbcluster);
   }
   if (csa->csa_priv) {
     switch (csa->csa_type) {

@@ -53,9 +53,14 @@ typedef struct tvhcsa
   uint32_t cluster_wptr;
   struct {
     int      csa_fill;
+    int      clear_fill;
     uint8_t *csa_tsbcluster;
+    uint8_t *clear_tsbcluster;
     uint8_t ready;
   } cluster[MAX_CSA_CLUSTERS];
+
+  int crypted_pid[64];
+  int crypted_pid_count;
 
   pthread_t nc_flush_task_id;
   uint8_t nc_flush_task_running;
