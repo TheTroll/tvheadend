@@ -23,11 +23,16 @@ struct mpegts_service;
 struct elementary_stream;
 
 #include <stdint.h>
+#include <pthread.h>
 #include "build.h"
 #if ENABLE_DVBCSA
 #include <dvbcsa/dvbcsa.h>
+#include <semaphore.h>
+#include <fcntl.h>
 struct mpegts_service;
 #endif
+
+#define MAX_CSA_CLUSTERS 128
 
 typedef struct tvhcsa
 {
@@ -44,8 +49,17 @@ typedef struct tvhcsa
               ( struct tvhcsa *csa, struct mpegts_service *s );
 
   int      csa_cluster_size;
-  uint8_t *csa_tsbcluster;
-  int      csa_fill;
+  uint32_t cluster_rptr;
+  uint32_t cluster_wptr;
+  struct {
+    int      csa_fill;
+    uint8_t *csa_tsbcluster;
+    uint8_t ready;
+  } cluster[MAX_CSA_CLUSTERS];
+
+  pthread_t nc_flush_task_id;
+  uint8_t nc_flush_task_running;
+  sem_t nc_flush_sem;
 
 #if ENABLE_DVBCSA
   struct dvbcsa_bs_batch_s *csa_tsbbatch_even;

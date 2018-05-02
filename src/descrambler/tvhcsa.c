@@ -88,9 +88,9 @@ tvhcsa_csa_cbc_flush
       csa->csa_fill_odd = 0;
     }
 
-    ts_recv_packet2(s, csa->csa_tsbcluster, csa->csa_fill * 188);
+    ts_recv_packet2(s, csa->cluster[0].csa_tsbcluster, csa->cluster[0].csa_fill * 188);
 
-    csa->csa_fill = 0;
+    csa->cluster[0].csa_fill = 0;
   }
   else
   {
@@ -99,49 +99,73 @@ tvhcsa_csa_cbc_flush
             if (ths->ths_state == SUBSCRIPTION_BAD_SERVICE)
                     return;
 
-    if (nc_set_key(s, 1, csa->even) || nc_set_key(s, 0, csa->odd))
+    csa->cluster[csa->cluster_wptr].ready = 1;
+    csa->cluster_wptr = (csa->cluster_wptr+1) % MAX_CSA_CLUSTERS;
+    sem_post(&csa->nc_flush_sem);
+  }
+#endif
+}
+
+static void *
+nc_flush ( void *p )
+{
+  tvhcsa_t *csa = p;
+  struct mpegts_service *s = csa->service;
+
+  while (csa->nc_flush_task_running)
+  {
+    sem_wait(&csa->nc_flush_sem);
+    if (!csa->nc_flush_task_running)
+      break;
+
+    if (csa->cluster[csa->cluster_rptr].ready)
     {
-       nc_log(service_id16(s), "set key failed\n");
-       nc_release_service(s);
-    }
-    else
-    {
+      uint8_t tries = 0;
+NC_RETRY:
+      if (nc_set_key(s, 1, csa->even) || nc_set_key(s, 0, csa->odd))
+      {
+         nc_log(service_id16(s), "set key failed\n");
+         nc_release_service(s);
+         continue;
+      }
+
+      for (unsigned char* pkt=csa->cluster[csa->cluster_rptr].csa_tsbcluster; pkt<csa->cluster[csa->cluster_rptr].csa_tsbcluster + csa->cluster[csa->cluster_rptr].csa_fill * 188; pkt += 188)
+      {
+        if (nc_add_pid(s, (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF)))
+          nc_log(service_id16(s), "add pid failed\n");
+      }
+
       // struct timeval stop, start;
       // gettimeofday(&start, NULL);
 
-      if (nc_descramble(s, csa->csa_tsbcluster, csa->csa_fill * 188) )
+      if (nc_descramble(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188) )
       {
-        nc_log(service_id16(s), "decoding failed, try again..\n");
-        nc_release_service(s);
-        nc_set_key(s, 1, csa->even);
-        nc_set_key(s, 0, csa->odd);
-        for (unsigned char* pkt = csa->csa_tsbcluster; pkt < (csa->csa_tsbcluster+csa->csa_fill*188); pkt += 188)
-          nc_add_pid(s, (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF));
-
-        if (nc_descramble(s, csa->csa_tsbcluster, csa->csa_fill * 188))
+        if (tries == 0)
         {
-          nc_log(service_id16(s), "decoding failed again, dropping packets..\n");
-          nc_release_service(s);
+          tries++;
+          goto NC_RETRY;
         }
         else
         {
-          // gettimeofday(&stop, NULL);
-          // nc_log(service_id16(s), "took %lu ms for %d bytes", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->csa_fill * 188);
-
-          ts_recv_packet2(s, csa->csa_tsbcluster, csa->csa_fill * 188);
+          nc_log(service_id16(s), "decoding failed again, dropping packets..\n");
+          nc_release_service(s);
+          continue;
         }
       }
-      else
-      {
-        // gettimeofday(&stop, NULL);
-        // nc_log(service_id16(s), "took %lu ms for %d bytes", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->csa_fill * 188);
 
-        ts_recv_packet2(s, csa->csa_tsbcluster, csa->csa_fill * 188);
-      }
-    }
-    csa->csa_fill = 0;
+      // gettimeofday(&stop, NULL);
+      // nc_log(service_id16(s), "took %lu ms for %d bytes", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->csa_fill * 188);
+
+      ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
+    } 
+
+    csa->cluster[csa->cluster_rptr].csa_fill = 0;
+    csa->cluster[csa->cluster_rptr].ready = 0;
+    csa->cluster_rptr = (csa->cluster_rptr+1) % MAX_CSA_CLUSTERS;
   }
-#endif
+
+  nc_log(service_id16(s), "CSA thread exits\n");
+  return NULL;
 }
 
 static void
@@ -149,12 +173,6 @@ tvhcsa_csa_cbc_descramble
   ( tvhcsa_t *csa, struct mpegts_service *s, const uint8_t *tsb, int tsb_len )
 {
   const uint8_t *tsb_end = tsb + tsb_len;
-
-  if (csa->csa_fill > csa->csa_cluster_size)
-  {
-    csa->csa_fill = 0;
-    return;
-  }
 
 #if ENABLE_DVBCSA
   if (!s->ncserver)
@@ -165,11 +183,18 @@ tvhcsa_csa_cbc_descramble
     int offset;
     int n;
 
+    if (csa->cluster[0].csa_fill > csa->csa_cluster_size)
+    {
+      csa->cluster[0].csa_fill = 0;
+      return;
+    }
+
+
     for ( ; tsb < tsb_end; tsb += 188) {
 
-     pkt = csa->csa_tsbcluster + csa->csa_fill * 188;
+     pkt = csa->cluster[0].csa_tsbcluster + csa->cluster[0].csa_fill * 188;
      memcpy(pkt, tsb, 188);
-     csa->csa_fill++;
+     csa->cluster[0].csa_fill++;
 
      do { // handle this packet
        if((pkt[3] & 0x80) == 0) // clear or reserved (0x40)
@@ -201,7 +226,7 @@ tvhcsa_csa_cbc_descramble
        }
      } while(0);
 
-     if(csa->csa_fill && csa->csa_fill == csa->csa_cluster_size)
+     if(csa->cluster[0].csa_fill && csa->cluster[0].csa_fill == csa->csa_cluster_size)
        tvhcsa_csa_cbc_flush(csa, s);
 
     }
@@ -215,20 +240,18 @@ tvhcsa_csa_cbc_descramble
             if (ths->ths_state == SUBSCRIPTION_BAD_SERVICE)
                     return;
 
+    if (csa->cluster[csa->cluster_wptr].ready)
+    {
+      nc_log(service_id16(s), "cluster fifo full\n");
+      return;
+    }
+
     for ( ; tsb < tsb_end; tsb += 188) {
-      pkt = csa->csa_tsbcluster + csa->csa_fill * 188;
+      pkt = csa->cluster[csa->cluster_wptr].csa_tsbcluster + csa->cluster[csa->cluster_wptr].csa_fill * 188;
       memcpy(pkt, tsb, 188);
-      csa->csa_fill++;
+      csa->cluster[csa->cluster_wptr].csa_fill++;
 
-      if (nc_add_pid(s, (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF)))
-      {
-        nc_log(service_id16(s), "add pid failed\n");
-        nc_release_service(s);
-        csa->csa_fill = 0;
-        break;
-      }
-
-      if(csa->csa_fill && csa->csa_fill == NC_CLUSTER_SIZE)
+      if(csa->cluster[csa->cluster_wptr].csa_fill && csa->cluster[csa->cluster_wptr].csa_fill == NC_CLUSTER_SIZE)
         tvhcsa_csa_cbc_flush(csa, s);
     }
   }
@@ -264,8 +287,16 @@ tvhcsa_set_type( tvhcsa_t *csa, int type )
 #endif
     /* Note: the optimized routines might read memory after last TS packet */
     /*       allocate safe memory and fill it with zeros */
-    csa->csa_tsbcluster    = malloc((csa_cluster_size + 1) * 188);
-    memset(csa->csa_tsbcluster + csa_cluster_size * 188, 0, 188);
+    if (csa->service && csa->service->ncserver)
+    {
+      for (int cluster=0; cluster<MAX_CSA_CLUSTERS; cluster++) {
+        csa->cluster[cluster].csa_tsbcluster    = malloc((csa_cluster_size + 1) * 188);
+        memset(csa->cluster[cluster].csa_tsbcluster + csa_cluster_size * 188, 0, 188);
+      }
+    } else {
+      csa->cluster[0].csa_tsbcluster    = malloc((csa_cluster_size + 1) * 188);
+      memset(csa->cluster[0].csa_tsbcluster + csa_cluster_size * 188, 0, 188);
+    }
 #if ENABLE_DVBCSA
     csa->csa_tsbbatch_even = malloc((csa_cluster_size + 1) *
                                     sizeof(struct dvbcsa_bs_batch_s));
@@ -353,6 +384,16 @@ tvhcsa_init ( tvhcsa_t *csa , struct mpegts_service *service )
   csa->csa_type          = 0;
   csa->csa_keylen        = 0;
   csa->service            = service;
+
+  if (service->ncserver)
+  {
+    // Spawn descrambling task
+    csa->cluster_rptr = 0;
+    csa->cluster_wptr = 0;
+    sem_init(&csa->nc_flush_sem, 0, 0);
+    csa->nc_flush_task_running = 1;
+    tvhthread_create(&csa->nc_flush_task_id, NULL, nc_flush, csa, "DVBCSA");
+  }
 }
 
 void
@@ -371,8 +412,21 @@ tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service )
   if (csa->csa_tsbbatch_even)
     free(csa->csa_tsbbatch_even);
 #endif
-  if (csa->csa_tsbcluster)
-    free(csa->csa_tsbcluster);
+  if (service->ncserver)
+  {
+    // Spawn descrambling task
+    csa->nc_flush_task_running = 0;
+    sem_post(&csa->nc_flush_sem);
+    usleep(100000);
+    sem_destroy(&csa->nc_flush_sem);
+    pthread_join(csa->nc_flush_task_id, NULL);
+  }
+
+  for (int cluster = 0; cluster < MAX_CSA_CLUSTERS; cluster++)
+  {
+    if (csa->cluster[cluster].csa_tsbcluster)
+      free(csa->cluster[cluster].csa_tsbcluster);
+  }
   if (csa->csa_priv) {
     switch (csa->csa_type) {
     case DESCRAMBLER_CSA_CBC:
