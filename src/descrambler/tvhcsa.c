@@ -98,11 +98,13 @@ tvhcsa_csa_cbc_flush
     LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
             if (ths->ths_state == SUBSCRIPTION_BAD_SERVICE)
                     return;
-
-    csa->cluster[csa->cluster_wptr].ready = 1;
-    csa->cluster_wptr = (csa->cluster_wptr+1) % MAX_CSA_CLUSTERS;
+    if (csa->cluster[csa->cluster_wptr].csa_fill)
+    {
+      csa->cluster[csa->cluster_wptr].ready = 1;
+      csa->cluster_wptr = (csa->cluster_wptr+1) % MAX_CSA_CLUSTERS;
 //    nc_log(service_id16(s), "POST WPTR=%d\n", csa->cluster_wptr);
-    sem_post(&csa->nc_flush_sem);
+      sem_post(&csa->nc_flush_sem);
+    }
   }
 #endif
 }
@@ -113,65 +115,78 @@ nc_flush ( void *p )
   tvhcsa_t *csa = p;
   struct mpegts_service *s = csa->service;
 
+  nc_log(service_id16(s), "CSA thread started\n");
+
   while (csa->nc_flush_task_running)
   {
+    int level = (csa->cluster_wptr >= csa->cluster_rptr)?(csa->cluster_wptr - csa->cluster_rptr):(MAX_CSA_CLUSTERS+csa->cluster_wptr - csa->cluster_rptr);
+    if (level >= 5)
+	    nc_log(service_id16(s), "fifo level is high  %d/%d\n", level, MAX_CSA_CLUSTERS);
+
     // Wait for semphore
     struct timespec ts;
     if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {
      nc_log(service_id16(s), "failed getting time for sem_wait\n");
-     nc_release_service(s);
-     continue;
+     break;
     }
-    ts.tv_sec+=10;
+
+    if (level < 1)
+      ts.tv_sec+=10;
+
     sem_timedwait(&csa->nc_flush_sem, &ts);
-//    nc_log(service_id16(s), "GOT SEM READY=%d at index %d\n", csa->cluster[csa->cluster_rptr].ready, csa->cluster_rptr);
+
     if (!csa->nc_flush_task_running)
       break;
-
-    int level = (csa->cluster_wptr >= csa->cluster_rptr)?(csa->cluster_wptr - csa->cluster_rptr):(MAX_CSA_CLUSTERS+csa->cluster_wptr - csa->cluster_rptr);
-    if (level >= 5)
-	    nc_log(service_id16(s), "fifo level is high  %d/%d\n", level, MAX_CSA_CLUSTERS);
 
     // Now check if we have a packet ready
     if (csa->cluster[csa->cluster_rptr].ready)
     {
       uint8_t tries = 0;
 NC_RETRY:
-      if (nc_set_key(s, 1, csa->even) || nc_set_key(s, 0, csa->odd))
-      {
-         nc_log(service_id16(s), "set key failed\n");
-         nc_release_service(s);
-         continue;
-      }
-
+      // Adding pids
       for (unsigned char* pkt=csa->cluster[csa->cluster_rptr].csa_tsbcluster; pkt<csa->cluster[csa->cluster_rptr].csa_tsbcluster + csa->cluster[csa->cluster_rptr].csa_fill * 188; pkt += 188)
       {
         if (nc_add_pid(s, (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF)))
+        {
           nc_log(service_id16(s), "add pid failed\n");
+          break;
+        }
+      }
+
+      if (nc_set_key(s, 1, csa->even) || nc_set_key(s, 0, csa->odd))
+      {
+         nc_log(service_id16(s), "set key failed (csa_fill=%d)\n", csa->cluster[csa->cluster_rptr].csa_fill);
+         nc_dump_pids(s);
+         break;
       }
 
       // struct timeval stop, start;
       // gettimeofday(&start, NULL);
 
-      if (nc_descramble(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188) )
+      if (csa->cluster[csa->cluster_rptr].csa_fill)
       {
-        if (tries == 0)
+
+        if (nc_descramble(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188) )
         {
-          tries++;
-          goto NC_RETRY;
+          if (tries == 0)
+          {
+            tries++;
+            nc_log(service_id16(s), "decoding failed again, retrying..\n");
+            nc_release_service(s);
+            goto NC_RETRY;
+          }
+          else
+          {
+            nc_log(service_id16(s), "decoding failed again, dropping packets..\n");
+            break;
+          }
         }
-        else
-        {
-          nc_log(service_id16(s), "decoding failed again, dropping packets..\n");
-          nc_release_service(s);
-          continue;
-        }
+
+        // gettimeofday(&stop, NULL);
+        // nc_log(service_id16(s), "took %lu ms for %d bytes", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->csa_fill * 188);
+
+        ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
       }
-
-      // gettimeofday(&stop, NULL);
-      // nc_log(service_id16(s), "took %lu ms for %d bytes", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->csa_fill * 188);
-
-      ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
     } 
 
     csa->cluster[csa->cluster_rptr].csa_fill = 0;
@@ -179,6 +194,7 @@ NC_RETRY:
     csa->cluster_rptr = (csa->cluster_rptr+1) % MAX_CSA_CLUSTERS;
   }
 
+  nc_release_service(s);
   nc_log(service_id16(s), "CSA thread exits\n");
   return NULL;
 }
@@ -254,6 +270,9 @@ tvhcsa_csa_cbc_descramble
     LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
             if (ths->ths_state == SUBSCRIPTION_BAD_SERVICE)
                     return;
+
+    if (!csa->nc_flush_task_running)
+      return;
 
     if (csa->cluster[csa->cluster_wptr].ready)
     {
@@ -432,7 +451,6 @@ tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service )
     usleep(100000);
     sem_destroy(&csa->nc_flush_sem);
     pthread_join(csa->nc_flush_task_id, NULL);
-    nc_release_service(service);
   }
 
 

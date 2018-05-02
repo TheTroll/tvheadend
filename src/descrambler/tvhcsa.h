@@ -32,7 +32,7 @@ struct elementary_stream;
 struct mpegts_service;
 #endif
 
-#define MAX_CSA_CLUSTERS 128
+#define MAX_CSA_CLUSTERS 64
 
 typedef struct tvhcsa
 {

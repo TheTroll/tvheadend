@@ -19,7 +19,7 @@
 
 int nc_verbose = 0;
 
-#define NC_TIMEOUT_S		1
+#define NC_TIMEOUT_S		3
 #define NC_MAX_TASKS		64
 #define NC_MAX_PIDS		16
 #define NC_IP			config.ncserver_ip
@@ -78,7 +78,7 @@ struct
 } nc_task[NC_MAX_TASKS];
 
 static int get_task(struct mpegts_service *s, int dont_create);
-static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_out* out);
+static uint32_t nc_query(struct mpegts_service *s, int task_idx, struct nc_query_in* in, struct nc_query_out* out);
 
 /***********************************************/
 /***********************************************/
@@ -117,15 +117,40 @@ int nc_set_key(struct mpegts_service *s, uint8_t is_even, char* key)
 	query_in.data = key;
 	query_in.data_size = 8;
 	// Go 
-	if (nc_query(task_idx, &query_in, &query_out))
+	if (nc_query(s, task_idx, &query_in, &query_out))
 	{
-		nc_log(service, "faild to set %s key\n", is_even?"EVEN":"ODD");
+		nc_log(service, "failed to set %s key\n", is_even?"EVEN":"ODD");
 		return 1;
 	}
 
 	memcpy(existing_key, key, 8);
 	nc_log(service, "set %s key [%02X %02X %02X %02X %02X %02X %02X %02X]\n", is_even?"EVEN":"ODD ",
 			key[0], key[1], key[2], key[3], key[4], key[5], key[6], key[7]);
+
+	return 0;
+}
+
+int nc_dump_pids(struct mpegts_service *s)
+{
+	int task_idx, pid_idx;
+	if (!s)
+	{
+		nc_log(-1, "NULL service for dump pids\n");
+		return 1;
+	}
+	int service = service_id16(s);
+
+	// Get task
+	task_idx = get_task(s, 0);
+	if (task_idx < 0)
+        {
+		nc_log(service, "get task failed for dump pids\n");
+		return 1;
+	}
+
+	nc_log(service, "dumping %d pids\n", nc_task[task_idx].nb_pids);
+	for (pid_idx=0; pid_idx<nc_task[task_idx].nb_pids; pid_idx++)
+		nc_log(service, "pid[%d] = 0x%x\n", pid_idx, nc_task[task_idx].pid[pid_idx]);
 
 	return 0;
 }
@@ -140,7 +165,10 @@ int nc_add_pid(struct mpegts_service *s, int pid)
 	// Get task
 	task_idx = get_task(s, 0);
 	if (task_idx < 0)
+	{
+		nc_log(service, "add_pid failed, no task\n");
 		return 1;
+	}
 
 	// Check if it was already added
 	for (pid_idx=0; pid_idx<nc_task[task_idx].nb_pids; pid_idx++)
@@ -167,7 +195,7 @@ int nc_add_pid(struct mpegts_service *s, int pid)
 		query_in.data_size = 5;
 
 		// Go 
-		if (nc_query(task_idx, &query_in, &query_out))
+		if (nc_query(s, task_idx, &query_in, &query_out))
 		{
 			nc_task[task_idx].nb_pids--;
 			nc_log(service, "query failed to add pid 0x%x\n", pid);
@@ -209,10 +237,8 @@ int nc_descramble(struct mpegts_service *s, unsigned char* buffer, int size)
 	query_out.data = (char*) buffer;
 	query_in.data_size = size;
 	// Go 
-	if (nc_query(task_idx, &query_in, &query_out))
-	{
+	if (nc_query(s, task_idx, &query_in, &query_out))
 		return 1;
-	}
 
 	return 0;
 }
@@ -238,8 +264,8 @@ int nc_release_service(struct mpegts_service *s)
 	query_in.service_id = service;
 
 	// Go 
-	if (nc_query(task_idx, &query_in, &query_out))
-		nc_log(service,"remote demux release failed\n");
+	if (nc_query(s, task_idx, &query_in, &query_out))
+		nc_log(service,"release service failed\n");
 
 	nc_log(service, "disconnecting from server, closing socket\n");
 
@@ -288,12 +314,11 @@ static int get_task(struct mpegts_service *s, int dont_create)
 	tv_timeout.tv_sec = NC_TIMEOUT_S;
 	tv_timeout.tv_usec = 0;
 	if (!s)
+	{
+		nc_log(-1, "get_task failed, NULL service\n");
 		return -1;
+	}
 	int service = service_id16(s);
-
-	LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
-		if (ths->ths_state == SUBSCRIPTION_BAD_SERVICE)
-			return -1;
 
 	// Find service in tasks
 	for (task_idx=0; task_idx<NC_MAX_TASKS; task_idx++)
@@ -410,13 +435,6 @@ static int get_task(struct mpegts_service *s, int dont_create)
 		}
 	}
 
-
-	if (nc_task[task_idx].socket_fd)
-	{
-		close(nc_task[task_idx].socket_fd);
-		nc_task[task_idx].socket_fd=0;
-	}
-
 	// Bad service
 	nc_log(service, "setting service as BAD\n");
 	LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
@@ -442,7 +460,7 @@ static int get_task(struct mpegts_service *s, int dont_create)
 
 #define NC_HEADER_SIZE 16
 
-static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_out* out)
+static uint32_t nc_query(struct mpegts_service *s, int task_idx, struct nc_query_in* in, struct nc_query_out* out)
 {
 	const char* cmd;
 	int read_size, sent_size, ret;
@@ -452,6 +470,10 @@ static uint32_t nc_query(int task_idx, struct nc_query_in* in, struct nc_query_o
         char header[NC_HEADER_SIZE+1];
 	char status_buf[5];
 	char datasize_buf[9];
+	int service = service_id16(s);
+
+	if (!nc_task[task_idx].socket_fd)
+		return 1;
 
 	ret = 0;
 
@@ -635,7 +657,14 @@ NC_QUERY_END:
 
 NC_QUERY_ERROR:
 
-	close(nc_task[task_idx].socket_fd); nc_task[task_idx].socket_fd=0; nc_task[task_idx].service = 0;
+	// Bad service
+	nc_log(service, "setting service as BAD\n");
+	th_subscription_t *ths;
+	LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
+	{
+		atomic_set(&ths->ths_testing_error, SM_CODE_NO_SOURCE);
+		atomic_set(&ths->ths_state, SUBSCRIPTION_BAD_SERVICE);
+	}
 
 	return 1;
 
