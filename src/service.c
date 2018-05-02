@@ -939,7 +939,7 @@ void
 service_send_streaming_status(service_t *t)
 {
   streaming_message_t *sm;
-  lock_assert(&t->s_stream_mutex);
+  // lock_assert(&t->s_stream_mutex);
 
   sm = streaming_msg_create_code(SMT_SERVICE_STATUS, t->s_streaming_status);
   streaming_service_deliver(t, sm);
@@ -951,7 +951,7 @@ service_send_streaming_status(service_t *t)
 void
 service_set_streaming_status_flags_(service_t *t, int set)
 {
-  lock_assert(&t->s_stream_mutex);
+  // lock_assert(&t->s_stream_mutex);
 
   if(set == t->s_streaming_status)
     return; // Already set
