@@ -19,7 +19,7 @@
 
 int nc_verbose = 0;
 
-#define NC_TIMEOUT_S		3
+#define NC_TIMEOUT_S		2
 #define NC_MAX_TASKS		64
 #define NC_MAX_PIDS		16
 #define NC_IP			config.ncserver_ip
@@ -463,7 +463,7 @@ static int get_task(struct mpegts_service *s, int dont_create)
 static uint32_t nc_query(struct mpegts_service *s, int task_idx, struct nc_query_in* in, struct nc_query_out* out)
 {
 	const char* cmd;
-	int read_size, sent_size, ret;
+	int read_size, sent_size;
 	struct timeval tv_timeout;
 	tv_timeout.tv_sec = NC_TIMEOUT_S;
 	tv_timeout.tv_usec = 0;
@@ -474,8 +474,6 @@ static uint32_t nc_query(struct mpegts_service *s, int task_idx, struct nc_query
 
 	if (!nc_task[task_idx].socket_fd)
 		return 1;
-
-	ret = 0;
 
 	// Now We can now talk to server
 	switch (in->type)
@@ -613,8 +611,7 @@ static uint32_t nc_query(struct mpegts_service *s, int task_idx, struct nc_query
 	else
 	{
 		out->status = NC_QUERY_STATUS_ERROR;
-		ret = 1;
-		goto NC_QUERY_END;
+		goto NC_QUERY_ERROR;
 	}
 
 	// Get data
@@ -651,9 +648,7 @@ static uint32_t nc_query(struct mpegts_service *s, int task_idx, struct nc_query
 		}
 	}
 
-NC_QUERY_END:
-
-	return ret;
+	return 0 ;
 
 NC_QUERY_ERROR:
 

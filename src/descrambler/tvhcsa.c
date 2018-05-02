@@ -120,7 +120,7 @@ nc_flush ( void *p )
   while (csa->nc_flush_task_running)
   {
     int level = (csa->cluster_wptr >= csa->cluster_rptr)?(csa->cluster_wptr - csa->cluster_rptr):(MAX_CSA_CLUSTERS+csa->cluster_wptr - csa->cluster_rptr);
-    if (level >= 5)
+    if (level >= MAX_CSA_CLUSTERS/2)
 	    nc_log(service_id16(s), "fifo level is high  %d/%d\n", level, MAX_CSA_CLUSTERS);
 
     // Wait for semphore
@@ -184,6 +184,10 @@ NC_RETRY:
 
         // gettimeofday(&stop, NULL);
         // nc_log(service_id16(s), "took %lu ms for %d bytes", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->csa_fill * 188);
+        th_subscription_t *ths;
+        LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
+          if (ths->ths_state == SUBSCRIPTION_BAD_SERVICE)
+            break;
 
         ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
       }
@@ -196,6 +200,20 @@ NC_RETRY:
 
   nc_release_service(s);
   nc_log(service_id16(s), "CSA thread exits\n");
+
+  
+  if (csa->nc_flush_task_running)
+  {
+    csa->nc_flush_task_running = 0;
+    nc_log(service_id16(s), "setting service as BAD\n");
+    th_subscription_t *ths;
+    LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
+    {
+      atomic_set(&ths->ths_testing_error, SM_CODE_NO_SOURCE);
+      atomic_set(&ths->ths_state, SUBSCRIPTION_BAD_SERVICE);
+    }
+  }
+
   return NULL;
 }
 
