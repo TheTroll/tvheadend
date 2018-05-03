@@ -185,10 +185,9 @@ NC_RETRY:
 
         // gettimeofday(&stop, NULL);
         // nc_log(service_id16(s), "took %lu ms for %d bytes", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->csa_fill * 188);
-        th_subscription_t *ths;
-        LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
-          if (ths->ths_state == SUBSCRIPTION_BAD_SERVICE)
-            break;
+
+        if (!csa->nc_flush_task_running)
+          break;
 
         if (csa->cluster[csa->cluster_rptr].csa_fill)
           ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
