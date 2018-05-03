@@ -144,6 +144,7 @@ subscription_unlink_service0(th_subscription_t *s, int reason, int resched)
 {
   streaming_message_t *sm;
   service_t *t = s->ths_service;
+  uint8_t descrambler_stopped = 0;
 
   /* Ignore - not actually linked */
   if (!s->ths_current_instance) goto stop;
@@ -167,6 +168,11 @@ subscription_unlink_service0(th_subscription_t *s, int reason, int resched)
 
   LIST_REMOVE(s, ths_service_link);
 
+  if(resched || LIST_FIRST(&t->s_subscriptions) == NULL) {
+    descrambler_service_stop(t);
+    descrambler_stopped = 1;
+  }
+
   if (s->ths_parser) {
     parser_destroy(s->ths_parser);
     s->ths_parser = NULL;
@@ -176,8 +182,11 @@ subscription_unlink_service0(th_subscription_t *s, int reason, int resched)
     mtimer_arm_rel(&s->ths_remove_timer, subscription_unsubscribe_cb, s, 0);
 
 stop:
-  if(resched || LIST_FIRST(&t->s_subscriptions) == NULL)
+  if(resched || LIST_FIRST(&t->s_subscriptions) == NULL) {
+    if (!descrambler_stopped)
+      descrambler_service_stop(t);
     service_stop(t);
+  }
   return 1;
 }
 

@@ -273,7 +273,8 @@ service_stop(service_t *t)
 
   t->s_stop_feed(t);
 
-  descrambler_service_stop(t);
+  // Now done in subscription_unlink_service0 to avoid crash to due NC server threads
+  // descrambler_service_stop(t);
 
   pthread_mutex_lock(&t->s_stream_mutex);
 
