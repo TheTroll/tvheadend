@@ -266,11 +266,11 @@ normalize_ts(tsfix_t *tf, tfstream_t *tfs, th_pkt_t *pkt, int backlog)
         }
 	tfs->tfs_bad_dts++;
         if (tfs->tfs_bad_dts < 5) {
-	  tvherror(LS_TSFIX,
+/*	  tvherror(LS_TSFIX,
 		   "transport stream %s, DTS discontinuity. "
 		   "DTS = %" PRId64 ", last = %" PRId64,
 		   streaming_component_type2txt(tfs->tfs_type),
-		   dts, tfs->tfs_last_dts_norm);
+		   dts, tfs->tfs_last_dts_norm); */
 	}
       } else {
 	/* DTS wrapped, increase upper bits */
