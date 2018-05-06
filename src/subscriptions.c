@@ -150,6 +150,16 @@ subscription_unlink_service0(th_subscription_t *s, int reason, int resched)
   if (!s->ths_current_instance) goto stop;
   s->ths_current_instance = NULL;
 
+  th_subscription_t *ths;
+  int sub_count = 0;
+  LIST_FOREACH(ths, &t->s_subscriptions, ths_service_link)
+    sub_count++;
+
+  if(resched || sub_count <= 1) {
+    descrambler_service_stop(t);
+    descrambler_stopped = 1;
+  }
+
   pthread_mutex_lock(&t->s_stream_mutex);
 
   streaming_target_disconnect(&t->s_streaming_pad, &s->ths_input);
@@ -167,11 +177,6 @@ subscription_unlink_service0(th_subscription_t *s, int reason, int resched)
   pthread_mutex_unlock(&t->s_stream_mutex);
 
   LIST_REMOVE(s, ths_service_link);
-
-  if(resched || LIST_FIRST(&t->s_subscriptions) == NULL) {
-    descrambler_service_stop(t);
-    descrambler_stopped = 1;
-  }
 
   if (s->ths_parser) {
     parser_destroy(s->ths_parser);

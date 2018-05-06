@@ -189,10 +189,12 @@ NC_RETRY:
         if (!csa->nc_flush_task_running)
           break;
 
+	pthread_mutex_lock(&s->s_stream_mutex);
         if (csa->cluster[csa->cluster_rptr].csa_fill)
           ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
         if (csa->cluster[csa->cluster_rptr].clear_fill)
           ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].clear_tsbcluster, csa->cluster[csa->cluster_rptr].clear_fill * 188);
+	pthread_mutex_unlock(&s->s_stream_mutex);
       }
     } 
 
@@ -491,9 +493,8 @@ tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service )
     // Spawn descrambling task
     csa->nc_flush_task_running = 0;
     sem_post(&csa->nc_flush_sem);
-    usleep(100000);
-    sem_destroy(&csa->nc_flush_sem);
     pthread_join(csa->nc_flush_task_id, NULL);
+    sem_destroy(&csa->nc_flush_sem);
   }
 
 
