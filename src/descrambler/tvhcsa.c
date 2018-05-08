@@ -310,8 +310,14 @@ tvhcsa_csa_cbc_descramble
       // Mark crypted PIDS
       if ((tsb[3] & 0x80) && csa->crypted_pid_count < 64)
       {
-        csa->crypted_pid[csa->crypted_pid_count] = pid;
-        csa->crypted_pid_count++;
+        for (i=0; i<csa->crypted_pid_count; i++)
+          if (csa->crypted_pid[i] == pid)
+            break;
+        if (i == csa->crypted_pid_count)
+        {
+          csa->crypted_pid[csa->crypted_pid_count] = pid;
+          csa->crypted_pid_count++;
+        }
       }
 
       // Is PID crypted ?
