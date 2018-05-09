@@ -78,6 +78,8 @@ typedef struct tvhcsa
   struct mpegts_service *service;
   char even[8];
   char odd[8];
+  uint8_t even_set;
+  uint8_t odd_set;
 #endif
   void *csa_priv;
 

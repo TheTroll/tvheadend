@@ -142,11 +142,20 @@ nc_flush ( void *p )
     if (csa->cluster[csa->cluster_rptr].ready)
     {
       uint8_t tries = 0;
+      uint8_t has_odd, has_even;
+
       // nc_log(service_id16(s), "CSA=%d, CLEAR=%d\n", csa->cluster[csa->cluster_rptr].csa_fill, csa->cluster[csa->cluster_rptr].clear_fill);
+
 NC_RETRY:
-      // Adding crypted pids
+      // Add crypted pids and get current key parity
+      has_odd = has_even = 0;
       for (unsigned char* pkt=csa->cluster[csa->cluster_rptr].csa_tsbcluster; pkt<csa->cluster[csa->cluster_rptr].csa_tsbcluster + csa->cluster[csa->cluster_rptr].csa_fill * 188; pkt += 188)
       {
+        if ((pkt[3]&0xc0) == 0xc0)
+          has_odd = 1;
+        if ((pkt[3]&0xc0) == 0x80)
+          has_even = 1;
+
         if (nc_add_pid(s, (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF)))
         {
           nc_log(service_id16(s), "add pid failed\n");
@@ -154,12 +163,25 @@ NC_RETRY:
         }
       }
 
-      if (nc_set_key(s, 1, csa->even) || nc_set_key(s, 0, csa->odd))
+      // Make sure we won't set the key too early (and break old packets)
+      if (!has_odd || !csa->odd_set)
       {
-         nc_log(service_id16(s), "set key failed (csa_fill=%d)\n", csa->cluster[csa->cluster_rptr].csa_fill);
-         nc_dump_pids(s);
-         break;
-      }
+        if (nc_set_key(s, 0, csa->odd))
+        {
+          nc_log(service_id16(s), "set ODD key failed\n");
+          break;
+        }
+        csa->odd_set = 1;
+      } 
+      if (!has_even || !csa->even_set)
+      {
+        if (nc_set_key(s, 1, csa->even))
+        {
+          nc_log(service_id16(s), "set EVEN key failed\n");
+          break;
+        }
+        csa->even_set = 1;
+      } 
 
       // struct timeval stop, start;
       // gettimeofday(&start, NULL);
@@ -434,6 +456,7 @@ void tvhcsa_set_key_even( tvhcsa_t *csa, const uint8_t *even )
   case DESCRAMBLER_AES128_ECB:
     aes128_set_even_control_word(csa->csa_priv, even);
     break;
+  default:
     assert(0);
   }
 }
@@ -475,6 +498,7 @@ tvhcsa_init ( tvhcsa_t *csa , struct mpegts_service *service )
     csa->crypted_pid_count = 0;
     csa->cluster_rptr = 0;
     csa->cluster_wptr = 0;
+    csa->odd_set = csa->even_set = 0;
     sem_init(&csa->nc_flush_sem, 0, 0);
     csa->nc_flush_task_running = 1;
     tvhthread_create(&csa->nc_flush_task_id, NULL, nc_flush, csa, "DVBCSA");
