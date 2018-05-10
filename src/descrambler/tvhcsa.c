@@ -159,23 +159,23 @@ nc_flush ( void *p )
       }
 
       // Make sure we won't set the key too early (and break old packets)
-      if (!has_odd || !csa->nc.odd_set)
+      if ((!has_odd && !csa->nc.odd_set) || !csa->nc.first_odd_set)
       {
-        if (nc_set_key(0, csa->nc.odd, csa))
+        if (nc_set_key(0, csa))
         {
           nc_log(service_id16(s), "set ODD key failed\n");
           break;
         }
-        csa->nc.odd_set = 1;
+        csa->nc.first_odd_set = 1;
       } 
-      if (!has_even || !csa->nc.even_set)
+      if ((!has_even && !csa->nc.even_set) || !csa->nc.first_even_set)
       {
-        if (nc_set_key(1, csa->nc.even, csa))
+        if (nc_set_key(1, csa))
         {
           nc_log(service_id16(s), "set EVEN key failed\n");
           break;
         }
-        csa->nc.even_set = 1;
+        csa->nc.first_even_set = 1;
       } 
 
       // struct timeval stop, start;
@@ -422,6 +422,7 @@ void tvhcsa_set_key_even( tvhcsa_t *csa, const uint8_t *even )
   case DESCRAMBLER_CSA_CBC:
     dvbcsa_bs_key_set(even, csa->csa_key_even);
     memcpy(csa->nc.even, even, 8);
+    csa->nc.even_set = 0;
     break;
   case DESCRAMBLER_DES_NCB:
     des_set_even_control_word(csa->csa_priv, even);
@@ -444,6 +445,7 @@ void tvhcsa_set_key_odd( tvhcsa_t *csa, const uint8_t *odd )
   case DESCRAMBLER_CSA_CBC:
     dvbcsa_bs_key_set(odd, csa->csa_key_odd);
     memcpy(csa->nc.odd, odd, 8);
+    csa->nc.odd_set = 0;
     break;
   case DESCRAMBLER_DES_NCB:
     des_set_odd_control_word(csa->csa_priv, odd);
@@ -472,7 +474,7 @@ tvhcsa_init ( tvhcsa_t *csa , struct mpegts_service *service )
     csa->crypted_pid_count = 0;
     csa->cluster_rptr = 0;
     csa->cluster_wptr = 0;
-    csa->nc.odd_set = csa->nc.even_set = 0;
+    csa->nc.first_odd_set = csa->nc.first_even_set = 0;
     sem_init(&csa->nc.flush_sem, 0, 0);
     csa->nc.flush_task_running = 1;
     if (!nc_init_service(csa))

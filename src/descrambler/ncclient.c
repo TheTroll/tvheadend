@@ -215,11 +215,13 @@ NC_INIT_SERVICE_FAIL:
 	return -1;
 }
 
-int nc_set_key(uint8_t is_even, char* key, tvhcsa_t *csa)
+int nc_set_key(uint8_t is_even, tvhcsa_t *csa)
 {
-	char* existing_key;
 	struct nc_query_in query_in = {0, };
 	struct nc_query_out query_out = {0, };
+	char* key;
+	uint8_t* set;
+
 	if (!csa || !csa->service)
 		return 1;
 	int service = service_id16(csa->service);
@@ -232,17 +234,16 @@ int nc_set_key(uint8_t is_even, char* key, tvhcsa_t *csa)
 
 	if (is_even)
 	{
-		existing_key = csa->nc.even;
+		key = csa->nc.even;
+		set = &csa->nc.even_set;
 		query_in.type = NC_QUERY_TYPE_SET_EVEN_KEY;
 	}
 	else
 	{
-		existing_key = csa->nc.odd;
+		key = csa->nc.odd;
+		set = &csa->nc.odd_set;
 		query_in.type = NC_QUERY_TYPE_SET_ODD_KEY;
 	}
-
-	if (!memcmp(existing_key, key, 8))
-		return 0;
 
 	// Set pid remotely
 	query_in.data = key;
@@ -254,9 +255,9 @@ int nc_set_key(uint8_t is_even, char* key, tvhcsa_t *csa)
 		return 1;
 	}
 
-	memcpy(existing_key, key, 8);
 	nc_log(service, "set %s key [%02X %02X %02X %02X %02X %02X %02X %02X]\n", is_even?"EVEN":"ODD ",
 			key[0], key[1], key[2], key[3], key[4], key[5], key[6], key[7]);
+	*set = 1;
 
 	return 0;
 }

@@ -86,6 +86,8 @@ typedef struct tvhcsa
     char odd[8];
     uint8_t even_set;
     uint8_t odd_set;
+    uint8_t first_even_set;
+    uint8_t first_odd_set;
 
     pthread_t flush_task_id;
     uint8_t flush_task_running;
