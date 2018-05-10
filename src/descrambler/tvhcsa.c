@@ -74,7 +74,6 @@ static void
 tvhcsa_csa_cbc_flush
   ( tvhcsa_t *csa, struct mpegts_service *s )
 {
-#if ENABLE_DVBCSA
   if (!s->ncserver)
   {
     if(csa->csa_fill_even) {
@@ -105,7 +104,6 @@ tvhcsa_csa_cbc_flush
       sem_post(&csa->nc.flush_sem);
     }
   }
-#endif
 }
 
 static void *
@@ -238,7 +236,6 @@ tvhcsa_csa_cbc_descramble
 {
   const uint8_t *tsb_end = tsb + tsb_len;
 
-#if ENABLE_DVBCSA
   if (!s->ncserver)
   {
     uint8_t *pkt;
@@ -355,7 +352,6 @@ tvhcsa_csa_cbc_descramble
         tvhcsa_csa_cbc_flush(csa, s);
     }
   }
-#endif
 }
 
 int
@@ -383,22 +379,16 @@ tvhcsa_set_type( tvhcsa_t *csa, int type )
       }
 
     } else {
-#if ENABLE_DVBCSA
       csa->csa_cluster_size = dvbcsa_bs_batch_size();
-#else
-      csa->csa_cluster_size = 0;
-#endif
       csa->cluster[0].csa_tsbcluster    = malloc((dvbcsa_bs_batch_size() + 1) * 188);
       memset(csa->cluster[0].csa_tsbcluster + dvbcsa_bs_batch_size() * 188, 0, 188);
     }
-#if ENABLE_DVBCSA
     csa->csa_tsbbatch_even = malloc((dvbcsa_bs_batch_size() + 1) *
                                     sizeof(struct dvbcsa_bs_batch_s));
     csa->csa_tsbbatch_odd  = malloc((dvbcsa_bs_batch_size() + 1) *
                                     sizeof(struct dvbcsa_bs_batch_s));
     csa->csa_key_even      = dvbcsa_bs_key_alloc();
     csa->csa_key_odd       = dvbcsa_bs_key_alloc();
-#endif
     break;
   case DESCRAMBLER_DES_NCB:
     csa->csa_priv          = des_get_priv_struct();
@@ -430,10 +420,8 @@ void tvhcsa_set_key_even( tvhcsa_t *csa, const uint8_t *even )
 {
   switch (csa->csa_type) {
   case DESCRAMBLER_CSA_CBC:
-#if ENABLE_DVBCSA
     dvbcsa_bs_key_set(even, csa->csa_key_even);
     memcpy(csa->nc.even, even, 8);
-#endif
     break;
   case DESCRAMBLER_DES_NCB:
     des_set_even_control_word(csa->csa_priv, even);
@@ -454,10 +442,8 @@ void tvhcsa_set_key_odd( tvhcsa_t *csa, const uint8_t *odd )
   assert(csa->csa_type);
   switch (csa->csa_type) {
   case DESCRAMBLER_CSA_CBC:
-#if ENABLE_DVBCSA
     dvbcsa_bs_key_set(odd, csa->csa_key_odd);
     memcpy(csa->nc.odd, odd, 8);
-#endif
     break;
   case DESCRAMBLER_DES_NCB:
     des_set_odd_control_word(csa->csa_priv, odd);
@@ -497,7 +483,6 @@ tvhcsa_init ( tvhcsa_t *csa , struct mpegts_service *service )
 void
 tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service )
 {
-#if ENABLE_DVBCSA
   if (csa->csa_key_odd)
     dvbcsa_bs_key_free(csa->csa_key_odd);
   if (csa->csa_key_even)
@@ -506,7 +491,6 @@ tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service )
     free(csa->csa_tsbbatch_odd);
   if (csa->csa_tsbbatch_even)
     free(csa->csa_tsbbatch_even);
-#endif
   if (service->ncserver)
   {
     // Spawn descrambling task
