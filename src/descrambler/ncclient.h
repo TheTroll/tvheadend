@@ -4,11 +4,11 @@
 #define NC_CSA_CLUSTER_SIZE	1024
 #define NC_CLEAR_CLUSTER_SIZE	128
 
-int nc_set_key(struct mpegts_service *s, uint8_t is_even, char* key);
-int nc_add_pid(struct mpegts_service *s, int pid);
-int nc_dump_pids(struct mpegts_service *s);
-int nc_descramble(struct mpegts_service *s, unsigned char* buffer, int size);
-int nc_release_service(struct mpegts_service *s);
+int nc_init_service(tvhcsa_t *csa);
+int nc_set_key(uint8_t is_even, char* key, tvhcsa_t* csa);
+int nc_add_pid(int pid, tvhcsa_t* csa);
+int nc_descramble(unsigned char* buffer, int size, tvhcsa_t* csa);
+int nc_release_service(tvhcsa_t* csa);
 void nc_log(int srvid, const char* format, ...);
 
 #endif

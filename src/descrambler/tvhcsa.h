@@ -62,10 +62,6 @@ typedef struct tvhcsa
   int crypted_pid[64];
   int crypted_pid_count;
 
-  pthread_t nc_flush_task_id;
-  uint8_t nc_flush_task_running;
-  sem_t nc_flush_sem;
-
 #if ENABLE_DVBCSA
   struct dvbcsa_bs_batch_s *csa_tsbbatch_even;
   struct dvbcsa_bs_batch_s *csa_tsbbatch_odd;
@@ -75,11 +71,29 @@ typedef struct tvhcsa
   struct dvbcsa_bs_key_s *csa_key_even;
   struct dvbcsa_bs_key_s *csa_key_odd;
 
+  // Use for ncserver only
   struct mpegts_service *service;
-  char even[8];
-  char odd[8];
-  uint8_t even_set;
-  uint8_t odd_set;
+
+  #define NC_MAX_PIDS		16
+  struct {
+    int init_done;
+
+    char server_ip[16];
+    int server_port;
+
+    int socket_fd;
+    int nb_pids;
+    int pid[NC_MAX_PIDS];
+
+    char even[8];
+    char odd[8];
+    uint8_t even_set;
+    uint8_t odd_set;
+
+    pthread_t flush_task_id;
+    uint8_t flush_task_running;
+    sem_t flush_sem;
+ } nc;
 #endif
   void *csa_priv;
 
