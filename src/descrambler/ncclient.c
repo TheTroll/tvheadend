@@ -77,7 +77,8 @@ int nc_init_service(tvhcsa_t *csa)
 	}
 	service = service_id16(csa->service);
 
-	csa->nc.init_done = 0;
+	if (csa->nc.init_done)
+		return 0;
 
 	// Find service in tasks
 	if (!NC_IP || !strlen(NC_IP) || !NC_PORT)
@@ -235,13 +236,13 @@ int nc_set_key(uint8_t is_even, tvhcsa_t *csa)
 	if (is_even)
 	{
 		key = csa->nc.even;
-		set = &csa->nc.even_set;
+		set = &csa->nc.even_available;
 		query_in.type = NC_QUERY_TYPE_SET_EVEN_KEY;
 	}
 	else
 	{
 		key = csa->nc.odd;
-		set = &csa->nc.odd_set;
+		set = &csa->nc.odd_available;
 		query_in.type = NC_QUERY_TYPE_SET_ODD_KEY;
 	}
 
@@ -257,7 +258,7 @@ int nc_set_key(uint8_t is_even, tvhcsa_t *csa)
 
 	nc_log(service, "set %s key [%02X %02X %02X %02X %02X %02X %02X %02X]\n", is_even?"EVEN":"ODD ",
 			key[0], key[1], key[2], key[3], key[4], key[5], key[6], key[7]);
-	*set = 1;
+	*set = 0;
 
 	return 0;
 }
@@ -354,13 +355,12 @@ int nc_release_service(tvhcsa_t *csa)
 		return 1;
 	int service = service_id16(csa->service);
 
-	nc_log(service, "releasing service\n");
-
 	if (!csa->nc.init_done)
 	{
-		nc_log(service, "nc_release_service failed, ncserver not initialized\n");
-		return 1;
+		return 0;
 	}
+
+	nc_log(service, "releasing service\n");
 
 	// Release remote
 	query_in.type = NC_QUERY_TYPE_RELEASE;

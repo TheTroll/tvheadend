@@ -30,7 +30,7 @@ struct elementary_stream;
 #include <fcntl.h>
 struct mpegts_service;
 
-#define MAX_CSA_CLUSTERS 64
+#define MAX_CSA_CLUSTERS 16
 
 typedef struct tvhcsa
 {
@@ -73,6 +73,7 @@ typedef struct tvhcsa
 
   #define NC_MAX_PIDS		16
   struct {
+    int key_crc_status; // 0 unchecked, 1 crc is good, 2 crc is bad
     int init_done;
 
     char server_ip[16];
@@ -82,10 +83,11 @@ typedef struct tvhcsa
     int nb_pids;
     int pid[NC_MAX_PIDS];
 
+    uint8_t key_status;
     char even[8];
     char odd[8];
-    uint8_t even_set;
-    uint8_t odd_set;
+    uint8_t even_available;
+    uint8_t odd_available;
     uint8_t first_even_set;
     uint8_t first_odd_set;
 

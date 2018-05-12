@@ -30,6 +30,21 @@
 
 #include "ncclient.h"
 
+static uint32_t check_crc(unsigned const char *dcw)
+{
+  unsigned int i;
+  unsigned int c;
+
+  for(i = 0; i < 8; i += 4)
+  {
+    c = ((dcw[i] + dcw[i + 1] + dcw[i + 2]) & 0xff);
+    if(dcw[i + 3] != c)
+      return 0;
+  }
+
+  return 1;
+}
+
 static void
 tvhcsa_empty_flush
   ( tvhcsa_t *csa, struct mpegts_service *s )
@@ -74,7 +89,12 @@ static void
 tvhcsa_csa_cbc_flush
   ( tvhcsa_t *csa, struct mpegts_service *s )
 {
-  if (!s->ncserver)
+
+  // Skip data with unknown key
+  if (s->ncserver && !csa->nc.key_status)
+    return;
+
+  if (!s->ncserver || (csa->nc.key_status == 1))
   {
     if(csa->csa_fill_even) {
       csa->csa_tsbbatch_even[csa->csa_fill_even].data = NULL;
@@ -112,7 +132,7 @@ nc_flush ( void *p )
   tvhcsa_t *csa = p;
   struct mpegts_service* s = csa->service;
 
-  nc_log(service_id16(s), "CSA thread started\n");
+  // nc_log(service_id16(s), "CSA thread started\n");
 
   while (csa->nc.flush_task_running)
   {
@@ -140,6 +160,13 @@ nc_flush ( void *p )
     {
       uint8_t has_odd, has_even;
 
+      // Init nc service if not done yet
+      if (nc_init_service(csa))
+      {
+          nc_log(service_id16(s), "NC init failed\n");
+          break;
+      }
+
       // nc_log(service_id16(s), "CSA=%d, CLEAR=%d\n", csa->cluster[csa->cluster_rptr].csa_fill, csa->cluster[csa->cluster_rptr].clear_fill);
 
       // Add crypted pids and get current key parity
@@ -159,7 +186,7 @@ nc_flush ( void *p )
       }
 
       // Make sure we won't set the key too early (and break old packets)
-      if ((!has_odd && !csa->nc.odd_set) || !csa->nc.first_odd_set)
+      if ((!has_odd && csa->nc.odd_available) || !csa->nc.first_odd_set)
       {
         if (nc_set_key(0, csa))
         {
@@ -168,7 +195,7 @@ nc_flush ( void *p )
         }
         csa->nc.first_odd_set = 1;
       } 
-      if ((!has_even && !csa->nc.even_set) || !csa->nc.first_even_set)
+      if ((!has_even && csa->nc.even_available) || !csa->nc.first_even_set)
       {
         if (nc_set_key(1, csa))
         {
@@ -212,7 +239,7 @@ nc_flush ( void *p )
   }
 
   nc_release_service(csa);
-  nc_log(service_id16(s), "CSA thread exits\n");
+  // nc_log(service_id16(s), "CSA thread exits\n");
 
   
   if (csa->nc.flush_task_running)
@@ -227,6 +254,8 @@ nc_flush ( void *p )
     }
   }
 
+  sem_destroy(&csa->nc.flush_sem);
+
   return NULL;
 }
 
@@ -236,7 +265,12 @@ tvhcsa_csa_cbc_descramble
 {
   const uint8_t *tsb_end = tsb + tsb_len;
 
-  if (!s->ncserver)
+  // Skip data with unknown key
+  if (s->ncserver && !csa->nc.key_status)
+    return;
+
+  // Use local DVBCSA for non ncserver channels and valid ncserver crc
+  if (!s->ncserver || (csa->nc.key_status == 1))
   {
     uint8_t *pkt;
     int ev_od;
@@ -357,6 +391,8 @@ tvhcsa_csa_cbc_descramble
 int
 tvhcsa_set_type( tvhcsa_t *csa, int type )
 {
+  int cluster_size = (NC_CSA_CLUSTER_SIZE>dvbcsa_bs_batch_size())?NC_CSA_CLUSTER_SIZE:dvbcsa_bs_batch_size();
+
   if (csa->csa_type == type)
     return 0;
   if (csa->csa_descramble)
@@ -367,21 +403,14 @@ tvhcsa_set_type( tvhcsa_t *csa, int type )
     csa->csa_descramble    = tvhcsa_csa_cbc_descramble;
     csa->csa_flush         = tvhcsa_csa_cbc_flush;
     csa->csa_keylen        = 8;
+    csa->csa_cluster_size  = dvbcsa_bs_batch_size();
     /* Note: the optimized routines might read memory after last TS packet */
     /*       allocate safe memory and fill it with zeros */
-    if (csa->service && csa->service->ncserver)
-    {
-      for (int cluster=0; cluster<MAX_CSA_CLUSTERS; cluster++) {
-        csa->cluster[cluster].csa_tsbcluster    = malloc((NC_CSA_CLUSTER_SIZE + 1) * 188);
-        csa->cluster[cluster].clear_tsbcluster    = malloc((NC_CLEAR_CLUSTER_SIZE + 1) * 188);
-        memset(csa->cluster[cluster].csa_tsbcluster + NC_CSA_CLUSTER_SIZE * 188, 0, 188);
-        memset(csa->cluster[cluster].clear_tsbcluster + NC_CLEAR_CLUSTER_SIZE * 188, 0, 188);
-      }
-
-    } else {
-      csa->csa_cluster_size = dvbcsa_bs_batch_size();
-      csa->cluster[0].csa_tsbcluster    = malloc((dvbcsa_bs_batch_size() + 1) * 188);
-      memset(csa->cluster[0].csa_tsbcluster + dvbcsa_bs_batch_size() * 188, 0, 188);
+    for (int cluster=0; cluster<MAX_CSA_CLUSTERS; cluster++) {
+      csa->cluster[cluster].csa_tsbcluster    = malloc((cluster_size + 1) * 188);
+      csa->cluster[cluster].clear_tsbcluster    = malloc((cluster_size + 1) * 188);
+      memset(csa->cluster[cluster].csa_tsbcluster ,0, 188 * cluster_size);
+      memset(csa->cluster[cluster].clear_tsbcluster ,0, 188 * cluster_size);
     }
     csa->csa_tsbbatch_even = malloc((dvbcsa_bs_batch_size() + 1) *
                                     sizeof(struct dvbcsa_bs_batch_s));
@@ -415,50 +444,78 @@ tvhcsa_set_type( tvhcsa_t *csa, int type )
   return 0;
 }
 
-
-void tvhcsa_set_key_even( tvhcsa_t *csa, const uint8_t *even )
+static void tvhcsa_set_key( tvhcsa_t *csa, const uint8_t *key, uint8_t is_even )
 {
+  int i;
+  // Ignore null key
+  for (i=0; i<8; i++)
+    if (key[i])
+      break;
+  if (i == 8)
+    return;
+
+  if (csa->service && csa->service->ncserver && !csa->nc.key_status)
+  {
+    if (check_crc(key))
+    {
+      if (csa->nc.flush_task_running)
+      {
+        csa->nc.flush_task_running = 0;
+        sem_post(&csa->nc.flush_sem);
+        pthread_join(csa->nc.flush_task_id, NULL);
+      }
+      csa->nc.key_status = 1;
+    }
+    else
+      csa->nc.key_status = 2;
+  }
+
   switch (csa->csa_type) {
   case DESCRAMBLER_CSA_CBC:
-    dvbcsa_bs_key_set(even, csa->csa_key_even);
-    memcpy(csa->nc.even, even, 8);
-    csa->nc.even_set = 0;
+    if (is_even)
+    {
+      dvbcsa_bs_key_set(key, csa->csa_key_even);
+      memcpy(csa->nc.even, key, 8);
+      csa->nc.even_available = 1;
+    }
+    else
+    {
+      dvbcsa_bs_key_set(key, csa->csa_key_odd);
+      memcpy(csa->nc.odd, key, 8);
+      csa->nc.odd_available = 1;
+    }
     break;
   case DESCRAMBLER_DES_NCB:
-    des_set_even_control_word(csa->csa_priv, even);
+    if (is_even)
+      des_set_even_control_word(csa->csa_priv, key);
+    else
+      des_set_odd_control_word(csa->csa_priv, key);
     break;
   case DESCRAMBLER_AES_ECB:
-    aes_set_even_control_word(csa->csa_priv, even);
+    if (is_even)
+      aes_set_even_control_word(csa->csa_priv, key);
+    else
+      aes_set_odd_control_word(csa->csa_priv, key);
     break;
   case DESCRAMBLER_AES128_ECB:
-    aes128_set_even_control_word(csa->csa_priv, even);
+    if (is_even)
+      aes128_set_even_control_word(csa->csa_priv, key);
+    else
+      aes128_set_odd_control_word(csa->csa_priv, key);
     break;
   default:
     assert(0);
   }
 }
 
+void tvhcsa_set_key_even( tvhcsa_t *csa, const uint8_t *even )
+{
+  tvhcsa_set_key( csa, even , 1 );
+}
+
 void tvhcsa_set_key_odd( tvhcsa_t *csa, const uint8_t *odd )
 {
-  assert(csa->csa_type);
-  switch (csa->csa_type) {
-  case DESCRAMBLER_CSA_CBC:
-    dvbcsa_bs_key_set(odd, csa->csa_key_odd);
-    memcpy(csa->nc.odd, odd, 8);
-    csa->nc.odd_set = 0;
-    break;
-  case DESCRAMBLER_DES_NCB:
-    des_set_odd_control_word(csa->csa_priv, odd);
-    break;
-  case DESCRAMBLER_AES_ECB:
-    aes_set_odd_control_word(csa->csa_priv, odd);
-    break;
-  case DESCRAMBLER_AES128_ECB:
-    aes128_set_odd_control_word(csa->csa_priv, odd);
-    break;
-  default:
-    assert(0);
-  }
+  tvhcsa_set_key( csa, odd , 0 );
 }
 
 void
@@ -477,8 +534,7 @@ tvhcsa_init ( tvhcsa_t *csa , struct mpegts_service *service )
     csa->nc.first_odd_set = csa->nc.first_even_set = 0;
     sem_init(&csa->nc.flush_sem, 0, 0);
     csa->nc.flush_task_running = 1;
-    if (!nc_init_service(csa))
-	    tvhthread_create(&csa->nc.flush_task_id, NULL, nc_flush, csa, "DVBCSA");
+    tvhthread_create(&csa->nc.flush_task_id, NULL, nc_flush, csa, "DVBCSA");
   }
 }
 
@@ -493,13 +549,11 @@ tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service )
     free(csa->csa_tsbbatch_odd);
   if (csa->csa_tsbbatch_even)
     free(csa->csa_tsbbatch_even);
-  if (service->ncserver)
+  if (service->ncserver && csa->nc.flush_task_running == 1)
   {
-    // Spawn descrambling task
     csa->nc.flush_task_running = 0;
     sem_post(&csa->nc.flush_sem);
     pthread_join(csa->nc.flush_task_id, NULL);
-    sem_destroy(&csa->nc.flush_sem);
   }
 
 
