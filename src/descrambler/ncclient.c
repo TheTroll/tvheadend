@@ -64,7 +64,6 @@ static uint32_t nc_query(struct nc_query_in* in, struct nc_query_out* out, tvhcs
 /***********************************************/
 int nc_init_service(tvhcsa_t *csa)
 {
-	th_subscription_t *ths;
 	struct timeval tv_timeout;
 	tv_timeout.tv_sec = NC_TIMEOUT_S;
 	tv_timeout.tv_usec = 0;
@@ -206,12 +205,7 @@ NC_INIT_SERVICE_FAIL:
 	
 
 	// Bad service
-	nc_log(service, "setting service as BAD\n");
-	LIST_FOREACH(ths, &csa->service->s_subscriptions, ths_service_link)
-	{
-		atomic_set(&ths->ths_testing_error, SM_CODE_NO_SOURCE);
-		atomic_set(&ths->ths_state, SUBSCRIPTION_BAD_SERVICE);
-	}
+	nc_set_service_bad(csa);
 
 	return -1;
 }
@@ -617,16 +611,38 @@ static uint32_t nc_query(struct nc_query_in* in, struct nc_query_out* out, tvhcs
 NC_QUERY_ERROR:
 
 	// Bad service
-	nc_log(service, "setting service as BAD\n");
-	th_subscription_t *ths;
-	LIST_FOREACH(ths, &csa->service->s_subscriptions, ths_service_link)
-	{
-		atomic_set(&ths->ths_testing_error, SM_CODE_NO_SOURCE);
-		atomic_set(&ths->ths_state, SUBSCRIPTION_BAD_SERVICE);
-	}
+	nc_set_service_bad(csa);
 
 	return 1;
 
 }
 
+void nc_set_service_bad(tvhcsa_t *csa)
+{
+	th_subscription_t *ths;
+	uint8_t set_bad = 0;
+	int service = service_id16(csa->service);
+
+	if (!csa || !csa->service)
+		return;
+
+	// Don't set it twice
+	LIST_FOREACH(ths, &csa->service->s_subscriptions, ths_service_link)
+		if (ths->ths_state != SUBSCRIPTION_BAD_SERVICE)
+		{
+			set_bad = 1;
+			break;
+		}
+
+	if (set_bad)
+	{
+		// Bad service
+		nc_log(service, "setting service as BAD\n");
+		LIST_FOREACH(ths, &csa->service->s_subscriptions, ths_service_link)
+		{
+			atomic_set(&ths->ths_testing_error, SM_CODE_NO_SOURCE);
+			atomic_set(&ths->ths_state, SUBSCRIPTION_BAD_SERVICE);
+		}
+	}
+}
 

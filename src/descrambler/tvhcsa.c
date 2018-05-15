@@ -245,13 +245,7 @@ nc_flush ( void *p )
   if (csa->nc.flush_task_running)
   {
     csa->nc.flush_task_running = 0;
-    nc_log(service_id16(s), "setting service as BAD\n");
-    th_subscription_t *ths;
-    LIST_FOREACH(ths, &s->s_subscriptions, ths_service_link)
-    {
-      atomic_set(&ths->ths_testing_error, SM_CODE_NO_SOURCE);
-      atomic_set(&ths->ths_state, SUBSCRIPTION_BAD_SERVICE);
-    }
+    nc_set_service_bad(csa);
   }
 
   sem_destroy(&csa->nc.flush_sem);

@@ -10,5 +10,6 @@ int nc_add_pid(int pid, tvhcsa_t* csa);
 int nc_descramble(unsigned char* buffer, int size, tvhcsa_t* csa);
 int nc_release_service(tvhcsa_t* csa);
 void nc_log(int srvid, const char* format, ...);
+void nc_set_service_bad(tvhcsa_t *csa);
 
 #endif
