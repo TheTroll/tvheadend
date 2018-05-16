@@ -94,6 +94,8 @@ typedef struct tvhcsa
     pthread_t flush_task_id;
     uint8_t flush_task_running;
     sem_t flush_sem;
+
+    pthread_mutex_t key_mutex;
  } nc;
 
   void *csa_priv;

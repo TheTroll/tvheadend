@@ -186,11 +186,13 @@ nc_flush ( void *p )
       }
 
       // Make sure we won't set the key too early (and break old packets)
+      pthread_mutex_lock(&csa->nc.key_mutex);
       if ((!has_odd && csa->nc.odd_available) || !csa->nc.first_odd_set)
       {
         if (nc_set_key(0, csa))
         {
           nc_log(service_id16(s), "set ODD key failed\n");
+          pthread_mutex_unlock(&csa->nc.key_mutex);
           break;
         }
         csa->nc.first_odd_set = 1;
@@ -200,10 +202,12 @@ nc_flush ( void *p )
         if (nc_set_key(1, csa))
         {
           nc_log(service_id16(s), "set EVEN key failed\n");
+          pthread_mutex_unlock(&csa->nc.key_mutex);
           break;
         }
         csa->nc.first_even_set = 1;
       } 
+      pthread_mutex_unlock(&csa->nc.key_mutex);
 
       // struct timeval stop, start;
       // gettimeofday(&start, NULL);
@@ -510,12 +514,16 @@ static void tvhcsa_set_key( tvhcsa_t *csa, const uint8_t *key, uint8_t is_even )
 
 void tvhcsa_set_key_even( tvhcsa_t *csa, const uint8_t *even )
 {
+  pthread_mutex_lock(&csa->nc.key_mutex);
   tvhcsa_set_key( csa, even , 1 );
+  pthread_mutex_unlock(&csa->nc.key_mutex);
 }
 
 void tvhcsa_set_key_odd( tvhcsa_t *csa, const uint8_t *odd )
 {
+  pthread_mutex_lock(&csa->nc.key_mutex);
   tvhcsa_set_key( csa, odd , 0 );
+  pthread_mutex_unlock(&csa->nc.key_mutex);
 }
 
 void
@@ -533,6 +541,7 @@ tvhcsa_init ( tvhcsa_t *csa , struct mpegts_service *service )
     csa->cluster_wptr = 0;
     csa->nc.first_odd_set = csa->nc.first_even_set = 0;
     sem_init(&csa->nc.flush_sem, 0, 0);
+    pthread_mutex_init(&csa->nc.key_mutex, NULL);
     csa->nc.flush_task_running = 1;
     tvhthread_create(&csa->nc.flush_task_id, NULL, nc_flush, csa, "DVBCSA");
   }
@@ -549,11 +558,15 @@ tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service )
     free(csa->csa_tsbbatch_odd);
   if (csa->csa_tsbbatch_even)
     free(csa->csa_tsbbatch_even);
-  if (service->ncserver && csa->nc.flush_task_running == 1)
+  if (service->ncserver)
   {
-    csa->nc.flush_task_running = 0;
-    sem_post(&csa->nc.flush_sem);
-    pthread_join(csa->nc.flush_task_id, NULL);
+    if (csa->nc.flush_task_running)
+    {
+      csa->nc.flush_task_running = 0;
+      sem_post(&csa->nc.flush_sem);
+      pthread_join(csa->nc.flush_task_id, NULL);
+    }
+    pthread_mutex_destroy(&csa->nc.key_mutex);
   }
 
 
