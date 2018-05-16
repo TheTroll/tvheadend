@@ -469,14 +469,20 @@ static void tvhcsa_set_key( tvhcsa_t *csa, const uint8_t *key, uint8_t is_even )
     if (is_even)
     {
       dvbcsa_bs_key_set(key, csa->csa_key_even);
-      memcpy(csa->nc.even, key, 8);
-      csa->nc.even_available = 1;
+      if (memcmp(csa->nc.even, key, 8))
+      {
+        memcpy(csa->nc.even, key, 8);
+        csa->nc.even_available = 1;
+      }
     }
     else
     {
       dvbcsa_bs_key_set(key, csa->csa_key_odd);
-      memcpy(csa->nc.odd, key, 8);
-      csa->nc.odd_available = 1;
+      if (memcmp(csa->nc.odd, key, 8))
+      {
+        memcpy(csa->nc.odd, key, 8);
+        csa->nc.odd_available = 1;
+      }
     }
     break;
   case DESCRAMBLER_DES_NCB:
