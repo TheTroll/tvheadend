@@ -354,7 +354,8 @@ int nc_release_service(tvhcsa_t *csa)
 		return 0;
 	}
 
-	nc_log(service, "releasing service\n");
+	if (nc_verbose)
+		nc_log(service, "releasing service\n");
 
 	// Release remote
 	query_in.type = NC_QUERY_TYPE_RELEASE;
@@ -363,12 +364,12 @@ int nc_release_service(tvhcsa_t *csa)
 	if (nc_query(&query_in, &query_out, csa))
 		nc_log(service,"release service failed\n");
 
-	nc_log(service, "disconnecting from server, closing socket\n");
-
 	close(csa->nc.socket_fd);
 
 	// Remove locally
 	memset(&csa->nc, 0, sizeof(csa->nc));
+
+	nc_log(service, "disconnected from server\n");
 
 	return 1;
 }
