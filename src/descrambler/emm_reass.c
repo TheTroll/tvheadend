@@ -396,20 +396,83 @@ emm_nagra
   (emm_reass_t *ra, const uint8_t *data, int len, void *mux,
    emm_send_t send, void *aux)
 {
-  int match = 0;
-  uint8_t hexserial[4];
+  int i, match = 0;
+  emm_provider_t *ep;
 
-  if (data[0] == 0x83) {        // unique|shared
-    if (len >= 8) {
-      hexserial[0] = data[5];
-      hexserial[1] = data[4];
-      hexserial[2] = data[3];
-      hexserial[3] = data[6];
-      if (memcmp(hexserial, &ra->ua[4], (data[7] == 0x10) ? 3 : 4) == 0)
-        match = 1;
-    }
-  } else if (data[0] == 0x82) { // global
-    match = 1;
+  switch (ra->caid)
+  {
+    case 0x1814:
+      switch (data[0])
+      {
+        // Unique
+        case 0x87:
+          if (len < 9)
+            break;
+          if (!memcmp(data+3, &ra->ua[2], 6)) {
+            tvhinfo(ra->subsys, "Unique: 0x%x match emm [%02X%02X%02X%02X%02X%02X] vs card [%02X%02X%02X%02X%02X%02X]", ra->caid,
+              data[3], data[4], data[5], data[6], data[7], data[8],
+              ra->ua[2], ra->ua[3], ra->ua[4], ra->ua[4], ra->ua[6], ra->ua[7]);
+            match = 1;
+          }
+          break;
+        // Shared
+        case 0x83:
+          if (len < 6)
+            break;
+          PROVIDERS_FOREACH(ra, i, ep) {
+            if (!memcmp(data+3, &ep->sa[4], 3)) {
+              tvhinfo(ra->subsys, "Shared: 0x%x match emm [%02X%02X%02X] vs [%02X%02X%02X]", ra->caid,
+	        data[3], data[4], data[5],
+                ep->sa[4], ep->sa[5], ep->sa[6]);
+              match = 1;
+            }
+          }
+          break;
+        // Global
+        case 0x84:
+          match = 1;
+          break;
+      }
+      break;
+    default:
+      switch (data[0])
+      {
+        // Unique
+        case 0x82:
+          if (len < 9)
+            break;
+          if (!memcmp(data+3, &ra->ua[2], 6)) {
+            tvhinfo(ra->subsys, "Unique: 0x%x match emm [%02X%02X%02X%02X%02X%02X] vs card [%02X%02X%02X%02X%02X%02X]", ra->caid,
+              data[3], data[4], data[5], data[6], data[7], data[8],
+              ra->ua[2], ra->ua[3], ra->ua[4], ra->ua[5], ra->ua[6], ra->ua[7]);
+            match = 1;
+          }
+          break;
+        // Shared
+        case 0x84:
+        {
+          uint32_t provid;
+          if (len < 8)
+            break;
+          provid = ((data[3]<<8)&0xFF00) | (data[4]&0xFF);
+          PROVIDERS_FOREACH(ra, i, ep) {
+            if (provid == ep->id) {
+              if (!memcmp(data+5, &ep->sa[4], 3)) {
+                tvhinfo(ra->subsys, "Shared: 0x%x match emm 0x%x [%02X%02X%02X] vs card 0x%x [%02X%02X%02X]", ra->caid,
+                  provid, data[5], data[6], data[7],
+                  ep->id, ep->sa[4], ep->sa[5], ep->sa[6]);
+                match = 1;
+              }
+            }
+          }
+          break;
+        }
+        // Global
+        case 0x83:
+          match = 1;
+          break;
+      }
+      break;
   }
 
   if (match)
