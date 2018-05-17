@@ -228,10 +228,10 @@ nc_flush ( void *p )
           break;
 
 	pthread_mutex_lock(&s->s_stream_mutex);
-        if (csa->cluster[csa->cluster_rptr].csa_fill)
-          ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
         if (csa->cluster[csa->cluster_rptr].clear_fill)
           ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].clear_tsbcluster, csa->cluster[csa->cluster_rptr].clear_fill * 188);
+        if (csa->cluster[csa->cluster_rptr].csa_fill)
+          ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
 	pthread_mutex_unlock(&s->s_stream_mutex);
       }
     } 
