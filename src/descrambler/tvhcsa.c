@@ -209,11 +209,10 @@ nc_flush ( void *p )
       } 
       pthread_mutex_unlock(&csa->nc.key_mutex);
 
-      // struct timeval stop, start;
-      // gettimeofday(&start, NULL);
-
       if (csa->cluster[csa->cluster_rptr].csa_fill)
       {
+//        struct timeval stop, start;
+//        gettimeofday(&start, NULL);
 
         if (nc_descramble(csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188, csa))
         {
@@ -221,19 +220,20 @@ nc_flush ( void *p )
             break;
         }
 
-        // gettimeofday(&stop, NULL);
-        // nc_log(service_id16(s), "took %lu ms for %d bytes", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->csa_fill * 188);
-
-        if (!csa->nc.flush_task_running)
-          break;
-
-	pthread_mutex_lock(&s->s_stream_mutex);
-        if (csa->cluster[csa->cluster_rptr].clear_fill)
-          ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].clear_tsbcluster, csa->cluster[csa->cluster_rptr].clear_fill * 188);
-        if (csa->cluster[csa->cluster_rptr].csa_fill)
-          ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
-	pthread_mutex_unlock(&s->s_stream_mutex);
+//        gettimeofday(&stop, NULL);
+//        nc_log(service_id16(s), "took %lu ms for %d bytes, csa=%d, clear=%d\n", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->cluster[csa->cluster_rptr].csa_fill * 188,
+//				csa->cluster[csa->cluster_rptr].csa_fill, csa->cluster[csa->cluster_rptr].clear_fill);
       }
+
+      if (!csa->nc.flush_task_running)
+        break;
+
+      pthread_mutex_lock(&s->s_stream_mutex);
+      if (csa->cluster[csa->cluster_rptr].clear_fill)
+        ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].clear_tsbcluster, csa->cluster[csa->cluster_rptr].clear_fill * 188);
+      if (csa->cluster[csa->cluster_rptr].csa_fill)
+        ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
+      pthread_mutex_unlock(&s->s_stream_mutex);
     } 
 
     csa->cluster[csa->cluster_rptr].csa_fill = 0;
