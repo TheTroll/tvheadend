@@ -409,8 +409,8 @@ emm_nagra
           if (len < 9)
             break;
           if (!memcmp(data+3, &ra->ua[2], 6)) {
-            tvhinfo(ra->subsys, "EMM unique match %04X, ua [%02X%02X%02X%02X%02X%02X]", ra->caid,
-              data[3], data[4], data[5], data[6], data[7], data[8]);
+//            tvhinfo(ra->subsys, "EMM unique match %04X, ua [%02X%02X%02X%02X%02X%02X]", ra->caid,
+//              data[3], data[4], data[5], data[6], data[7], data[8]);
             match = 1;
           }
           break;
@@ -420,8 +420,8 @@ emm_nagra
             break;
           PROVIDERS_FOREACH(ra, i, ep) {
             if (!memcmp(data+3, &ep->sa[4], 3)) {
-              tvhinfo(ra->subsys, "EMM shared match %04X, sa [%02X%02X%02X]", ra->caid,
-	        data[3], data[4], data[5]);
+//              tvhinfo(ra->subsys, "EMM shared match %04X, sa [%02X%02X%02X]", ra->caid,
+//	        data[3], data[4], data[5]);
               match = 1;
             }
           }
@@ -440,8 +440,8 @@ emm_nagra
           if (len < 9)
             break;
           if (!memcmp(data+3, &ra->ua[2], 6)) {
-            tvhinfo(ra->subsys, "EMM unique match %04X, ua [%02X%02X%02X%02X%02X%02X]", ra->caid,
-              data[3], data[4], data[5], data[6], data[7], data[8]);
+//            tvhinfo(ra->subsys, "EMM unique match %04X, ua [%02X%02X%02X%02X%02X%02X]", ra->caid,
+//              data[3], data[4], data[5], data[6], data[7], data[8]);
             match = 1;
           }
           break;
@@ -455,8 +455,8 @@ emm_nagra
           PROVIDERS_FOREACH(ra, i, ep) {
             if (provid == ep->id) {
               if (!memcmp(data+5, &ep->sa[4], 3)) {
-                tvhinfo(ra->subsys, "EMM shared match %04X:%08X, sa [%02X%02X%02X]", ra->caid, provid,
-                  data[5], data[6], data[7]);
+//                tvhinfo(ra->subsys, "EMM shared match %04X:%08X, sa [%02X%02X%02X]", ra->caid, provid,
+//                  data[5], data[6], data[7]);
                 match = 1;
               }
             }
