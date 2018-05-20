@@ -234,12 +234,13 @@ nc_flush ( void *p )
       if (csa->cluster[csa->cluster_rptr].csa_fill)
         ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
       pthread_mutex_unlock(&s->s_stream_mutex);
-    } 
 
-    csa->cluster[csa->cluster_rptr].csa_fill = 0;
-    csa->cluster[csa->cluster_rptr].clear_fill = 0;
-    csa->cluster[csa->cluster_rptr].ready = 0;
-    csa->cluster_rptr = (csa->cluster_rptr+1) % MAX_CSA_CLUSTERS;
+      // Next one
+      csa->cluster[csa->cluster_rptr].csa_fill = 0;
+      csa->cluster[csa->cluster_rptr].clear_fill = 0;
+      csa->cluster[csa->cluster_rptr].ready = 0;
+      csa->cluster_rptr = (csa->cluster_rptr+1) % MAX_CSA_CLUSTERS;
+    }
   }
 
   nc_release_service(csa);
@@ -532,8 +533,8 @@ tvhcsa_init ( tvhcsa_t *csa , struct mpegts_service *service )
   csa->csa_type          = 0;
   csa->csa_keylen        = 0;
   csa->service           = service;
-
   if (service->ncserver)
+
   {
     // Spawn descrambling task
     csa->crypted_pid_count = 0;
