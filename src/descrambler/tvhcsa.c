@@ -132,18 +132,18 @@ nc_flush ( void *p )
   tvhcsa_t *csa = p;
   struct mpegts_service* s = csa->service;
 
-  // nc_log(service_id16(s), "CSA thread started\n");
+  // nc_log(csa, "CSA thread started\n");
 
   while (csa->nc.flush_task_running)
   {
     int level = (csa->cluster_wptr >= csa->cluster_rptr)?(csa->cluster_wptr - csa->cluster_rptr):(MAX_CSA_CLUSTERS+csa->cluster_wptr - csa->cluster_rptr);
     if (level >= MAX_CSA_CLUSTERS/2)
-	    nc_log(service_id16(s), "fifo level is high  %d/%d\n", level, MAX_CSA_CLUSTERS);
+	    nc_log(csa, "fifo level is high  %d/%d\n", level, MAX_CSA_CLUSTERS);
 
     // Wait for semphore
     struct timespec ts;
     if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {
-     nc_log(service_id16(s), "failed getting time for sem_wait\n");
+     nc_log(csa, "failed getting time for sem_wait\n");
      break;
     }
 
@@ -163,11 +163,11 @@ nc_flush ( void *p )
       // Init nc service if not done yet
       if (nc_init_service(csa))
       {
-          nc_log(service_id16(s), "NC init failed\n");
+          nc_log(csa, "NC init failed\n");
           break;
       }
 
-      // nc_log(service_id16(s), "CSA=%d, CLEAR=%d\n", csa->cluster[csa->cluster_rptr].csa_fill, csa->cluster[csa->cluster_rptr].clear_fill);
+      // nc_log(csa, "CSA=%d, CLEAR=%d\n", csa->cluster[csa->cluster_rptr].csa_fill, csa->cluster[csa->cluster_rptr].clear_fill);
 
       // Add crypted pids and get current key parity
       has_odd = has_even = 0;
@@ -180,7 +180,7 @@ nc_flush ( void *p )
 
         if (nc_add_pid((pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF), csa))
         {
-          nc_log(service_id16(s), "add pid failed\n");
+          nc_log(csa, "add pid failed\n");
           break;
         }
       }
@@ -191,7 +191,7 @@ nc_flush ( void *p )
       {
         if (nc_set_key(0, csa))
         {
-          nc_log(service_id16(s), "set ODD key failed\n");
+          nc_log(csa, "set ODD key failed\n");
           pthread_mutex_unlock(&csa->nc.key_mutex);
           break;
         }
@@ -201,7 +201,7 @@ nc_flush ( void *p )
       {
         if (nc_set_key(1, csa))
         {
-          nc_log(service_id16(s), "set EVEN key failed\n");
+          nc_log(csa, "set EVEN key failed\n");
           pthread_mutex_unlock(&csa->nc.key_mutex);
           break;
         }
@@ -216,12 +216,12 @@ nc_flush ( void *p )
 
         if (nc_descramble(csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188, csa))
         {
-            nc_log(service_id16(s), "decoding failed, dropping packets..\n");
+            nc_log(csa, "decoding failed, dropping packets..\n");
             break;
         }
 
 //        gettimeofday(&stop, NULL);
-//        nc_log(service_id16(s), "took %lu ms for %d bytes, csa=%d, clear=%d\n", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->cluster[csa->cluster_rptr].csa_fill * 188,
+//        nc_log(csa, "took %lu ms for %d bytes, csa=%d, clear=%d\n", (stop.tv_sec*1000 +stop.tv_usec/1000) - (start.tv_sec*1000 + start.tv_usec/1000), csa->cluster[csa->cluster_rptr].csa_fill * 188,
 //				csa->cluster[csa->cluster_rptr].csa_fill, csa->cluster[csa->cluster_rptr].clear_fill);
       }
 
@@ -244,7 +244,7 @@ nc_flush ( void *p )
   }
 
   nc_release_service(csa);
-  // nc_log(service_id16(s), "CSA thread exits\n");
+  // nc_log(csa, "CSA thread exits\n");
 
   
   if (csa->nc.flush_task_running)
@@ -339,7 +339,7 @@ tvhcsa_csa_cbc_descramble
 
     if (csa->cluster[csa->cluster_wptr].ready)
     {
-      nc_log(service_id16(s), "cluster fifo full\n");
+      nc_log(csa, "cluster fifo full\n");
       return;
     }
 
@@ -367,7 +367,7 @@ tvhcsa_csa_cbc_descramble
           pkt = csa->cluster[csa->cluster_wptr].csa_tsbcluster + csa->cluster[csa->cluster_wptr].csa_fill * 188;
           memcpy(pkt, tsb, 188);
           csa->cluster[csa->cluster_wptr].csa_fill++;
-//        nc_log(service_id16(s), "Adding crypted PID 0x%x 0x%02X\n", (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF), tsb[3]);
+//        nc_log(csa, "Adding crypted PID 0x%x 0x%02X\n", (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF), tsb[3]);
           break;
         }
       }
@@ -378,7 +378,7 @@ tvhcsa_csa_cbc_descramble
         pkt = csa->cluster[csa->cluster_wptr].clear_tsbcluster + csa->cluster[csa->cluster_wptr].clear_fill * 188;
         memcpy(pkt, tsb, 188);
         csa->cluster[csa->cluster_wptr].clear_fill++;
-//        nc_log(service_id16(s), "Adding clear PID 0x%x 0x%02X\n", (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF), tsb[3]);
+//        nc_log(csa, "Adding clear PID 0x%x 0x%02X\n", (pkt[1] & 0x1f)<<8 | (pkt[2] & 0xFF), tsb[3]);
       }
 
       if (csa->cluster[csa->cluster_wptr].csa_fill == NC_CSA_CLUSTER_SIZE || csa->cluster[csa->cluster_wptr].clear_fill == NC_CLEAR_CLUSTER_SIZE)

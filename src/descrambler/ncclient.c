@@ -15,6 +15,7 @@
 #include "settings.h"
 #include "input.h"
 #include "subscriptions.h"
+#include "channels.h"
 #include "ncclient.h"
 
 int nc_verbose = 0;
@@ -59,6 +60,7 @@ struct nc_query_out
 };
 
 static uint32_t nc_query(struct nc_query_in* in, struct nc_query_out* out, tvhcsa_t *csa);
+static const char* nc_get_srv_name(tvhcsa_t* csa);
 
 /***********************************************/
 /***********************************************/
@@ -67,14 +69,12 @@ int nc_init_service(tvhcsa_t *csa)
 	struct timeval tv_timeout;
 	tv_timeout.tv_sec = NC_TIMEOUT_S;
 	tv_timeout.tv_usec = 0;
-	int service = -1;
 
 	if (!csa || !csa->service)
 	{
-		nc_log(-1, "nc_init_service failed, NULL pointer\n");
+		nc_log(NULL, "nc_init_service failed, NULL pointer\n");
 		goto NC_INIT_SERVICE_FAIL;
 	}
-	service = service_id16(csa->service);
 
 	if (csa->nc.init_done)
 		return 0;
@@ -82,7 +82,7 @@ int nc_init_service(tvhcsa_t *csa)
 	// Find service in tasks
 	if (!NC_IP || !strlen(NC_IP) || !NC_PORT)
 	{
-		nc_log(service, "nc_init_service failed, no NC server set\n");
+		nc_log(csa, "nc_init_service failed, no NC server set\n");
 		goto NC_INIT_SERVICE_FAIL;
 	}
 
@@ -93,7 +93,7 @@ int nc_init_service(tvhcsa_t *csa)
 	csa->nc.socket_fd=socket(AF_INET,SOCK_STREAM,0);
 	if (csa->nc.socket_fd == -1)
 	{
-		nc_log(service, "nc_init_service failed, cannot open socket\n");
+		nc_log(csa, "nc_init_service failed, cannot open socket\n");
 		goto NC_INIT_SERVICE_FAIL;
 	}
 
@@ -102,7 +102,7 @@ int nc_init_service(tvhcsa_t *csa)
 	socklen_t optlen = sizeof(optval);
 	if(setsockopt(csa->nc.socket_fd, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen) < 0)
 	{
-		nc_log(service, "could not set KEEPALIVE option (%s)\n", strerror(errno));
+		nc_log(csa, "could not set KEEPALIVE option (%s)\n", strerror(errno));
 		goto NC_INIT_SERVICE_FAIL;
 	}
 
@@ -110,7 +110,7 @@ int nc_init_service(tvhcsa_t *csa)
 	int opts = fcntl(csa->nc.socket_fd,F_GETFL);
 	if (opts < 0)
 	{
-		nc_log(service, "could not set NONBLOCK option (%s)\n", strerror(errno));
+		nc_log(csa, "could not set NONBLOCK option (%s)\n", strerror(errno));
 		goto NC_INIT_SERVICE_FAIL;
 	}
 	else
@@ -118,7 +118,7 @@ int nc_init_service(tvhcsa_t *csa)
 		opts = (opts | O_NONBLOCK);
 		if (fcntl(csa->nc.socket_fd,F_SETFL,opts) < 0)
 		{
-			nc_log(service, "could not set NONBLOCK option (%s)\n", strerror(errno));
+			nc_log(csa, "could not set NONBLOCK option (%s)\n", strerror(errno));
 			goto NC_INIT_SERVICE_FAIL;
 		}
 	}
@@ -143,7 +143,7 @@ int nc_init_service(tvhcsa_t *csa)
 			int select_ret = select(csa->nc.socket_fd+1, NULL, &wset, NULL, &tv_timeout);
 			if (select_ret == 0)
 			{
-				nc_log(service, "select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+				nc_log(csa, "select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
 				goto NC_INIT_SERVICE_FAIL;
 			}
 			if (FD_ISSET(csa->nc.socket_fd, &wset))
@@ -152,7 +152,7 @@ int nc_init_service(tvhcsa_t *csa)
 				unsigned int len = sizeof(error);
 				if (getsockopt(csa->nc.socket_fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0 || error)
 				{
-					nc_log(service, "select error (%s), closing socket\n", strerror(errno));
+					nc_log(csa, "select error (%s), closing socket\n", strerror(errno));
 					goto NC_INIT_SERVICE_FAIL;
 				}
 				else
@@ -161,29 +161,36 @@ int nc_init_service(tvhcsa_t *csa)
 					struct nc_query_out query_out = {0, };
 					char service_str[5];
 
+                                        //                                         -                                       sprintf(service_str, "%04X", service);
 					// Set service remotely
 					query_in.type = NC_QUERY_TYPE_INIT_SERVICE;
-					sprintf(service_str, "%04X", service);
-					query_in.data = service_str;
-					query_in.data_size = 5;
+					query_in.data = (char*) nc_get_srv_name(csa);
+					if (query_in.data)
+						query_in.data_size = strlen(query_in.data)+1;
+					else
+					{
+						sprintf(service_str, "%04X", service_id16(csa->service));
+						query_in.data = service_str;
+						query_in.data_size = 5;
+					}
 
 					// Go 
 					if (nc_query(&query_in, &query_out, csa))
 					{
-						nc_log(service, "query failed to init service\n");;
+						nc_log(csa, "query failed to init service\n");;
 						goto NC_INIT_SERVICE_FAIL;
 					}
 				}
 			}
 			else
 			{
-				nc_log(service, "select error (%s), closing socket\n", strerror(errno));
+				nc_log(csa, "select error (%s), closing socket\n", strerror(errno));
 				goto NC_INIT_SERVICE_FAIL;
 			}
 		}
 		else
 		{
-			nc_log(service, "connect error (%s), closing socket\n", strerror(errno));
+			nc_log(csa, "connect error (%s), closing socket\n", strerror(errno));
 			goto NC_INIT_SERVICE_FAIL;
 		}
 	}
@@ -191,8 +198,8 @@ int nc_init_service(tvhcsa_t *csa)
 	csa->nc.nb_pids = 0;
 	csa->nc.init_done = 1;
 
-	nc_log(service, "connected to server\n");
-	
+	nc_log(csa, "connected to server\n");
+
 	return 0;
 
 NC_INIT_SERVICE_FAIL:
@@ -202,7 +209,7 @@ NC_INIT_SERVICE_FAIL:
 		close(csa->nc.socket_fd);
 		csa->nc.socket_fd = -1;
 	}
-	
+
 
 	// Bad service
 	nc_set_service_bad(csa);
@@ -219,11 +226,10 @@ int nc_set_key(uint8_t is_even, tvhcsa_t *csa)
 
 	if (!csa || !csa->service)
 		return 1;
-	int service = service_id16(csa->service);
 
 	if (!csa->nc.init_done)
 	{
-		nc_log(service, "nc_set_key failed, ncserver not initialized\n");
+		nc_log(csa, "nc_set_key failed, ncserver not initialized\n");
 		return 1;
 	}
 
@@ -246,11 +252,11 @@ int nc_set_key(uint8_t is_even, tvhcsa_t *csa)
 	// Go 
 	if (nc_query(&query_in, &query_out, csa))
 	{
-		nc_log(service, "failed to set %s key\n", is_even?"EVEN":"ODD");
+		nc_log(csa, "failed to set %s key\n", is_even?"EVEN":"ODD");
 		return 1;
 	}
 
-	nc_log(service, "set %s key [%02X %02X %02X %02X %02X %02X %02X %02X]\n", is_even?"EVEN":"ODD ",
+	nc_log(csa, "set %s key [%02X %02X %02X %02X %02X %02X %02X %02X]\n", is_even?"EVEN":"ODD ",
 			key[0], key[1], key[2], key[3], key[4], key[5], key[6], key[7]);
 	*set = 0;
 
@@ -262,11 +268,10 @@ int nc_add_pid(int pid, tvhcsa_t *csa)
 	int pid_idx;
 	if (!csa || !csa->service)
 		return 1;
-	int service = service_id16(csa->service);
 
 	if (!csa->nc.init_done)
 	{
-		nc_log(service, "nc_add_pid failed, ncserver not initialized\n");
+		nc_log(csa, "nc_add_pid failed, ncserver not initialized\n");
 		return 1;
 	}
 
@@ -297,17 +302,17 @@ int nc_add_pid(int pid, tvhcsa_t *csa)
 		if (nc_query(&query_in, &query_out, csa))
 		{
 			csa->nc.nb_pids--;
-			nc_log(service, "query failed to add pid 0x%x\n", pid);
+			nc_log(csa, "query failed to add pid 0x%x\n", pid);
 			return 1;
 		}
 
-		nc_log(service, "added pid 0x%x\n", pid);
+		nc_log(csa, "added pid 0x%x\n", pid);
 
 		return 0;	
 	}
 
 	// No more room
-	nc_log(service, "no more room to add pid 0x%x\n", pid);
+	nc_log(csa, "no more room to add pid 0x%x\n", pid);
 	return 1;
 }
 
@@ -318,14 +323,13 @@ int nc_descramble(unsigned char* buffer, int size, tvhcsa_t *csa)
 	struct nc_query_out query_out = {0, };
 	if (!csa || !csa->service)
 		return 1;
-	int service = service_id16(csa->service);
 
 	if (!size || !buffer)
 		return 0;
 
 	if (!csa->nc.init_done)
 	{
-		nc_log(service, "nc_descramble failed, ncserver not initialized\n");
+		nc_log(csa, "nc_descramble failed, ncserver not initialized\n");
 		return 1;
 	}
 
@@ -347,7 +351,6 @@ int nc_release_service(tvhcsa_t *csa)
 	struct nc_query_out query_out = {0, };
 	if (!csa || !csa->service)
 		return 1;
-	int service = service_id16(csa->service);
 
 	if (!csa->nc.init_done)
 	{
@@ -355,50 +358,67 @@ int nc_release_service(tvhcsa_t *csa)
 	}
 
 	if (nc_verbose)
-		nc_log(service, "releasing service\n");
+		nc_log(csa, "releasing service\n");
 
 	// Release remote
 	query_in.type = NC_QUERY_TYPE_RELEASE;
 
 	// Go 
 	if (nc_query(&query_in, &query_out, csa))
-		nc_log(service,"release service failed\n");
+		nc_log(csa,"release service failed\n");
 
 	close(csa->nc.socket_fd);
 
 	// Remove locally
 	memset(&csa->nc, 0, sizeof(csa->nc));
 
-	nc_log(service, "disconnected from server\n");
+	nc_log(csa, "disconnected from server\n");
 
 	return 1;
 }
 
-void nc_log(int srvid, const char* format, ...)
+static const char* nc_get_srv_name(tvhcsa_t* csa)
 {
-  char t[128], path[512];
-  struct tm tm;
-  struct timeval time;
-  FILE *file = NULL;
+	if (!csa || !csa->service)
+		return NULL;
+	if (LIST_FIRST(&csa->service->s_channels))
+	{
+		idnode_list_mapping_t* first_chan = LIST_FIRST(&csa->service->s_channels);
+		return channel_get_name((channel_t *) first_chan->ilm_in2, channel_blank_name);
+	}
+	else if (csa->service->s_dvb_svcname)
+		return  csa->service->s_dvb_svcname;
+	else if (csa->service->s_nicename)
+		return csa->service->s_nicename;
+	else
+		return NULL;
+}
 
-  hts_settings_buildpath(path, sizeof(path), "nc.log");
+void nc_log(tvhcsa_t *csa, const char* format, ...)
+{
+	char t[128], path[512];
+	struct tm tm;
+	struct timeval time;
+	FILE *file = NULL;
 
-  file=fopen(path, "a");
-  if (file)
-  {
-    va_list argptr;
-    va_start(argptr, format);
+	hts_settings_buildpath(path, sizeof(path), "nc.log");
 
-    gettimeofday(&time, NULL);
-    localtime_r(&time.tv_sec, &tm);
-    strftime(t, sizeof(t), "%F %T", &tm);// %d %H:%M:%S", &tm);
+	file=fopen(path, "a");
+	if (file)
+	{
+		va_list argptr;
+		va_start(argptr, format);
 
-    fprintf(file, "[%s] 0x%04X: ", t, srvid);
-    vfprintf(file, format, argptr);
-    va_end(argptr);
+		gettimeofday(&time, NULL);
+		localtime_r(&time.tv_sec, &tm);
+		strftime(t, sizeof(t), "%F %T", &tm);
 
-    fclose(file);
-  }
+		fprintf(file, "[%s] %-16s > ", t, nc_get_srv_name(csa));
+		vfprintf(file, format, argptr);
+		va_end(argptr);
+
+		fclose(file);
+	}
 }
 
 //////////////////////////////////////////////////////////////////
@@ -423,10 +443,9 @@ static uint32_t nc_query(struct nc_query_in* in, struct nc_query_out* out, tvhcs
 	struct timeval tv_timeout;
 	tv_timeout.tv_sec = NC_TIMEOUT_S;
 	tv_timeout.tv_usec = 0;
-        char header[NC_HEADER_SIZE+1];
+	char header[NC_HEADER_SIZE+1];
 	char status_buf[5];
 	char datasize_buf[9];
-	int service = service_id16(csa->service);
 
 	if (!csa->nc.socket_fd)
 		return 1;
@@ -466,13 +485,13 @@ static uint32_t nc_query(struct nc_query_in* in, struct nc_query_out* out, tvhcs
 	int t = select(csa->nc.socket_fd+1, NULL, &write_fd, NULL, &tv_timeout);
 	if (t <= 0)
 	{
-		nc_log(service, "write select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+		nc_log(csa, "write select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
 		goto NC_QUERY_ERROR;
 	}
 
 	if (!NC_IP || !strlen(NC_IP) || !NC_PORT)
 	{
-		nc_log(service, "server not set\n");
+		nc_log(csa, "server not set\n");
 		goto NC_QUERY_ERROR;
 	}
 
@@ -484,13 +503,13 @@ static uint32_t nc_query(struct nc_query_in* in, struct nc_query_out* out, tvhcs
 	servaddr.sin_port=htons(NC_PORT);
 
 	if (nc_verbose)
-		nc_log(service, "sending header [%s]\n", header);
+		nc_log(csa, "sending header [%s]\n", header);
 
 	// Send header
 	sent_size=sendto(csa->nc.socket_fd, header, NC_HEADER_SIZE, 0, (struct sockaddr *)&servaddr, sizeof(servaddr));
 	if (sent_size != NC_HEADER_SIZE)
 	{
-		nc_log(service, "error sending to server (%s), closing socket\n", strerror(errno));
+		nc_log(csa, "error sending to server (%s), closing socket\n", strerror(errno));
 		goto NC_QUERY_ERROR;
 	}
 
@@ -509,14 +528,14 @@ static uint32_t nc_query(struct nc_query_in* in, struct nc_query_out* out, tvhcs
 			int t = select(csa->nc.socket_fd+1, NULL, &write_fd, NULL, &tv_timeout);
 			if (t <= 0)
 			{
-				nc_log(service, "write select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+				nc_log(csa, "write select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
 				goto NC_QUERY_ERROR;
 			}
 
 			sent_size=sendto(csa->nc.socket_fd, in->data+total_sent_size, in->data_size-total_sent_size, 0, (struct sockaddr *)&servaddr, sizeof(servaddr));
 			if (sent_size <= 0)
 			{
-				nc_log(service, "error sending to server (%s), closing socket\n", strerror(errno));
+				nc_log(csa, "error sending to server (%s), closing socket\n", strerror(errno));
 				goto NC_QUERY_ERROR;
 			}
 
@@ -532,12 +551,12 @@ static uint32_t nc_query(struct nc_query_in* in, struct nc_query_out* out, tvhcs
 	t = select(csa->nc.socket_fd+1, &read_fd, NULL, NULL, &tv_timeout);
 	if (t < 0)
 	{
-		nc_log(service, "read select error (%s), closing socket\n", strerror(errno));
+		nc_log(csa, "read select error (%s), closing socket\n", strerror(errno));
 		goto NC_QUERY_ERROR;
 	}
 	else if (t == 0)
 	{
-		nc_log(service, "read select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+		nc_log(csa, "read select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
 		goto NC_QUERY_ERROR;
 	}
 
@@ -545,18 +564,18 @@ static uint32_t nc_query(struct nc_query_in* in, struct nc_query_out* out, tvhcs
 	read_size=recvfrom(csa->nc.socket_fd, header, NC_HEADER_SIZE, 0, NULL, NULL);
 	if (read_size <= 0)
 	{
-		nc_log(service, "error receiving from server (%s), closing socket\n", strerror(errno));
+		nc_log(csa, "error receiving from server (%s), closing socket\n", strerror(errno));
 		goto NC_QUERY_ERROR;
 	}
 
 	if (read_size != NC_HEADER_SIZE)
 	{
-		nc_log(service, "invalid header size %d\n", read_size);
+		nc_log(csa, "invalid header size %d\n", read_size);
 		goto NC_QUERY_ERROR;
 	}
 
 	if (nc_verbose)
-		nc_log(service, "received header [%s]\n", header);
+		nc_log(csa, "received header [%s]\n", header);
 
 	// Get values
 	memcpy(status_buf, header, 4);
@@ -583,24 +602,24 @@ static uint32_t nc_query(struct nc_query_in* in, struct nc_query_out* out, tvhcs
 			t = select(csa->nc.socket_fd+1, &read_fd, NULL, NULL, &tv_timeout);
 			if (t < 0)
 			{
-				nc_log(service, "read select error (%s), closing socket\n", strerror(errno));
+				nc_log(csa, "read select error (%s), closing socket\n", strerror(errno));
 				goto NC_QUERY_ERROR;
 			}
 			else if (t == 0)
 			{
-				nc_log(service, "read select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
+				nc_log(csa, "read select timeout (%ds), closing socket\n", NC_TIMEOUT_S);
 				goto NC_QUERY_ERROR;
 			}
 
 			int data_read_size = recvfrom(csa->nc.socket_fd, out->data+read_data, out->data_size-read_data, 0, NULL, NULL);
 			if (data_read_size == 0)
 			{
-				nc_log(service, "server disconnected\n");
+				nc_log(csa, "server disconnected\n");
 				goto NC_QUERY_ERROR;
 			}
 			else if (data_read_size == -1)
 			{
-				nc_log(service, "server error\n");
+				nc_log(csa, "server error\n");
 				goto NC_QUERY_ERROR;
 			}
 			read_data+=data_read_size;
@@ -622,7 +641,6 @@ void nc_set_service_bad(tvhcsa_t *csa)
 {
 	th_subscription_t *ths;
 	uint8_t set_bad = 0;
-	int service = service_id16(csa->service);
 
 	if (!csa || !csa->service)
 		return;
@@ -638,7 +656,7 @@ void nc_set_service_bad(tvhcsa_t *csa)
 	if (set_bad)
 	{
 		// Bad service
-		nc_log(service, "setting service as BAD\n");
+		nc_log(csa, "setting service as BAD\n");
 		LIST_FOREACH(ths, &csa->service->s_subscriptions, ths_service_link)
 		{
 			atomic_set(&ths->ths_testing_error, SM_CODE_NO_SOURCE);
