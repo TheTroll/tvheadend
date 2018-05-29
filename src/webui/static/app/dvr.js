@@ -1017,7 +1017,7 @@ tvheadend.dvr = function(panel, index) {
     tvheadend.dvr_finished(p, 1);
     tvheadend.dvr_failed(p, 2);
     tvheadend.dvr_removed(p, 3);
-    tvheadend.autorec_editor(p, 4);
+    //tvheadend.autorec_editor(p, 4);
     tvheadend.timerec_editor(p, 5);
     return p;
 }

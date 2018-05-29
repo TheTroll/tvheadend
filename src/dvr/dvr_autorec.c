@@ -320,6 +320,8 @@ dvr_autorec_create(const char *uuid, htsmsg_t *conf)
 {
   dvr_autorec_entry_t *dae;
 
+  return NULL;
+
   dae = calloc(1, sizeof(*dae));
 
   if (idnode_insert(&dae->dae_id, uuid, &dvr_autorec_entry_class, 0)) {

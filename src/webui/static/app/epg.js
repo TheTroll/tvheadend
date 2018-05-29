@@ -288,13 +288,14 @@ tvheadend.epgDetails = function(event) {
             tooltip: _('Record this program now'),
             text: _('Record program')
         }));
+/*
         buttons.push(new Ext.Button({
             handler: recordSeries,
             iconCls: 'autoRec',
             tooltip: _('Create an automatic recording rule to record all future programs that match the current query.'),
             text: event.serieslinkUri ? _("Record series") : _("Autorec")
         }));
-
+*/
     } else {
 
         buttons.push(new Ext.Button({
@@ -1103,7 +1104,7 @@ tvheadend.epg = function() {
             }
         },
         '-',
-        tvheadend.autorecButton,
+//        tvheadend.autorecButton,
         '-',
         {
             text: _('Help'),
