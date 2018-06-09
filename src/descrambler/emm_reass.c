@@ -453,7 +453,7 @@ emm_nagra
             break;
           provid = ((data[3]<<8)&0xFF00) | (data[4]&0xFF);
           PROVIDERS_FOREACH(ra, i, ep) {
-            if (provid == ep->id) {
+            if (provid == ep->id || (provid == 0 && ep->id == 0xa811)) {
               if (!memcmp(data+5, &ep->sa[4], 3)) {
 //                tvhinfo(ra->subsys, "EMM shared match %04X:%08X, sa [%02X%02X%02X]", ra->caid, provid,
 //                  data[5], data[6], data[7]);
