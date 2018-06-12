@@ -152,7 +152,7 @@ tvheadend.epgDetails = function(event) {
     if (event.summary)
       content += '<div class="x-epg-summary">' + event.summary + '</div>';
     if (event.description)
-      content += '<div class="x-epg-desc">' + event.description + '</div>';
+      content += '<div class="x-epg-desc">' + tvheadend.labelFormattingParser(event.description) + '</div>';
     if (event.summary || event.description)
       content += '<hr class="x-epg-hr"/>';
     content += tvheadend.getDisplayCredits(event.credits);
@@ -507,7 +507,7 @@ tvheadend.epg = function() {
 
         if (value) {
           var dt = new Date(value);
-          return dt.format('D, M d, H:i');
+          return tvheadend.toCustomDate(dt,tvheadend.date_mask);
         }
         return "";
     }
@@ -1155,7 +1155,7 @@ tvheadend.epg = function() {
           items: [
               epgFilterCat1, '-',
               epgFilterCat2, '-',
-              epgFilterCat3, '-',
+              epgFilterCat3, '-'
           ]
         });
         panel.add(tbar2);

@@ -1704,6 +1704,8 @@ config_boot
   config.theme_ui = strdup("blue");
   config.chname_num = 1;
   config.iptv_tpool_count = 2;
+  config.date_mask = strdup("");
+  config.label_formatting = 0;
 
   idclass_register(&config_class);
 
@@ -1839,6 +1841,7 @@ void config_done ( void )
   free(config.chicon_path);
   free(config.picon_path);
   free(config.cors_origin);
+  free(config.date_mask);
   file_unlock(config_lock, config_lock_fd);
 }
 
@@ -2224,6 +2227,23 @@ const idclass_t config_class = {
       .name   = N_("Channel name with sources"),
       .desc   = N_("Add sources (like DVB-T string) to the channel name list"),
       .off    = offsetof(config_t, chname_src),
+      .group  = 2
+    },
+    {
+      .type   = PT_STR,
+      .id     = "date_mask",
+      .name   = N_("Custom date Format"),
+      .desc   = N_("Custom date mask like (%yyyy-%M-%dd %h:%m:%s)"),
+      .opts   = PO_ADVANCED,
+      .off    = offsetof(config_t, date_mask),
+      .group  = 2,
+    },
+    {
+      .type   = PT_BOOL,
+      .id     = "label_formatting",
+      .name   = N_("Kodi label formatting support"),
+      .desc   = N_("Enable parser for kodi label formatting"),
+      .off    = offsetof(config_t, label_formatting),
       .group  = 2
     },
     {
