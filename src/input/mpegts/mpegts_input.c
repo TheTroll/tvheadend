@@ -395,10 +395,10 @@ static void
 mpegts_input_display_name ( mpegts_input_t *mi, char *buf, size_t len )
 {
   if (mi->mi_name) {
-    strncpy(buf, mi->mi_name, len - 1);
-    buf[len - 1] = '\0';
-  } else
+    strlcpy(buf, mi->mi_name, len);
+  } else {
     *buf = 0;
+  }
 }
 
 int
@@ -1953,8 +1953,10 @@ mpegts_input_thread_stop ( mpegts_input_t *mi )
 
   /* Join threads (relinquish lock due to potential deadlock) */
   pthread_mutex_unlock(&global_lock);
-  pthread_join(mi->mi_input_tid, NULL);
-  pthread_join(mi->mi_table_tid, NULL);
+  if (mi->mi_input_tid)
+    pthread_join(mi->mi_input_tid, NULL);
+  if (mi->mi_table_tid)
+    pthread_join(mi->mi_table_tid, NULL);
   pthread_mutex_lock(&global_lock);
 }
 

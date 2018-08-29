@@ -270,8 +270,7 @@ http_get_nonce(void)
     mono ^= 0xa1687211885fcd30LL;
     snprintf(stamp, sizeof(stamp), "%"PRId64, mono);
     m = md5sum(stamp, 1);
-    strncpy(n->nonce, m, sizeof(stamp));
-    n->nonce[sizeof(stamp)-1] = '\0';
+    strlcpy(n->nonce, m, sizeof(stamp));
     pthread_mutex_lock(&global_lock);
     if (RB_INSERT_SORTED(&http_nonces, n, link, http_nonce_cmp)) {
       pthread_mutex_unlock(&global_lock);
@@ -292,8 +291,7 @@ http_nonce_exists(const char *nonce)
 
   if (nonce == NULL)
     return 0;
-  strncpy(tmp.nonce, nonce, sizeof(tmp.nonce)-1);
-  tmp.nonce[sizeof(tmp.nonce)-1] = '\0';
+  strlcpy(tmp.nonce, nonce, sizeof(tmp.nonce));
   pthread_mutex_lock(&global_lock);
   n = RB_FIND(&http_nonces, &tmp, link, http_nonce_cmp);
   if (n) {
@@ -663,7 +661,6 @@ http_error(http_connection_t *hc, int error)
       level = LOG_DEBUG;
     else if (error == HTTP_STATUS_BAD_REQUEST || error > HTTP_STATUS_UNAUTHORIZED)
       level = LOG_ERR;
-    if (hc->hc_cmd == 6 && strstr(hc->hc_url, "&pids")) abort();
     tvhlog(level, hc->hc_subsys, "%s: %s %s (%d) %s -- %d",
 	   hc->hc_peer_ipstr, http_ver2str(hc->hc_version),
            http_cmd2str(hc->hc_cmd), hc->hc_cmd, hc->hc_url, error);
@@ -1543,10 +1540,8 @@ http_arg_get_remove(struct http_arg_list *list, const char *name)
     if(!strcasecmp(ra->key, name)) {
       TAILQ_REMOVE(list, ra, link);
       empty = ra->val == NULL;
-      if (!empty) {
-        strncpy(buf, ra->val, sizeof(buf)-1);
-        buf[sizeof(buf)-1] = '\0';
-      }
+      if (!empty)
+        strlcpy(buf, ra->val, sizeof(buf));
       free(ra->key);
       free(ra->val);
       free(ra);

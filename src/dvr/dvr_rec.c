@@ -349,8 +349,7 @@ dvr_do_prefix(const char *id, const char *fmt, const char *s, char *tmp, size_t 
   } else if (s[0] && !isalpha(id[0])) {
     snprintf(tmp, tmplen, "%c%s", id[0], s);
   } else {
-    strncpy(tmp, s, tmplen-1);
-    tmp[tmplen-1] = '\0';
+    strlcpy(tmp, s, tmplen);
   }
   return dvr_clean_directory_separator(tmp, tmp, tmplen);
 }
@@ -404,10 +403,17 @@ dvr_sub_episode(const char *id, const char *fmt, const void *aux, char *tmp, siz
 }
 
 static const char *
+_dvr_get_tvmovies_subdir(const dvr_entry_t *de)
+{
+  dvr_config_t *config = de->de_config;
+  if (config && !strempty(config->dvr_format_tvshows_subdir))
+    return config->dvr_format_tvshows_subdir;
+  return "tvshows";
+}
+
+static const char *
 _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen, int with_genre_subdir)
 {
-  char date_buf[512] = { 0 };
-  char episode_buf[512] = { 0 };
   const dvr_entry_t *de = aux;
   epg_broadcast_t *ebc = de->de_bcast;
 
@@ -482,12 +488,15 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
 
   tvhdebug(LS_DVR, "fmt = %s is_movie = %d content_type = %d", fmt ?: "<none>", is_movie, de->de_content_type);
 
+  char *date_buf = NULL, *episode_buf = NULL;
+
   if (is_movie) {
     /* Include the year if available. This helps scraper differentiate
      * between numerous remakes of the same film.
      */
     if (ebc) {
       if (ebc->copyright_year) {
+        date_buf = alloca(12);
         sprintf(date_buf, "%04d", ebc->copyright_year);
       } else {
         /* Some providers use first_aired as really the copyright date. */
@@ -496,6 +505,7 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
           /* Get just the year part */
           struct tm tm;
           if (localtime_r(&first_aired, &tm)) {
+            date_buf = alloca(12);
             sprintf(date_buf, "%04d", tm.tm_year + 1900);
           }
         }
@@ -505,8 +515,8 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
     /* Not a movie */
     if (ebc) {
       /* Get episode information */
-      epg_broadcast_epnumber_format(ebc,
-                                    episode_buf, sizeof(episode_buf),
+      episode_buf = alloca(512);
+      epg_broadcast_epnumber_format(ebc, episode_buf, 512,
                                     NULL, "S%02d", NULL, "E%02d", NULL);
 
       const time_t first_aired = ebc->first_aired;
@@ -516,7 +526,8 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
          */
         struct tm tm;
         if (localtime_r(&first_aired, &tm)) {
-          strftime(date_buf, sizeof date_buf, "%F", &tm);
+          date_buf = alloca(32);
+          strftime(date_buf, 32, "%F", &tm);
         }
       }
     }
@@ -529,7 +540,6 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
    */
 
   size_t offset = 0;
-  const dvr_config_t *config = de->de_config;
 
   if (is_movie) {
     /* TV movies are probably best saved in one folder rather than
@@ -543,21 +553,21 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
      *   "title (yyyy)"                     (without genre_subdir)
      *   "title"                            (without genre_subdir, no airdate)
      */
-    if (with_genre_subdir) {
-      const char *subdir = config && config->dvr_format_tvmovies_subdir && *config->dvr_format_tvmovies_subdir ?
-        config->dvr_format_tvmovies_subdir : "tvmovies";
-      tvh_strlcatf(tmp, tmplen, offset, "%s/", subdir);
-    }
+    if (with_genre_subdir)
+      tvh_strlcatf(tmp, tmplen, offset, "%s/", _dvr_get_tvmovies_subdir(de));
 
-    if (*title_buf)          tvh_strlcatf(tmp, tmplen, offset, "%s", title_buf);
+    if (!strempty(title_buf))
+      tvh_strlcatf(tmp, tmplen, offset, "%s", title_buf);
     /* Movies don't have anything relevant in sub-titles field so
      * anything there should be ignored. I think some channels store a
      * translated movie name there (title=original movie name,
      * subtitle=local language name for movie), but only use title
      * since scrapers only handle one title.
      */
-    // if (*subtitle_buf) tvh_strlcatf(tmp, tmplen, offset, " - %s", subtitle_buf);
-    if (*date_buf)  tvh_strlcatf(tmp, tmplen, offset, " (%s)", date_buf);
+    // if (!strempty(subtitle_buf))
+    //   tvh_strlcatf(tmp, tmplen, offset, " - %s", subtitle_buf);
+    if (!strempty(date_buf))
+      tvh_strlcatf(tmp, tmplen, offset, " (%s)", date_buf);
   } else {
     /* TV shows have to go in separate directories based on their title in
      * order to be scraped properly.
@@ -570,16 +580,17 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
      *   "title - subtitle_2001-05-04"             (without genre_subdir, long running show)
      *   "title - subtitle"                        (without genre_subdir, no epg info on show)
      */
-    if (with_genre_subdir) {
-      const char *subdir = config && config->dvr_format_tvshows_subdir && *config->dvr_format_tvshows_subdir ?
-                config->dvr_format_tvshows_subdir : "tvshows";
-      tvh_strlcatf(tmp, tmplen, offset, "%s/", subdir);
-    }
-    if (*title_buf)        tvh_strlcatf(tmp, tmplen, offset, "%s/%s", title_buf, title_buf);
-    if (*episode_buf)      tvh_strlcatf(tmp, tmplen, offset, " - %s", episode_buf);
-    if (*subtitle_buf)     tvh_strlcatf(tmp, tmplen, offset, " - %s", subtitle_buf);
+    if (with_genre_subdir)
+      tvh_strlcatf(tmp, tmplen, offset, "%s/", _dvr_get_tvmovies_subdir(de));
+    if (!strempty(title_buf))
+      tvh_strlcatf(tmp, tmplen, offset, "%s/%s", title_buf, title_buf);
+    if (!strempty(episode_buf))
+      tvh_strlcatf(tmp, tmplen, offset, " - %s", episode_buf);
+    if (!strempty(subtitle_buf))
+      tvh_strlcatf(tmp, tmplen, offset, " - %s", subtitle_buf);
     /* Only include date if we don't have an explicit episode number. */
-    if (!*episode_buf && *date_buf) tvh_strlcatf(tmp, tmplen, offset, "_%s", date_buf);
+    if (strempty(episode_buf) && !strempty(date_buf))
+      tvh_strlcatf(tmp, tmplen, offset, "_%s", date_buf);
   }
   return tmp;
 }
@@ -819,8 +830,7 @@ dvr_sub_str(const char *id, const char *fmt, const void *aux, char *tmp, size_t 
 static const char *
 dvr_sub_str_separator(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen)
 {
-  strncpy(tmp, (const char *)aux, tmplen-1);
-  tmp[tmplen-1] = '\0';
+  strlcpy(tmp, (const char *)aux, tmplen);
   return dvr_clean_directory_separator(tmp, tmp, tmplen);
 }
 
@@ -857,8 +867,7 @@ static htsstr_substitute_t dvr_subs_postproc_entry[] = {
 static const char *
 dvr_sub_basename(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen)
 {
-  strncpy(tmp, (const char *)aux, tmplen);
-  tmp[tmplen-1] = '\0';
+  strlcpy(tmp, (const char *)aux, tmplen);
   return basename(tmp);
 }
 
@@ -962,8 +971,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
 
   localtime_r(&de->de_start, &tm);
 
-  strncpy(path, cfg->dvr_storage, sizeof(path));
-  path[sizeof(path)-1] = '\0';
+  strlcpy(path, cfg->dvr_storage, sizeof(path));
   l = strlen(path);
   if (l + 1 >= sizeof(path)) {
     tvherror(LS_DVR, "wrong storage path");
@@ -995,8 +1003,7 @@ pvr_generate_filename(dvr_entry_t *de, const streaming_start_t *ss)
     if (dir_dosubs) {
       htsstr_substitute(de->de_directory+2, ptmp, sizeof(ptmp), '$', dvr_subs_entry, de, tmp, sizeof(tmp));
     } else {
-      strncpy(ptmp, de->de_directory, sizeof(ptmp)-1);
-      ptmp[sizeof(ptmp)-1] = '\0';
+      strlcpy(ptmp, de->de_directory, sizeof(ptmp));
     }
     s = ptmp;
     while (*s == '/')
