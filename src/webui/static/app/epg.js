@@ -69,7 +69,7 @@ tvheadend.channelLookupName = function(key) {
 tvheadend.channelTagLookupName = function(key) {
     var s = "";
     var tags = tvheadend.getChannelTags();
-    var index = tvheadend.tags.find('key', key);
+    var index = tags.find('key', key);
     if (index !== -1)
         s = tags.getAt(index).get('val');
     return s;
@@ -305,12 +305,14 @@ tvheadend.epgDetails = function(event) {
 
     }
 
+    var windowHeight = Ext.getBody().getViewSize().height - 150;
+
     var win = new Ext.Window({
         title: _('Broadcast Details'),
         iconCls: 'broadcast_details',
         layout: 'fit',
         width: 675,
-        height: 450,
+        height: windowHeight,
         constrainHeader: true,
         buttons: buttons,
         buttonAlign: 'center',
