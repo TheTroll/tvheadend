@@ -1051,8 +1051,8 @@ satip_frontend_decode_rtcp( satip_frontend_t *lfe, const char *name,
           n = http_tokenize(s + 14, argv, 4, ',');
           if (n < 4)
             goto fail;
-          if (atoi(argv[0]) != lfe->sf_number)
-            goto fail;
+//          if (atoi(argv[0]) != lfe->sf_number)
+//            goto fail;
           mmi->tii_stats.signal =
             atoi(argv[1]) * 0xffff / lfe->sf_device->sd_sig_scale;
           mmi->tii_stats.signal_scale =
