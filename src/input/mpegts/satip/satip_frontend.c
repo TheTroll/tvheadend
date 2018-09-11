@@ -990,10 +990,10 @@ satip_frontend_decode_rtcp( satip_frontend_t *lfe, const char *name,
     if ((rtcp[0] & 0xc0) != 0x80 && rtcp[0] != '$')            /* protocol version: v2 */
       goto fail;
     // Compute size differently when TCP mode is activated 
-    if (rtcp[1]  ==  204)
-      l = (((rtcp[2] << 8) | rtcp[3]) + 1) * 4;   /* length of payload */
-    else
+    if (rtcp[1]  ==  1)
       l = ((rtcp[2] << 8) | rtcp[3])+4;   /* length of payload */
+    else
+      l = (((rtcp[2] << 8) | rtcp[3]) + 1) * 4;   /* length of payload */
     if ((rtcp[1]  ==  204 || rtcp[1]  == 1 ) && l > 20 &&           /* packet type */
         rtcp[8]  == 'S'  && rtcp[9]  == 'E' &&
         rtcp[10] == 'S'  && rtcp[11] == '1') {
