@@ -83,6 +83,12 @@ void api_satip_server_init  ( void );
 void api_timeshift_init     ( void );
 void api_wizard_init        ( void );
 
+#if ENABLE_LIBAV
+void api_codec_init         ( void );
+#else
+static inline void api_codec_init(void) {};
+#endif
+
 /*
  * IDnode
  */

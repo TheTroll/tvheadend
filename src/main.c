@@ -68,6 +68,7 @@
 #include "intlconv.h"
 #include "dbus.h"
 #include "libav.h"
+#include "transcoding/codec.h"
 #include "profile.h"
 #include "bouquet.h"
 #include "tvhtime.h"
@@ -1212,6 +1213,7 @@ main(int argc, char **argv)
   tvhftrace(LS_MAIN, fsmonitor_init);
   tvhftrace(LS_MAIN, libav_init);
   tvhftrace(LS_MAIN, tvhtime_init);
+  tvhftrace(LS_MAIN, codec_init);
   tvhftrace(LS_MAIN, profile_init);
   tvhftrace(LS_MAIN, imagecache_init);
   tvhftrace(LS_MAIN, http_client_init);
@@ -1347,6 +1349,7 @@ main(int argc, char **argv)
   tvhftrace(LS_MAIN, dvb_done);
   tvhftrace(LS_MAIN, esfilter_done);
   tvhftrace(LS_MAIN, profile_done);
+  tvhftrace(LS_MAIN, codec_done);
   tvhftrace(LS_MAIN, libav_done);
   tvhftrace(LS_MAIN, intlconv_done);
   tvhftrace(LS_MAIN, urlparse_done);
