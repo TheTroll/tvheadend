@@ -272,10 +272,9 @@ tvhcsa_csa_cbc_descramble
   if (!s->ncserver || (csa->nc.key_status == 1))
   {
     uint8_t *pkt;
-    int ev_od;
-    int len;
-    int offset;
-    int n;
+    int_fast8_t ev_od;
+    int_fast16_t len;
+    int_fast16_t offset;
 
     if (csa->cluster[0].csa_fill > csa->csa_cluster_size)
     {
@@ -290,24 +289,19 @@ tvhcsa_csa_cbc_descramble
      memcpy(pkt, tsb, 188);
      csa->cluster[0].csa_fill++;
 
-     do { // handle this packet
+     do {			// handle this packet
        if((pkt[3] & 0x80) == 0) // clear or reserved (0x40)
          break;
        ev_od = pkt[3] & 0x40;
-       pkt[3] &= 0x3f;  // consider it decrypted now
-       if(pkt[3] & 0x20) { // incomplete packet
+       pkt[3] &= 0x3f;		// consider it decrypted now
+       if(pkt[3] & 0x20) {	// incomplete packetq
          offset = 4 + pkt[4] + 1;
+         if (offset > 188-8)	// invalid offset (residue handling?)
+           break;
          len = 188 - offset;
-         n = len >> 3;
-         // FIXME: //residue = len - (n << 3);
-         if(n == 0) { // decrypted==encrypted!
-           break; // this doesn't need more processing
-         }
        } else {
          len = 184;
          offset = 4;
-         // FIXME: //n = 23;
-         // FIXME: //residue = 0;
        }
        if(ev_od == 0) {
          csa->csa_tsbbatch_even[csa->csa_fill_even].data = pkt + offset;

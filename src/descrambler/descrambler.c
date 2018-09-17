@@ -469,27 +469,25 @@ static void
 descrambler_notify_deliver( mpegts_service_t *t, descramble_info_t *di )
 {
   streaming_message_t *sm;
-  struct descramble_info *di2;
   int r;
 
   lock_assert(&t->s_stream_mutex);
-  if (!t->s_descramble_info)
+  if (!t->s_descramble_info) {
     t->s_descramble_info = calloc(1, sizeof(*di));
-  r = memcmp(t->s_descramble_info, di, sizeof(*di));
-  if (r == 0) { /* identical */
-    free(di);
-    return;
+  } else {
+    r = memcmp(t->s_descramble_info, di, sizeof(*di));
+    if (r == 0) { /* identical */
+      free(di);
+      return;
+    }
   }
   memcpy(t->s_descramble_info, di, sizeof(*di));
 
-  di2 = malloc(sizeof(*di2));
-  memcpy(di2, di, sizeof(*di2));
-  sm = streaming_msg_create_data(SMT_DESCRAMBLE_INFO, di2);
-  sm->sm_data = di;
-
+  sm = streaming_msg_create_data(SMT_DESCRAMBLE_INFO, di);
   streaming_service_deliver((service_t *)t, sm);
 }
 
+/* it's called inside s_stream_mutex lock! */
 static void
 descrambler_notify_nokey( th_descrambler_runtime_t *dr )
 {
@@ -499,8 +497,8 @@ descrambler_notify_nokey( th_descrambler_runtime_t *dr )
   tvhdebug(LS_DESCRAMBLER, "no key for service='%s'", t->s_dvb_svcname);
 
   di = calloc(1, sizeof(*di));
-  di->pid = t->s_components.set_pmt_pid;
 
+  di->pid = t->s_components.set_pmt_pid;
   descrambler_notify_deliver(t, di);
 }
 
