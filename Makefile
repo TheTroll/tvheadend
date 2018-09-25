@@ -48,7 +48,7 @@ endif
 ifneq ($(CFLAGS_NO_WERROR),yes)
 CFLAGS  += -Werror
 endif
-CFLAGS  += -Wall -Wwrite-strings -Wno-deprecated-declarations
+CFLAGS  += -Wall -Wwrite-strings -Wno-deprecated-declarations -Wno-stringop-truncation
 CFLAGS  += -Wmissing-prototypes
 CFLAGS  += -fms-extensions -funsigned-char -fno-strict-aliasing
 CFLAGS  += -D_FILE_OFFSET_BITS=64

@@ -837,7 +837,9 @@ http_extra_flush(http_connection_t *hc)
                hd->hd_data_size - hd->hd_data_off,
                MSG_DONTWAIT | (TAILQ_NEXT(hd, hd_link) ? MSG_MORE : 0));
       serr = errno;
-    } while (r < 0 && serr == EINTR);
+      if (r < 0 && serr == EAGAIN)
+        tvh_safe_usleep(10000);
+    } while (r < 0 && (serr == EINTR || serr == EAGAIN));
     if (r > 0 && r + hd->hd_data_off >= hd->hd_data_size) {
       atomic_dec(&hc->hc_extra_chunks, 1);
       htsbuf_data_free(&hc->hc_extra, hd);
