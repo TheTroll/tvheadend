@@ -21,9 +21,30 @@ tvheadend.labelFormattingParser = function(description) {
     }else return description;
 };
 
-tvheadend.dvrDetails = function(uuid) {
+tvheadend.dvrDetails = function(grid, index) {
+    var current_index = index;
+    var win;
+    // We need a unique DOM id in case user opens two dialogs.
+    var nextButtonId = Ext.id();
+    // Our title is passed to search functions (such as imdb)
+    // So always ensure this does not contain channel info.
+    function getTitle(d) {
+      var params = d[0].params;
+      return params[1].value;
+    }
 
-    function showit(d) {
+    function getDialogTitle(d) {
+      var params = d[0].params;
+      var fields = [];
+      var evTitle = params[1].value;
+      if (evTitle && evTitle.length) fields.push(evTitle);
+      var evEp = params[4].value;
+      if (evEp && evEp.length) fields.push(evEp);
+      var channelname = params[22].value;
+      if (channelname && channelname.length) fields.push(channelname);
+      return fields.join(' - ');
+    }
+    function getDialogContent(d) {
         var params = d[0].params;
         var chicon = params[0].value;
         var title = params[1].value;
@@ -115,35 +136,61 @@ tvheadend.dvrDetails = function(uuid) {
             content += '<div class="x-epg-meta"><span class="x-epg-prefix">' + _('Time Scheduler') + ':</span><span class="x-epg-body">' + timerec_caption + '</span></div>';
         if (chicon)
             content += '</div>'; /* x-epg-bottom */
+      return content
+    }
 
+  function getDialogButtons(title) {
         var buttons = [];
 
-        buttons.push(new Ext.Button({
-            handler: searchIMDB,
-            iconCls: 'imdb',
-            tooltip: _('Search IMDB (for title)'),
-        }));
+        var comboGetInfo = new Ext.form.ComboBox({
+            store: new Ext.data.ArrayStore({
+                data: [
+                  [1, 'Find info from IMDB', 'imdb.png'],
+                  [2, 'Find info from TheTVDB', 'thetvdb.png'],
+                  [3, 'Find info from FilmAffinity', 'filmaffinity.png'],
+                ],
+                id: 0,
+                fields: ['value', 'text', 'url']
+            }),
+            triggerAction: 'all',
+            mode: 'local',
+            tpl : '<tpl for=".">' +
+                  '<div class="x-combo-list-item" ><img src="../static/icons/{url}">&nbsp;&nbsp;{text}</div>' +
+                  '</tpl>',
+            emptyText:'Find info from ...',
+            valueField: 'value',
+            displayField: 'text',
+            width: 160,
+            forceSelection : true,
+            editable: false,
+            listeners: {
+                select: function(combo, records, index) {
+                    tvheadend.seachTitleWeb(combo.getValue(), title);
+                }
+            },
+        });
+
+        if (title)
+            buttons.push(comboGetInfo);
 
         buttons.push(new Ext.Button({
-            handler: searchTheTVDB,
-            iconCls: 'thetvdb',
-            tooltip: _('Search TheTVDB (for title)'),
+            id: nextButtonId,
+            handler: nextEvent,
+            iconCls: 'next',
+            tooltip: _('Go to next event'),
+            text: _("Next"),
         }));
 
-        function searchIMDB() {
-            window.open('http://akas.imdb.com/find?q=' +
-                        encodeURIComponent(title), '_blank');
-        }
+    return buttons;
+  }                             // getDialogButtons
 
-        function searchTheTVDB(){
-            window.open('http://thetvdb.com/?string='+
-                        encodeURIComponent(title)+'&searchseriesid=&tab=listseries&function=Search','_blank');
-        }
-
-        var windowHeight = Ext.getBody().getViewSize().height - 150;
-
-        var win = new Ext.Window({
-            title: title,
+  function showit(d) {
+       var dialogTitle = getDialogTitle(d);
+       var content = getDialogContent(d);
+       var buttons = getDialogButtons(getTitle(d));
+       var windowHeight = Ext.getBody().getViewSize().height - 150;
+       win = new Ext.Window({
+            title: dialogTitle,
             iconCls: 'info',
             layout: 'fit',
             width: 650,
@@ -156,27 +203,61 @@ tvheadend.dvrDetails = function(uuid) {
         });
 
         win.show();
-    }
+     }
 
-    tvheadend.loading(1);
-    Ext.Ajax.request({
+    function load(store, index, cb) {
+      var uuid = store.getAt(index).id;
+      tvheadend.loading(1);
+      Ext.Ajax.request({
         url: 'api/idnode/load',
         params: {
             uuid: uuid,
             list: 'channel_icon,disp_title,disp_subtitle,disp_summary,episode_disp,start_real,stop_real,' +
                   'duration,disp_description,status,filesize,comment,duplicate,' +
                   'autorec_caption,timerec_caption,image,copyright_year,credits,keyword,category,' +
-                  'first_aired,genre',
+                  'first_aired,genre,channelname',
         },
         success: function(d) {
             d = json_decode(d);
             tvheadend.loading(0),
-            showit(d);
+            cb(d);
         },
         failure: function(d) {
             tvheadend.loading(0);
         }
-    });
+      });
+    }                           // load
+
+    function nextEvent() {
+      var store = grid.getStore();
+        ++current_index;
+        load(store,current_index,updateit);
+      }
+
+     function updateit(d) {
+        var dialogTitle = getDialogTitle(d);
+        var content = getDialogContent(d);
+        var buttons = getDialogButtons(getTitle(d));
+        win.removeAll();
+        // Can't update buttons at the same time...
+        win.update({html: content});
+        win.setTitle(dialogTitle);
+        // ...so remove the buttons and re-add them.
+        var tbar = win.fbar;
+        tbar.removeAll();
+        Ext.each(buttons, function(btn) {
+                         tbar.addButton(btn);
+                       });
+        // If we're at the end of the store then disable the next
+        // button.  (getTotalCount is one-based).
+        if (current_index == store.getTotalCount() - 1)
+          tbar.getComponent(nextButtonId).disable();
+        // Finally, relayout.
+        win.doLayout();
+     }
+
+    var store = grid.getStore();
+    load(store,index,showit);
 };
 
 tvheadend.dvrRowActions = function() {
@@ -193,7 +274,7 @@ tvheadend.dvrRowActions = function() {
                 iconCls: 'info',
                 qtip: _('Recording details'),
                 cb: function(grid, rec, act, row) {
-                    new tvheadend.dvrDetails(grid.getStore().getAt(row).id);
+                    new tvheadend.dvrDetails(grid, row);
                 }
             }
         ],
@@ -891,7 +972,7 @@ tvheadend.dvr_settings = function(panel, index) {
 tvheadend.autorec_editor = function(panel, index) {
 
     var list = 'name,title,fulltext,channel,start,start_window,weekdays,' +
-               'record,tag,btype,content_type,cat1,cat2,cat3,minduration,maxduration,' +
+               'record,tag,btype,content_type,cat1,cat2,cat3,minduration,maxduration,minyear,maxyear,' +
                'star_rating,dedup,directory,config_name,comment,pri';
     var elist = 'enabled,start_extra,stop_extra,' +
                 (tvheadend.accessUpdate.admin ?

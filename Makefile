@@ -77,7 +77,7 @@ endif
 ifeq ($(COMPILER), clang)
 CFLAGS  += -Wno-microsoft -Qunused-arguments -Wno-unused-function
 CFLAGS  += -Wno-unused-value -Wno-tautological-constant-out-of-range-compare
-CFLAGS  += -Wno-parentheses-equality -Wno-incompatible-pointer-types
+CFLAGS  += -Wno-parentheses-equality
 endif
 
 
@@ -484,6 +484,11 @@ SRCS-INOTIFY = \
 	src/dvr/dvr_inotify.c
 SRCS-${CONFIG_INOTIFY} += $(SRCS-INOTIFY)
 I18N-C += $(SRCS-INOTIFY)
+ifeq ($(CONFIG_INOTIFY), yes)
+ifeq ($(PLATFORM), freebsd)
+LDFLAGS += -linotify
+endif
+endif
 
 # Avahi
 SRCS-AVAHI = \

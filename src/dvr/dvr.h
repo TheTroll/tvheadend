@@ -76,6 +76,7 @@ typedef struct dvr_config {
   char *dvr_storage;
   int dvr_pri;
   int dvr_clone;
+  int dvr_complex_scheduling;
   uint32_t dvr_rerecord_errors;
   uint32_t dvr_retention_days;
   uint32_t dvr_removal_days;
@@ -401,6 +402,8 @@ typedef struct dvr_autorec_entry {
 
   int dae_minduration;
   int dae_maxduration;
+  int dae_minyear;
+  int dae_maxyear;
   uint32_t dae_retention;
   uint32_t dae_removal;
   uint32_t dae_btype;
@@ -698,6 +701,8 @@ void dvr_autorec_init(void);
 void dvr_autorec_done(void);
 
 void dvr_autorec_update(void);
+/// Check autorec timers after a short delay.
+void dvr_autorec_async_reschedule(void);
 
 static inline int
   dvr_autorec_entry_verify(dvr_autorec_entry_t *dae, access_t *a, int readonly)
