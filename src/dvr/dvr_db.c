@@ -947,9 +947,9 @@ dvr_entry_t *
 dvr_entry_create(const char *uuid, htsmsg_t *conf, int clone)
 {
   dvr_entry_t *de, *de2;
-  int64_t start, stop;
+  int64_t start, stop, create, now;
   htsmsg_t *m;
-  char ubuf[UUID_HEX_SIZE];
+  char ubuf[UUID_HEX_SIZE], ubuf2[UUID_HEX_SIZE];
   const char *s;
 
   if (conf) {
@@ -979,6 +979,25 @@ dvr_entry_create(const char *uuid, htsmsg_t *conf, int clone)
 
   idnode_load(&de->de_id, conf);
 
+  /* Time the node was created. */
+  if (!htsmsg_get_s64(conf, "create", &create)) {
+      de->de_create = create;
+  } else {
+      /* Old dvr entry without a create time, so fake one.  For
+       * entries that are older than a day, assume these are old
+       * (tvh4.2) recordings, so use the start time as the create
+       * time. This will allow user to order records by create time
+       * and get something reasonable. For all new records however, we
+       * use now since they will be written to disk.
+       */
+      now = gclk();
+      if (now > start && start < now - 86400)
+          create = start;
+      else
+          create = now;
+      de->de_create = create;
+  }
+
   /* Extract episode info */
   s = htsmsg_get_str(conf, "episode");
   if (s) {
@@ -999,6 +1018,26 @@ dvr_entry_create(const char *uuid, htsmsg_t *conf, int clone)
 
   LIST_INSERT_HEAD(&dvrentries, de, de_global_link);
 
+  /* We do early duplicate checking. Otherwise we have the scenario
+   * where we have a dvr entry already on disk and an autorec creates
+   * an entry that matches the same programme details in the future (a
+   * repeat), but we still create a dvr_entry for that schedule and
+   * then immediately cancel it when the start time arrives. So,
+   * instead, we cancel that duplicate here and now.
+   *
+   * Note: this check has to be done _after_ insert in to de_global_link
+   * otherwise the destroy will abort.
+   */
+  if (_dvr_duplicate_event(de)) {
+      tvhtrace(LS_DVR, "Entry was duplicate for %s \"%s\" on \"%s\" start time %"PRId64", "
+          "scheduled for recording by \"%s\"",
+          idnode_uuid_as_str(&de->de_id, ubuf),
+          lang_str_get(de->de_title, NULL), DVR_CH_NAME(de),
+          (int64_t)de->de_start, de->de_creator ?: "");
+      dvr_entry_destroy(de, 1);
+      return NULL;
+  }
+
   if (de->de_channel && !de->de_dont_reschedule && !clone) {
     LIST_FOREACH(de2, &de->de_channel->ch_dvrs, de_channel_link)
       if(de2 != de &&
@@ -1012,7 +1051,7 @@ dvr_entry_create(const char *uuid, htsmsg_t *conf, int clone)
           idnode_uuid_as_str(&de->de_id, ubuf),
           lang_str_get(de->de_title, NULL), DVR_CH_NAME(de),
           (int64_t)de2->de_start, de->de_creator ?: "",
-          idnode_uuid_as_str(&de2->de_id, ubuf));
+          idnode_uuid_as_str(&de2->de_id, ubuf2));
         dvr_entry_destroy(de, 1);
         return NULL;
       }
@@ -1701,6 +1740,12 @@ static dvr_entry_t *_dvr_duplicate_event(dvr_entry_t *de)
 static int
 dvr_is_better_recording_timeslot(const epg_broadcast_t *new_bcast, const dvr_entry_t *old_de)
 {
+  /* If programme is recording (or completed) then it is the "best",
+   * even if a better schedule is found after recording starts.
+   */
+  if (old_de->de_sched_state != DVR_SCHEDULED)
+    return 0;
+
   if (!old_de || !old_de->de_bcast) return 1;            /* Old broadcast should always exist */
   int old_services = 0;
   int new_services = 0;
@@ -1713,12 +1758,6 @@ dvr_is_better_recording_timeslot(const epg_broadcast_t *new_bcast, const dvr_ent
   /* Sanity check. */
   if (!new_channel) return 0;
   if (!old_channel) return 1;
-
-  /* If programme is recording then it is the "best", even if a better
-   * schedule is found after recording starts.
-   */
-  if (old_de->de_sched_state != DVR_SCHEDULED)
-    return 0;
 
   /* Always prefer a recording that has the correct service profile
    * (UHD, HD, SD).  Someone mentioned (#1846) that some channels can
@@ -1763,9 +1802,9 @@ dvr_is_better_recording_timeslot(const epg_broadcast_t *new_bcast, const dvr_ent
    * get 50 minutes.
    */
   if (new_bcast->start != old_bcast->start) {
-    if (new_bcast->start > old_bcast->start && time(NULL) >  old_bcast->start) {
+    if (new_bcast->start > old_bcast->start && gclk() >  old_bcast->start) {
       return 1;
-    } else if (new_bcast->start < old_bcast->start && time(NULL) > new_bcast->start) {
+    } else if (new_bcast->start < old_bcast->start && gclk() > new_bcast->start) {
       return 0;
     }
 
@@ -1965,6 +2004,7 @@ dvr_entry_dec_ref(dvr_entry_t *de)
   free(de->de_channel_name);
   free(de->de_epnum.text);
   free(de->de_image);
+  free(de->de_fanart_image);
   free(de->de_uri);
 
   free(de);
@@ -2010,8 +2050,13 @@ dvr_entry_destroy(dvr_entry_t *de, int delconf)
    * count" to be able to schedule a new recording.  We have to do
    * this even if de was not an autorec since autorecs can interact
    * with manually scheduled programmes.
+   *
+   * We avoid rescheduling for cases where the entry has only just been
+   * created and then immediately destroyed, giving a few seconds
+   * lee-way in case of slow hardware.
    */
-  dvr_autorec_async_reschedule();
+  if (!de->de_create || gclk() - de->de_create > 10)
+      dvr_autorec_async_reschedule();
   dvr_entry_dec_ref(de);
 }
 
@@ -2871,6 +2916,13 @@ dvr_entry_class_int_set(dvr_entry_t *de, int *v, int nv)
     return 1;
   }
   return 0;
+}
+
+static int
+dvr_entry_class_create_set(void *o, const void *v)
+{
+  dvr_entry_t *de = (dvr_entry_t *)o;
+  return dvr_entry_class_time_set(de, &de->de_create, *(time_t *)v);
 }
 
 static int
@@ -3775,6 +3827,15 @@ const idclass_t dvr_entry_class = {
     },
     {
       .type     = PT_TIME,
+      .id       = "create",
+      .name     = N_("Time the entry was created"),
+      .desc     = N_("The create time of the entry describing the recording."),
+      .set      = dvr_entry_class_create_set,
+      .off      = offsetof(dvr_entry_t, de_create),
+      .opts     = PO_HIDDEN | PO_RDONLY | PO_NOUI,
+    },
+    {
+      .type     = PT_TIME,
       .id       = "start",
       .name     = N_("Start time"),
       .desc     = N_("The start time of the recording."),
@@ -3873,7 +3934,15 @@ const idclass_t dvr_entry_class = {
       .desc     = N_("Episode image."),
       .get      = dvr_entry_class_image_url_get_as_property,
       .off      = offsetof(dvr_entry_t, de_image),
-      .opts     = PO_HIDDEN | PO_RDONLY,
+      .opts     = PO_HIDDEN,
+    },
+    {
+      .type     = PT_STR,
+      .id       = "fanart_image",
+      .name     = N_("Fanart image"),
+      .desc     = N_("Fanart image."),
+      .off      = offsetof(dvr_entry_t, de_fanart_image),
+      .opts     = PO_HIDDEN,
     },
     {
       .type     = PT_LANGSTR,

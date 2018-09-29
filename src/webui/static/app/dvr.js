@@ -26,6 +26,7 @@ tvheadend.dvrDetails = function(grid, index) {
     var win;
     // We need a unique DOM id in case user opens two dialogs.
     var nextButtonId = Ext.id();
+    var previousButtonId = Ext.id();
     // Our title is passed to search functions (such as imdb)
     // So always ensure this does not contain channel info.
     function getTitle(d) {
@@ -44,6 +45,7 @@ tvheadend.dvrDetails = function(grid, index) {
       if (channelname && channelname.length) fields.push(channelname);
       return fields.join(' - ');
     }
+
     function getDialogContent(d) {
         var params = d[0].params;
         var chicon = params[0].value;
@@ -174,11 +176,16 @@ tvheadend.dvrDetails = function(grid, index) {
             buttons.push(comboGetInfo);
 
         buttons.push(new Ext.Button({
+              id: previousButtonId,
+              handler: previousEvent,
+              iconCls: 'previous',
+              tooltip: _('Go to previous event'),
+        }));
+        buttons.push(new Ext.Button({
             id: nextButtonId,
             handler: nextEvent,
             iconCls: 'next',
             tooltip: _('Go to next event'),
-            text: _("Next"),
         }));
 
     return buttons;
@@ -193,7 +200,7 @@ tvheadend.dvrDetails = function(grid, index) {
             title: dialogTitle,
             iconCls: 'info',
             layout: 'fit',
-            width: 650,
+            width: 760,
             height: windowHeight,
             constrainHeader: true,
             buttonAlign: 'center',
@@ -201,11 +208,11 @@ tvheadend.dvrDetails = function(grid, index) {
             buttons: buttons,
             html: content
         });
+       win.show();
+       checkButtonAvailability(win.fbar)
+  }
 
-        win.show();
-     }
-
-    function load(store, index, cb) {
+  function load(store, index, cb) {
       var uuid = store.getAt(index).id;
       tvheadend.loading(1);
       Ext.Ajax.request({
@@ -226,15 +233,27 @@ tvheadend.dvrDetails = function(grid, index) {
             tvheadend.loading(0);
         }
       });
-    }                           // load
+  }                           // load
 
-    function nextEvent() {
-      var store = grid.getStore();
-        ++current_index;
-        load(store,current_index,updateit);
-      }
+  function previousEvent() {
+      --current_index;
+      load(store,current_index,updateit);
+  }
+  function nextEvent() {
+      ++current_index;
+      load(store,current_index,updateit);
+  }
 
-     function updateit(d) {
+  function checkButtonAvailability(toolBar){
+        // If we're at the end of the store then disable the next
+        // or previous button.  (getTotalCount is one-based).
+        if (current_index == store.getTotalCount() - 1)
+          toolBar.getComponent(nextButtonId).disable();
+        if (current_index == 0)
+          toolBar.getComponent(previousButtonId).disable();
+    }
+
+  function updateit(d) {
         var dialogTitle = getDialogTitle(d);
         var content = getDialogContent(d);
         var buttons = getDialogButtons(getTitle(d));
@@ -246,15 +265,12 @@ tvheadend.dvrDetails = function(grid, index) {
         var tbar = win.fbar;
         tbar.removeAll();
         Ext.each(buttons, function(btn) {
-                         tbar.addButton(btn);
-                       });
-        // If we're at the end of the store then disable the next
-        // button.  (getTotalCount is one-based).
-        if (current_index == store.getTotalCount() - 1)
-          tbar.getComponent(nextButtonId).disable();
+            tbar.addButton(btn);
+        });
+        checkButtonAvailability(tbar);
         // Finally, relayout.
         win.doLayout();
-     }
+  }
 
     var store = grid.getStore();
     load(store,index,showit);
@@ -972,7 +988,7 @@ tvheadend.dvr_settings = function(panel, index) {
 tvheadend.autorec_editor = function(panel, index) {
 
     var list = 'name,title,fulltext,channel,start,start_window,weekdays,' +
-               'record,tag,btype,content_type,cat1,cat2,cat3,minduration,maxduration,minyear,maxyear,' +
+               'record,tag,btype,content_type,cat1,cat2,cat3,minduration,maxduration,minyear,maxyear,minseason,maxseason,' +
                'star_rating,dedup,directory,config_name,comment,pri';
     var elist = 'enabled,start_extra,stop_extra,' +
                 (tvheadend.accessUpdate.admin ?

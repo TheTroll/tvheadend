@@ -51,6 +51,9 @@ endif
 CFLAGS  += -Wall -Wwrite-strings -Wno-deprecated-declarations -Wno-stringop-truncation
 CFLAGS  += -Wmissing-prototypes
 CFLAGS  += -fms-extensions -funsigned-char -fno-strict-aliasing
+ifeq ($(COMPILER), gcc)
+CFLAGS  += -Wno-stringop-truncation -Wno-stringop-overflow
+endif
 CFLAGS  += -D_FILE_OFFSET_BITS=64
 CFLAGS  += -I${BUILDDIR} -I${ROOTDIR}/src -I${ROOTDIR}
 ifeq ($(CONFIG_ANDROID),yes)
@@ -797,7 +800,7 @@ ${BUILDDIR}/libffmpeg_stamp: ${BUILDDIR}/ffmpeg/build/ffmpeg/lib/libavcodec.a
 	@touch $@
 
 ${BUILDDIR}/ffmpeg/build/ffmpeg/lib/libavcodec.a: Makefile.ffmpeg
-ifeq ($(CONFIG_BINTRAY_CACHE),yes)
+ifeq ($(CONFIG_PCLOUD_CACHE),yes)
 	$(MAKE) -f Makefile.ffmpeg libcacheget
 endif
 	$(MAKE) -f Makefile.ffmpeg
@@ -812,7 +815,7 @@ ${BUILDDIR}/libhdhomerun_stamp: ${BUILDDIR}/hdhomerun/libhdhomerun/libhdhomerun.
 	@touch $@
 
 ${BUILDDIR}/hdhomerun/libhdhomerun/libhdhomerun.a: Makefile.hdhomerun
-ifeq ($(CONFIG_BINTRAY_CACHE),yes)
+ifeq ($(CONFIG_PCLOUD_CACHE),yes)
 	$(MAKE) -f Makefile.hdhomerun libcacheget
 endif
 	$(MAKE) -f Makefile.hdhomerun

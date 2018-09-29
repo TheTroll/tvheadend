@@ -22,14 +22,14 @@ Much of the code is pretty rough, but might help people get started
 with communicating with HTSP server
 """
 
-import log
-import htsmsg
+import tvh.log as log
+import tvh.htsmsg as htsmsg
 
 # ###########################################################################
 # HTSP Client
 # ###########################################################################
 
-HTSP_PROTO_VERSION = 25
+HTSP_PROTO_VERSION = 33
 
 
 # Create passwd digest

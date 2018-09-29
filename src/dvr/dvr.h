@@ -207,7 +207,7 @@ typedef struct dvr_entry {
   LIST_ENTRY(dvr_entry) de_config_link;
 
   int de_enabled;
-
+  time_t de_create;             ///< Time entry was created
   time_t de_start;
   time_t de_stop;
 
@@ -225,6 +225,7 @@ typedef struct dvr_entry {
   char *de_comment;
   char *de_uri;                 /* Programme unique ID */
   char *de_image;               /* Programme Image */
+  char *de_fanart_image;        /* Programme fanart image */
   htsmsg_t *de_files; /* List of all used files */
   char *de_directory; /* Can be set for autorec entries, will override any 
                          directory setting from the configuration */
@@ -404,6 +405,8 @@ typedef struct dvr_autorec_entry {
   int dae_maxduration;
   int dae_minyear;
   int dae_maxyear;
+  int dae_minseason;
+  int dae_maxseason;
   uint32_t dae_retention;
   uint32_t dae_removal;
   uint32_t dae_btype;
