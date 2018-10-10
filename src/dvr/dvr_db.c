@@ -23,6 +23,7 @@
 #include <assert.h>
 #include <string.h>
 #include <ctype.h>
+#include <string_list.h>
 
 #include "settings.h"
 
@@ -44,6 +45,9 @@ static int dvr_in_init;
 #if ENABLE_DBUS_1
 static mtimer_t dvr_dbus_timer;
 #endif
+/// Periodically pre-fetch artwork for scheduled recordings.
+static mtimer_t dvr_fanart_timer;
+static string_list_t *dvr_fanart_to_prefetch;
 
 static void dvr_entry_deferred_destroy(dvr_entry_t *de);
 static void dvr_entry_set_timer(dvr_entry_t *de);
@@ -757,6 +761,93 @@ dvr_usage_count(access_t *aa)
   return used;
 }
 
+int
+dvr_entry_allow_fanart_lookup(const dvr_entry_t *de)
+{
+  char ubuf[UUID_HEX_SIZE];
+
+  /* User doesn't want us to fetch artwork? */
+  if (!de || !de->de_config || !de->de_config->dvr_fetch_artwork)
+    return 0;
+
+  /* Entry already have artwork? So nothing to do */
+  if (de->de_image && *de->de_image &&
+      de->de_fanart_image && *de->de_fanart_image)
+    return 0;
+
+  /* Allow any artwork even if we can't identify episode? */
+  if (de->de_config->dvr_fetch_artwork_allow_unknown)
+    return 1;
+
+  /* Only want 'good' episodes since ones with bad data will get
+   * bad artwork.  Good episodes have a season/episode (assume
+   * episode) or year (assume movie).
+   */
+  if (!de->de_epnum.s_num && !de->de_epnum.e_num &&
+      !de->de_copyright_year) {
+    tvhdebug(LS_DVR, "Ignoring fanart for entry without good data for %s \"%s\"",
+             lang_str_get(de->de_title, NULL),
+             idnode_uuid_as_str(&de->de_id, ubuf));
+    return 0;
+  }
+
+  return 1;
+}
+
+/// Add the entry details to a list of fanart to prefetch.
+/// We then periodically check the list to update artwork.
+/// We don't do the check too frequently since most providers
+/// have limits on how frequently artwork can be fetched.
+/// It doesn't matter if the entry gets deleted before we
+/// perform the check.
+static void
+dvr_entry_fanart_add_to_prefetch(const dvr_entry_t *de)
+{
+  char ubuf[UUID_HEX_SIZE];
+
+  if (!dvr_entry_allow_fanart_lookup(de))
+    return;
+
+  string_list_insert(dvr_fanart_to_prefetch,
+                     idnode_uuid_as_str(&de->de_id, ubuf));
+}
+
+static void
+dvr_entry_fanart_prefetch_cb(void *aux)
+{
+  char *id;
+  dvr_entry_t *de;
+
+  lock_assert(&global_lock);
+
+  /* Only do one entry, even if list has many since we don't
+   * want to overload fanart providers.
+   *
+   * However we may have items on the list that don't need
+   * fanart lookup, so skip over any of this.
+   */
+  int done_one = 0;
+  while (!done_one) {
+    id = string_list_remove_first(dvr_fanart_to_prefetch);
+    /* No entries left on list? */
+    if (!id)
+      break;
+
+    de = dvr_entry_find_by_uuid(id);
+    if (dvr_entry_allow_fanart_lookup(de)) {
+      tvhinfo(LS_DVR, "Prefetching artwork for %s \"%s\"", id, lang_str_get(de->de_title, NULL));
+      dvr_spawn_fetch_artwork(de);
+      done_one = 1;
+    }
+
+    free(id);
+  } /* !done_one */
+
+  // Re-arm timer with a slight random factor to avoid queries at same
+  // time every hour.
+  mtimer_arm_rel(&dvr_fanart_timer, dvr_entry_fanart_prefetch_cb, NULL, sec2mono(3600 + random() % 900));
+}
+
 void
 dvr_entry_set_timer(dvr_entry_t *de)
 {
@@ -811,6 +902,7 @@ recording:
 
     dvr_entry_trace_time1(de, "start", start, "set timer - schedule");
     gtimer_arm_absn(&de->de_timer, dvr_timer_start_recording, de, start);
+    dvr_entry_fanart_add_to_prefetch(de);
 #if ENABLE_DBUS_1
     mtimer_arm_rel(&dvr_dbus_timer, dvr_dbus_timer_cb, NULL, sec2mono(5));
 #endif
@@ -4731,6 +4823,7 @@ dvr_entry_init(void)
   dvr_entry_t *de1, *de2;
 
   dvr_in_init = 1;
+  dvr_fanart_to_prefetch = string_list_create();
   idclass_register(&dvr_entry_class);
   rere = htsmsg_create_map();
   /* load config, but remove parent/child fields */
@@ -4766,6 +4859,10 @@ dvr_entry_init(void)
     de2 = LIST_NEXT(de1, de_global_link);
     dvr_entry_set_timer(de1);
   }
+
+  // After a while we get one new entry and prefetch artwork for an
+  // upcoming dvr entry.
+  mtimer_arm_rel(&dvr_fanart_timer, dvr_entry_fanart_prefetch_cb, NULL, sec2mono(3600));
 }
 
 void

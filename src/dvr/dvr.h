@@ -94,6 +94,9 @@ typedef struct dvr_config {
   int dvr_running;
   uint32_t dvr_cleanup_threshold_free;
   uint32_t dvr_cleanup_threshold_used;
+  int dvr_fetch_artwork;
+  int dvr_fetch_artwork_allow_unknown;
+  char *dvr_fetch_artwork_options;
 
   muxer_config_t dvr_muxcnf;
 
@@ -517,6 +520,9 @@ static inline int dvr_entry_is_editable(dvr_entry_t *de)
 static inline int dvr_entry_is_valid(dvr_entry_t *de)
   { return de->de_refcnt > 0; }
 
+/// Does the user want fanart lookup for this entry?
+int dvr_entry_allow_fanart_lookup(const dvr_entry_t *de);
+
 static inline int dvr_entry_is_completed_ok(dvr_entry_t *de)
   { assert(de->de_sched_state == DVR_COMPLETED);
     return de->de_last_error == SM_CODE_OK ||
@@ -647,6 +653,8 @@ int dvr_entry_verify(dvr_entry_t *de, access_t *a, int readonly);
 void dvr_entry_changed(dvr_entry_t *de);
 
 void dvr_spawn_cmd(dvr_entry_t *de, const char *cmd, const char *filename, int pre);
+/// Spawn a fetch of artwork for the entry.
+void dvr_spawn_fetch_artwork(dvr_entry_t *de);
 
 void dvr_vfs_refresh_entry(dvr_entry_t *de);
 void dvr_vfs_remove_entry(dvr_entry_t *de);

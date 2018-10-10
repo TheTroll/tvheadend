@@ -450,8 +450,8 @@ const idclass_t channel_class = {
       .type     = PT_STR,
       .id       = "icon",
       .name     = N_("User icon"),
-      .desc     = N_("The URL (or path) to the icon to use/used "
-                     "for the channel."),
+      .desc     = N_("The URL to the icon to use/used for the channel. "
+                     "The local files are referred using file:/// URLs."),
       .off      = offsetof(channel_t, ch_icon),
       .notify   = channel_class_icon_notify,
       .opts     = PO_ADVANCED,
@@ -961,12 +961,26 @@ channel_get_source ( channel_t *ch, char *dst, size_t dstlen )
 {
   const char *s;
   idnode_list_mapping_t *ilm;
-  size_t l = 0;
+  /* Unique sorted string list since many services with
+   * same source may be mapped so we want to avoid
+   * 'DVB-S, DVB-S, DVB-S'.
+   */
+  string_list_t *sources = string_list_create();
+  char *csv;
   dst[0] = '\0';
   LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link)
     if ((s = service_get_source((service_t *)ilm->ilm_in1)))
-      tvh_strlcatf(dst, dstlen, l, "%s%s", l > 0 ? "," : "", s);
-  return l > 0 ? dst : NULL;
+      string_list_insert(sources, s);
+  /* We own the returned list */
+  csv = string_list_2_csv(sources, ',', 1);
+  string_list_destroy(sources);
+  if (csv) {
+    strlcpy(dst, csv, dstlen);
+    free(csv);
+    return dst;
+  } else {
+    return NULL;
+  }
 }
 
 static char *
@@ -1176,7 +1190,7 @@ int channel_set_icon ( channel_t *ch, const char *icon )
 {
   int save = 0;
   if (!ch || !icon) return 0;
-  if (!ch->ch_icon || strcmp(ch->ch_icon, icon) ) {
+  if (!ch->ch_icon || strcmp(ch->ch_icon, icon)) {
     if (ch->ch_icon) free(ch->ch_icon);
     ch->ch_icon = strdup(icon);
     save = 1;
