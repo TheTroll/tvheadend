@@ -874,6 +874,11 @@ linuxdvb_frontend_monitor ( void *aux )
 
   /* Close FE */
   if (lfe->lfe_fe_fd > 0 && !lfe->lfe_refcount && lfe->lfe_powersave) {
+    if (lfe->lfe_satconf && linuxdvb_satconf_power_save(lfe->lfe_satconf) > 0) {
+      /* re-arm */
+      mtimer_arm_rel(&lfe->lfe_monitor_timer, linuxdvb_frontend_monitor, lfe, sec2mono(1));
+      return;
+    }
     linuxdvb_frontend_close_fd(lfe, buf);
     return;
   }
@@ -1859,6 +1864,11 @@ linuxdvb_frontend_tune0
     S2CMD(DTV_SYMBOL_RATE,       p.u.qam.symbol_rate);
     S2CMD(DTV_MODULATION,        p.u.qam.modulation);
     S2CMD(DTV_INNER_FEC,         p.u.qam.fec_inner);
+    r = dmc->dmc_fe_stream_id != DVB_NO_STREAM_ID_FILTER ? (dmc->dmc_fe_stream_id & 0xFF) |
+          ((dmc->dmc_fe_data_slice & 0xFF)<<8) : DVB_NO_STREAM_ID_FILTER;
+#if DVB_VER_ATLEAST(5,9)
+    S2CMD(DTV_STREAM_ID,         r);
+#endif
 
   /* DVB-S */
   } else if (lfe->lfe_type == DVB_TYPE_S) {
@@ -1875,6 +1885,11 @@ linuxdvb_frontend_tune0
           DVB_NO_STREAM_ID_FILTER;
 #if DVB_VER_ATLEAST(5,9)
       S2CMD(DTV_STREAM_ID,       r);
+#if DVB_VER_ATLEAST(5,11)
+      r = dvb_sat_pls(dmc);
+      if (r != 0) /* default PLS gold code */
+        S2CMD(DTV_SCRAMBLING_SEQUENCE_INDEX, r);
+#endif
 #elif DVB_VER_ATLEAST(5,3)
       S2CMD(DTV_DVBT2_PLP_ID,    r);
 #endif
@@ -1913,6 +1928,11 @@ linuxdvb_frontend_tune0
         DVB_NO_STREAM_ID_FILTER;
 #if DVB_VER_ATLEAST(5,9)
     S2CMD(DTV_STREAM_ID,       r);
+#if DVB_VER_ATLEAST(5,11)
+    r = dvb_sat_pls(dmc);
+    if (r != 0) /* default PLS gold code */
+      S2CMD(DTV_SCRAMBLING_SEQUENCE_INDEX, r);
+#endif
 #elif DVB_VER_ATLEAST(5,3)
     S2CMD(DTV_DVBT2_PLP_ID,    r);
 #endif

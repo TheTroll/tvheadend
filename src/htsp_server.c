@@ -1283,15 +1283,12 @@ htsp_build_event
       htsmsg_add_str(out, "description", str);
   }
 
-  if (e->credits) {
+  if (e->credits)
     htsmsg_add_msg(out, "credits", htsmsg_copy(e->credits));
-  }
-  if (e->category) {
-    htsmsg_add_msg(out, "category", string_list_to_htsmsg(e->category));
-  }
-  if (e->keyword) {
-    htsmsg_add_msg(out, "keyword", string_list_to_htsmsg(e->keyword));
-  }
+  if (e->category)
+    string_list_serialize(e->category, out, "category");
+  if (e->keyword)
+    string_list_serialize(e->keyword, out, "keyword");
 
   if (e->serieslink)
     htsmsg_add_str(out, "serieslinkUri", e->serieslink->uri);
@@ -3259,7 +3256,7 @@ static int
 htsp_read_loop(htsp_connection_t *htsp)
 {
   htsmsg_t *m = NULL, *reply;
-  int r = 0, i;
+  int run = 1, r = 0, i, streaming = 0;
   const char *method;
   void *tcp_id = NULL;;
 
@@ -3274,7 +3271,7 @@ htsp_read_loop(htsp_connection_t *htsp)
   htsp->htsp_granted_access = access_get_by_addr(htsp->htsp_peer);
   htsp->htsp_granted_access->aa_rights |= ACCESS_HTSP_INTERFACE;
 
-  tcp_id = tcp_connection_launch(htsp->htsp_fd, htsp_server_status,
+  tcp_id = tcp_connection_launch(htsp->htsp_fd, streaming, htsp_server_status,
                                  htsp->htsp_granted_access);
 
   pthread_mutex_unlock(&global_lock);
@@ -3286,7 +3283,7 @@ htsp_read_loop(htsp_connection_t *htsp)
 
   /* Session main loop */
 
-  while(tvheadend_is_running()) {
+  while(run && tvheadend_is_running()) {
 readmsg:
     reply = NULL;
 
@@ -3296,12 +3293,14 @@ readmsg:
     pthread_mutex_lock(&global_lock);
     if (htsp_authenticate(htsp, m)) {
       tcp_connection_land(tcp_id);
-      tcp_id = tcp_connection_launch(htsp->htsp_fd, htsp_server_status,
+      tcp_id = tcp_connection_launch(htsp->htsp_fd, streaming, htsp_server_status,
                                      htsp->htsp_granted_access);
       if (tcp_id == NULL) {
-        htsmsg_destroy(m);
-        pthread_mutex_unlock(&global_lock);
-        return 1;
+        reply = htsmsg_create_map();
+        htsmsg_add_u32(reply, "noaccess", 1);
+        htsmsg_add_u32(reply, "connlimit", 1);
+        run = 0;
+        goto send_reply_with_unlock;
       }
     }
 
@@ -3328,6 +3327,18 @@ readmsg:
             goto readmsg;
 
           } else {
+            if (!strcmp(method, "subscribe") && !streaming) {
+              tcp_connection_land(tcp_id);
+              tcp_id = tcp_connection_launch(htsp->htsp_fd, 1, htsp_server_status,
+                                             htsp->htsp_granted_access);
+              if (tcp_id == NULL) {
+                reply = htsmsg_create_map();
+                htsmsg_add_u32(reply, "noaccess", 1);
+                htsmsg_add_u32(reply, "connlimit", 1);
+                goto send_reply_with_unlock;
+              }
+              streaming = 1;
+            }
             reply = htsp_methods[i].fn(htsp, m);
           }
           break;
@@ -3342,6 +3353,7 @@ readmsg:
       reply = htsp_error(htsp, N_("Invalid arguments"));
     }
 
+send_reply_with_unlock:
     pthread_mutex_unlock(&global_lock);
 
     if(reply != NULL) /* Methods can do all the replying inline */

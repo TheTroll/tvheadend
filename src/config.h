@@ -71,6 +71,7 @@ typedef struct config {
   int label_formatting;
   char* ncserver_ip;
   uint32_t ncserver_port;
+  uint32_t ticket_expires;
 } config_t;
 
 extern const idclass_t config_class;

@@ -39,8 +39,6 @@
 #include "tcp.h"
 #include "lang_codes.h"
 
-#define TICKET_LIFETIME (30*60) /* in seconds */
-
 struct access_entry_queue access_entries;
 struct access_ticket_queue access_tickets;
 struct passwd_entry_queue passwd_entries;
@@ -51,7 +49,7 @@ const char *superuser_password;
 
 int access_noacl;
 
-static int passwd_verify(const char *username, verify_callback_t verify, void *aux);
+static int passwd_verify(access_t *a, const char *username, verify_callback_t verify, void *aux);
 static int passwd_verify2(const char *username, verify_callback_t verify, void *aux,
                           const char *username2, const char *passwd2);
 static void access_ticket_destroy(access_ticket_t *at);
@@ -124,7 +122,7 @@ access_ticket_timeout(void *aux)
 const char *
 access_ticket_create(const char *resource, access_t *a)
 {
-  const int64_t lifetime = sec2mono(TICKET_LIFETIME);
+  const int64_t lifetime = sec2mono(MINMAX(config.ticket_expires, 30, 3600));
   uint8_t buf[20];
   char id[41];
   uint_fast32_t i;
@@ -141,7 +139,6 @@ access_ticket_create(const char *resource, access_t *a)
     if (!access_compare(at->at_access, a))
       return at->at_id;
   }
-
 
   at = calloc(1, sizeof(access_ticket_t));
 
@@ -209,6 +206,42 @@ access_ticket_verify2(const char *id, const char *resource)
 /**
  *
  */
+static int
+passwd_auth_exists(const char *id)
+{
+  passwd_entry_t *pw;
+
+  if (id == NULL)
+    return 0;
+  TAILQ_FOREACH(pw, &passwd_entries, pw_link) {
+    if (strempty(pw->pw_auth)) continue;
+    if (strcmp(id, pw->pw_auth) == 0) return 1;
+  }
+  return 0;
+}
+
+/**
+ *
+ */
+static passwd_entry_t *
+passwd_auth_find(const char *id)
+{
+  passwd_entry_t *pw;
+
+  if (id == NULL)
+    return NULL;
+  TAILQ_FOREACH(pw, &passwd_entries, pw_link) {
+    if (!pw->pw_enabled) continue;
+    if (!pw->pw_auth_enabled) continue;
+    if (strempty(pw->pw_auth)) continue;
+    if (strcmp(id, pw->pw_auth) == 0) return pw;
+  }
+  return NULL;
+}
+
+/**
+ *
+ */
 int
 access_verify_list(htsmsg_t *list, const char *item)
 {
@@ -267,6 +300,8 @@ access_copy(access_t *src)
   }
   if (src->aa_chtags)
     dst->aa_chtags  = htsmsg_copy(src->aa_chtags);
+  if (src->aa_auth)
+    dst->aa_auth = strdup(src->aa_auth);
   return dst;
 }
 
@@ -315,6 +350,7 @@ access_destroy(access_t *a)
   free(a->aa_lang_ui);
   free(a->aa_theme);
   free(a->aa_chrange);
+  free(a->aa_auth);
   htsmsg_destroy(a->aa_profiles);
   htsmsg_destroy(a->aa_dvrcfgs);
   htsmsg_destroy(a->aa_chtags);
@@ -687,19 +723,21 @@ access_get(struct sockaddr_storage *src, const char *username, verify_callback_t
   access_t *a = access_alloc();
   access_entry_t *ae;
   int nouser = tvh_str_default(username, NULL) == NULL;
+  char *s;
 
   if (!access_noacl && access_ip_blocked(src))
     return a;
 
-  if (!passwd_verify(username, verify, aux)) {
+  if (!passwd_verify(a, username, verify, aux)) {
     a->aa_username = strdup(username);
     a->aa_representative = strdup(username);
     if(!passwd_verify2(username, verify, aux,
                        superuser_username, superuser_password))
       return access_full(a);
   } else {
-    a->aa_representative = malloc(50);
-    tcp_get_str_from_ip(src, a->aa_representative, 50);
+    s = alloca(50);
+    tcp_get_str_from_ip(src, s, 50);
+    a->aa_representative = strdup(s);
     if(!passwd_verify2(username, verify, aux,
                        superuser_username, superuser_password))
       return access_full(a);
@@ -786,9 +824,10 @@ access_get_by_addr(struct sockaddr_storage *src)
 {
   access_t *a = access_alloc();
   access_entry_t *ae;
+  char buf[50];
 
-  a->aa_representative = malloc(50);
-  tcp_get_str_from_ip(src, a->aa_representative, 50);
+  tcp_get_str_from_ip(src, buf, sizeof(buf));
+  a->aa_representative = strdup(buf);
 
   if(access_noacl)
     return access_full(a);
@@ -812,6 +851,33 @@ access_get_by_addr(struct sockaddr_storage *src)
 
   access_set_lang_ui(a);
 
+  return a;
+}
+
+/**
+ *
+ */
+static int
+access_get_by_auth_verify(void *aux, const char *passwd)
+{
+  if (passwd == superuser_password)
+    return 0;
+  return 1;
+}
+
+/**
+ *
+ */
+access_t *
+access_get_by_auth(struct sockaddr_storage *src, const char *id)
+{
+  access_t *a;
+  passwd_entry_t *pw = passwd_auth_find(id);
+  if (!pw)
+    return NULL;
+  a = access_get(src, pw->pw_username, access_get_by_auth_verify, NULL);
+  a->aa_rights &= ACCESS_ADVANCED_STREAMING|ACCESS_STREAMING;
+  tvh_str_set(&a->aa_auth, id);
   return a;
 }
 
@@ -1904,16 +1970,50 @@ passwd_verify2
 
 static int
 passwd_verify
-  (const char *username, verify_callback_t verify, void *aux)
+  (access_t *a, const char *username, verify_callback_t verify, void *aux)
 {
   passwd_entry_t *pw;
 
   TAILQ_FOREACH(pw, &passwd_entries, pw_link)
     if (pw->pw_enabled &&
         !passwd_verify2(username, verify, aux,
-                        pw->pw_username, pw->pw_password))
+                        pw->pw_username, pw->pw_password)) {
+      if (pw->pw_auth_enabled)
+        tvh_str_set(&a->aa_auth, pw->pw_auth);
       return 0;
+    }
   return -1;
+}
+
+static void
+passwd_entry_new_auth(passwd_entry_t *pw)
+{
+  static const char table[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-.";
+  uint8_t buf[20], *in;
+  char id[42], *dst;
+  unsigned int bits;
+  int len, shift;
+
+  do {
+    id[0] = 'P';
+    uuid_random(in = buf, sizeof(buf));
+    /* convert random bits to URL safe characters, modified base64 encoding */
+    bits = 0;
+    shift = 0;
+    in = buf;
+    dst = id + 1;
+    for (len = sizeof(buf); len > 0; len--) {
+      bits = (bits << 8) + *in++;
+      shift += 8;
+      do {
+        *dst++ = table[(bits << 6 >> shift) & 0x3f];
+        shift -= 6;
+      } while (shift > 6 || (len == 1 && shift > 0));
+    }
+    *dst = '\0';
+  } while (passwd_auth_exists(id));
+  tvh_str_set(&pw->pw_auth, id);
 }
 
 passwd_entry_t *
@@ -1963,6 +2063,7 @@ passwd_entry_destroy(passwd_entry_t *pw, int delconf)
   free(pw->pw_username);
   free(pw->pw_password);
   free(pw->pw_password2);
+  free(pw->pw_auth);
   free(pw->pw_comment);
   free(pw);
 }
@@ -2040,6 +2141,70 @@ passwd_entry_class_password2_set(void *o, const void *v)
   return 0;
 }
 
+static int
+passwd_entry_class_auth_enabled_set ( void *obj, idnode_slist_t *entry, int val )
+{
+  passwd_entry_t *pw = (passwd_entry_t *)obj;
+  val = !!val;
+  if (pw->pw_auth_enabled != val) {
+    pw->pw_auth_enabled = val;
+    if (val && strempty(pw->pw_auth))
+      passwd_entry_new_auth((passwd_entry_t *)obj);
+    return 1;
+  }
+  return 0;
+}
+
+static int
+passwd_entry_class_auth_reset_set ( void *obj, idnode_slist_t *entry, int val )
+{
+  if (val) {
+    passwd_entry_new_auth((passwd_entry_t *)obj);
+    return 1;
+  }
+  return 0;
+}
+
+static idnode_slist_t passwd_entry_class_auth_slist[] = {
+  {
+    .id   = "enable",
+    .name = N_("Enable"),
+    .off  = offsetof(passwd_entry_t, pw_auth_enabled),
+    .set  = passwd_entry_class_auth_enabled_set,
+  },
+  {
+    .id   = "reset",
+    .name = N_("Reset"),
+    .off  = 0,
+    .set  = passwd_entry_class_auth_reset_set,
+  },
+  {}
+};
+
+static htsmsg_t *
+passwd_entry_class_auth_enum ( void *obj, const char *lang )
+{
+  return idnode_slist_enum(obj, passwd_entry_class_auth_slist, lang);
+}
+
+static const void *
+passwd_entry_class_auth_get ( void *obj )
+{
+  return idnode_slist_get(obj, passwd_entry_class_auth_slist);
+}
+
+static char *
+passwd_entry_class_auth_rend ( void *obj, const char *lang )
+{
+  return idnode_slist_rend(obj, passwd_entry_class_auth_slist, lang);
+}
+
+static int
+passwd_entry_class_auth_set ( void *obj, const void *p )
+{
+  return idnode_slist_set(obj, passwd_entry_class_auth_slist, p);
+}
+
 CLASS_DOC(passwd)
 
 const idclass_t passwd_entry_class = {
@@ -2084,6 +2249,26 @@ const idclass_t passwd_entry_class = {
       .off      = offsetof(passwd_entry_t, pw_password2),
       .opts     = PO_PASSWORD | PO_HIDDEN | PO_EXPERT | PO_WRONCE | PO_NOUI,
       .set      = passwd_entry_class_password2_set,
+    },
+    {
+      .type     = PT_INT,
+      .islist   = 1,
+      .id       = "auth",
+      .name     = N_("Persistent authentication"),
+      .desc     = N_("Manage persistent authentication for HTTP streaming."),
+      .list     = passwd_entry_class_auth_enum,
+      .get      = passwd_entry_class_auth_get,
+      .set      = passwd_entry_class_auth_set,
+      .rend     = passwd_entry_class_auth_rend,
+      .opts     = PO_DOC_NLIST,
+    },
+    {
+      .type     = PT_STR,
+      .id       = "authcode",
+      .name     = N_("Persistent authentication code"),
+      .desc     = N_("The code which may be used for the HTTP streaming."),
+      .off      = offsetof(passwd_entry_t, pw_auth),
+      .opts     = PO_RDONLY,
     },
     {
       .type     = PT_STR,
@@ -2262,7 +2447,7 @@ access_init(int createdefault, int noacl)
   if ((c = hts_settings_load("ipblock")) != NULL) {
     HTSMSG_FOREACH(f, c) {
       if (!(m = htsmsg_field_get_map(f))) continue;
-      (void)ipblock_entry_create(f->hmf_name, m);
+      (void)ipblock_entry_create(htsmsg_field_name(f), m);
     }
     htsmsg_destroy(c);
   }
@@ -2271,7 +2456,7 @@ access_init(int createdefault, int noacl)
   if ((c = hts_settings_load("passwd")) != NULL) {
     HTSMSG_FOREACH(f, c) {
       if (!(m = htsmsg_field_get_map(f))) continue;
-      (void)passwd_entry_create(f->hmf_name, m);
+      (void)passwd_entry_create(htsmsg_field_name(f), m);
     }
     htsmsg_destroy(c);
   }
@@ -2280,7 +2465,7 @@ access_init(int createdefault, int noacl)
   if ((c = hts_settings_load("accesscontrol")) != NULL) {
     HTSMSG_FOREACH(f, c) {
       if (!(m = htsmsg_field_get_map(f))) continue;
-      (void)access_entry_create(f->hmf_name, m);
+      (void)access_entry_create(htsmsg_field_name(f), m);
     }
     htsmsg_destroy(c);
     access_entry_reindex();

@@ -1044,12 +1044,14 @@ dvb_mux_conf_str_dvbc ( dvb_mux_conf_t *dmc, char *buf, size_t bufsize )
     delsys = dvb_delsys2str(dmc->dmc_fe_delsys);
   return
   snprintf(buf, bufsize,
-           "%s freq %d sym %d mod %s fec %s",
+           "%s freq %d sym %d mod %s fec %s ds %d plp %d",
            delsys,
            dmc->dmc_fe_freq,
            dmc->u.dmc_fe_qam.symbol_rate,
            dvb_qam2str(dmc->dmc_fe_modulation),
-           dvb_fec2str(dmc->u.dmc_fe_qam.fec_inner));
+           dvb_fec2str(dmc->u.dmc_fe_qam.fec_inner),
+           dmc->dmc_fe_data_slice,
+           dmc->dmc_fe_stream_id);
 }
 
 static int
@@ -1189,6 +1191,23 @@ dvb_sat_position_from_str( const char *buf )
   if (min > 9 || min < 0)
     return INT_MAX;
   return (maj * 10 + min) * (c == 'W' ? -1 : 1);
+}
+
+uint32_t
+dvb_sat_pls( dvb_mux_conf_t *dmc )
+{
+  if (dmc->dmc_fe_pls_mode == DVB_PLS_ROOT) {
+    uint32_t x, g;
+    const uint32_t root = dmc->dmc_fe_pls_code & 0x3ffff;
+
+    for (g = 0, x = 1; g < 0x3ffff; g++)  {
+      if (root == x)
+        return g;
+      x = (((x ^ (x >> 7)) & 1) << 17) | (x >> 1);
+    }
+    return 0x3ffff;
+  }
+  return dmc->dmc_fe_pls_code & 0x3ffff;
 }
 
 #endif /* ENABLE_MPEGTS_DVB */

@@ -398,7 +398,7 @@ tvheadend.epgDetails = function(grid, index) {
         var title = event.title;
         if (event.episodeOnscreen)
           title += ' / ' + event.episodeOnscreen;
-        window.open('play/stream/channel/' + event.channelUuid +
+        window.open('play/ticket/stream/channel/' + event.channelUuid +
                     '?title=' + encodeURIComponent(title), '_blank');
     }
 
@@ -1241,6 +1241,7 @@ tvheadend.epg = function() {
         '-',
         {
             text: _('Help'),
+            tooltip: _('View help docs.'),
             iconCls: 'help',
             tooltip: _('View help docs.'),
             handler: function() {

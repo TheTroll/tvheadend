@@ -210,6 +210,7 @@ tvheadend.status_subs = function(panel, index)
         subs = new Ext.grid.GridPanel({
             tbar: ['->', {
                 text: _('Help'),
+                tooltip: _('View help docs.'),
                 iconCls: 'help',
                 handler: function() {
                     new tvheadend.mdhelp('status_subscriptions')
@@ -544,6 +545,7 @@ tvheadend.status_streams = function(panel, index)
             },
             '->',{
                 text: _('Help'),
+                tooltip: _('View help docs.'),
                 iconCls: 'help',
                 handler: function() {
                     new tvheadend.mdhelp('status_stream')
@@ -653,7 +655,8 @@ tvheadend.status_conns = function(panel, index) {
                     type: 'date',
                     dateFormat: 'U', /* unix time */
                     sortType: Ext.data.SortTypes.asDate
-                }
+                },
+                { name: 'streaming' }
             ],
             url: 'api/status/connections',
             autoLoad: true,
@@ -719,6 +722,12 @@ tvheadend.status_conns = function(panel, index) {
                 sortable: true
             }, {
                 width: 50,
+                id: 'streaming',
+                header: _("Streaming"),
+                dataIndex: 'streaming',
+                sortable: true
+            }, {
+                width: 50,
                 id: 'server',
                 header: _("Server Address"),
                 dataIndex: 'server',
@@ -740,6 +749,7 @@ tvheadend.status_conns = function(panel, index) {
         grid = new Ext.grid.GridPanel({
             tbar: ['->', {
                 text: _('Help'),
+                tooltip: _('View help docs.'),
                 iconCls: 'help',
                 handler: function() {
                     new tvheadend.mdhelp('status_connections')

@@ -1017,7 +1017,6 @@ dvb_pat_callback
                          NULL, "pmt", LS_TBL_BASE,
                          MT_CRC | MT_QUICKREQ | MT_ONESHOT | MT_SCANSUBS,
                          pid, MPS_WEIGHT_PMT_SCAN);
-
         if (save)
           service_request_save((service_t*)s);
       }

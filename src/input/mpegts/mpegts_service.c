@@ -930,6 +930,8 @@ mpegts_service_find
     if (service_id16(s) == sid) {
       if (pmt_pid && pmt_pid != s->s_components.set_pmt_pid) {
         s->s_components.set_pmt_pid = pmt_pid;
+        if (s->s_pmt_mon)
+          mpegts_input_open_pmt_monitor(mm, s);
         if (save) *save = 1;
       }
       if (create) {
