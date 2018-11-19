@@ -955,7 +955,6 @@ satip_rtcp_thread(void *aux)
           tcp_get_str_from_ip(&rtp->peer2, addrbuf, sizeof(addrbuf));
           tvhwarn(LS_SATIPS, "RTCP send to error %s:%d : %s",
                   addrbuf, ntohs(IP_PORT(rtp->peer2)), strerror(err));
-        } else {
           rtp->disable_rtcp = 1;
         }
       }
