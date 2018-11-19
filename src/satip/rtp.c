@@ -75,8 +75,7 @@ typedef struct satip_rtp_session {
   int sig_lock;
   pthread_mutex_t lock;
   http_connection_t *hc;
-  uint8_t *table_data;
-  int table_data_len;
+  sbuf_t table_data;
   void (*no_data_cb)(void *opaque);
   void *no_data_opaque;
 } satip_rtp_session_t;
@@ -141,10 +140,8 @@ satip_rtp_pmt_cb(mpegts_psi_table_t *mt, const uint8_t *buf, int len)
 
   ol = dvb_table_append_crc32(out, ol, sizeof(out));
 
-  if (ol > 0 && (l = dvb_table_remux(mt, out, ol, &ob)) > 0) {
-    rtp->table_data = ob;
-    rtp->table_data_len = l;
-  }
+  if (ol > 0 && (l = dvb_table_remux(mt, out, ol, &ob)) > 0)
+    sbuf_append(&rtp->table_data, ob, l);
 }
 
 static void
@@ -180,9 +177,24 @@ satip_rtp_send(satip_rtp_session_t *rtp)
       packets++;
       copy = 0;
     }
-    r = udp_multisend_send(&rtp->um, rtp->fd_rtp, packets);
-    if (r < 0)
-      return r;
+    while (1) {
+      r = udp_multisend_send(&rtp->um, rtp->fd_rtp, packets);
+      if (r < 0) {
+        if (errno == EINTR)
+          continue;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+          tvh_usleep(100);
+          continue;
+        }
+        tvhtrace(LS_SATIPS, "rtp udp multisend failed (errno %d)", errno);
+        return r;
+      }
+      break;
+    }
+    if (r != packets) {
+      tvhtrace(LS_SATIPS, "rtp udp multisend failed (packets %d written %d)", packets, r);
+      return -1;
+    }
     if (copy)
       memcpy(v->iov_base, v2->iov_base, len = v2->iov_len);
     else
@@ -242,15 +254,13 @@ found:
       TAILQ_FOREACH(tbl, &rtp->pmt_tables, link)
         if (tbl->pid == pid) {
           dvb_table_parse(&tbl->tbl, "-", data, 188, 1, 0, satip_rtp_pmt_cb);
-          if (rtp->table_data && rtp->table_data_len) {
-            for (i = r = 0; i < rtp->table_data_len; i += 188) {
-              r = satip_rtp_append_data(rtp, &v, rtp->table_data + i);
+          if (rtp->table_data.sb_ptr > 0) {
+            for (i = r = 0; i < rtp->table_data.sb_ptr; i += 188) {
+              r = satip_rtp_append_data(rtp, &v, rtp->table_data.sb_data + i);
               if (r)
                 break;
             }
-            free(rtp->table_data);
-            rtp->table_data = NULL;
-            rtp->table_data_len = 0;
+            sbuf_reset(&rtp->table_data, 10*188);
             if (r)
               return r;
           }
@@ -333,11 +343,9 @@ found:
       TAILQ_FOREACH(tbl, &rtp->pmt_tables, link)
         if (tbl->pid == pid) {
           dvb_table_parse(&tbl->tbl, "-", data, 188, 1, 0, satip_rtp_pmt_cb);
-          if (rtp->table_data && rtp->table_data_len) {
-            r = satip_rtp_append_tcp_data(rtp, rtp->table_data, rtp->table_data_len);
-            free(rtp->table_data);
-            rtp->table_data = NULL;
-            rtp->table_data_len = 0;
+          if (rtp->table_data.sb_ptr) {
+            r = satip_rtp_append_tcp_data(rtp, rtp->table_data.sb_data, rtp->table_data.sb_ptr);
+            sbuf_reset(&rtp->table_data, 10*188);
             if (r)
               return -1;
           }

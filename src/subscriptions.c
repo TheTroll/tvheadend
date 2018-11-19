@@ -938,7 +938,7 @@ subscription_create_from_channel(profile_chain_t *prch,
 				 const char *client,
 				 int *error)
 {
-  assert(prch->prch_st);
+  assert(flags == SUBSCRIPTION_NONE || prch->prch_st);
   return subscription_create_from_channel_or_service
            (prch, ti, weight, name, flags, hostname, port, username, client,
             error, NULL);
@@ -958,7 +958,7 @@ subscription_create_from_service(profile_chain_t *prch,
 				 const char *client,
 				 int *error)
 {
-  assert(prch->prch_st);
+  assert(flags == SUBSCRIPTION_NONE || prch->prch_st);
   return subscription_create_from_channel_or_service
            (prch, ti, weight, name, flags, hostname, 0, username, client,
             error, prch->prch_id);

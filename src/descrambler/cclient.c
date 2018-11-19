@@ -223,13 +223,13 @@ cc_remove_card(cclient_t *cc, cc_card_data_t *pcard)
   cc_ecm_section_t *es, *esn;
   emm_provider_t *emmp;
   char buf[256];
-  int i;
+  int i, changed = 0;
 
   tvhinfo(cc->cc_subsys, "%s: card %s removed", cc->cc_name,
           cc_get_card_name(pcard, buf, sizeof(buf)));
 
   /* invalidate all requests */
-  LIST_FOREACH(ct, &cc->cc_services, cs_link)
+  LIST_FOREACH(ct, &cc->cc_services, cs_link) {
     for (ep = LIST_FIRST(&ct->cs_ecm_pids); ep; ep = epn) {
       epn = LIST_NEXT(ep, ep_link);
       for (es = LIST_FIRST(&ep->ep_sections); es; es = esn) {
@@ -238,6 +238,7 @@ cc_remove_card(cclient_t *cc, cc_card_data_t *pcard)
           emmp = pcard->cs_ra.providers;
           for (i = 0; i < pcard->cs_ra.providers_count; i++, emmp++) {
             if (emmp->id == es->es_provid) {
+              changed = 1;
               cc_free_ecm_section(es);
               break;
             }
@@ -247,6 +248,12 @@ cc_remove_card(cclient_t *cc, cc_card_data_t *pcard)
       if (LIST_EMPTY(&ep->ep_sections))
         cc_free_ecm_pid(ep);
     }
+    if (changed) {
+      ct->cs_capid = 0xffff;
+      ct->ecm_state = ECM_INIT;
+      changed = 0;
+    }
+  }
 
   cc_free_card(pcard);
 }
