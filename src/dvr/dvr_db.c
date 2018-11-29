@@ -1742,6 +1742,7 @@ static dvr_entry_t *_dvr_duplicate_event(dvr_entry_t *de)
     return NULL;
 
   record = de->de_autorec->dae_record;
+
   switch (record) {
     case DVR_AUTOREC_RECORD_ALL:
       return NULL;

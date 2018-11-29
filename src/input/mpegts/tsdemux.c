@@ -55,7 +55,7 @@ ts_recv_packet0
       cc = tsb2[3] & 0xf;
       if(st->es_cc != -1 && cc != st->es_cc) {
         /* Let the hardware to stabilize and don't flood the log */
-        if (t->s_start_time + sec2mono(5) < mclk() &&
+        if (t->s_start_time + sec2mono(1) < mclk() &&
             tvhlog_limit(&st->es_cc_log, 10))
         {
           tvhwarn(LS_TS, "%s Continuity counter error (total %zi)",

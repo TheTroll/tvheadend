@@ -69,8 +69,6 @@ typedef struct config {
   int iptv_tpool_count;
   char *date_mask;
   int label_formatting;
-  char* ncserver_ip;
-  uint32_t ncserver_port;
   uint32_t ticket_expires;
 } config_t;
 

@@ -366,10 +366,6 @@ SRCS-2 += \
 	src/muxer/muxer_mkv.c \
 	src/muxer/muxer_audioes.c
 
-SRCS-2 += \
-	src/descrambler/tvhcsa.c \
-	src/descrambler/ncclient.c
-
 SRCS += $(SRCS-2)
 I18N-C += $(SRCS-2)
 
@@ -523,6 +519,12 @@ SRCS-LIBAV += src/input/mpegts/iptv/iptv_libav.c
 endif
 SRCS-$(CONFIG_LIBAV) += $(SRCS-LIBAV)
 I18N-C += $(SRCS-LIBAV)
+
+# Tvhcsa
+SRCS-TVHCSA = \
+	src/descrambler/tvhcsa.c
+SRCS-${CONFIG_TVHCSA} += $(SRCS-TVHCSA)
+I18N-C += $(SRCS-TVHCSA)
 
 # Cardclient
 SRCS-CARDCLIENT = \

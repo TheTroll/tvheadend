@@ -129,21 +129,10 @@ subscription_unlink_service0(th_subscription_t *s, int reason, int resched)
 {
   streaming_message_t *sm;
   service_t *t = s->ths_service;
-  uint8_t descrambler_stopped = 0;
 
   /* Ignore - not actually linked */
   if (!s->ths_current_instance) goto stop;
   s->ths_current_instance = NULL;
-
-  th_subscription_t *ths;
-  int sub_count = 0;
-  LIST_FOREACH(ths, &t->s_subscriptions, ths_service_link)
-    sub_count++;
-
-  if(resched || sub_count <= 1) {
-    descrambler_service_stop(t);
-    descrambler_stopped = 1;
-  }
 
   tvh_mutex_lock(&t->s_stream_mutex);
 
@@ -172,11 +161,8 @@ subscription_unlink_service0(th_subscription_t *s, int reason, int resched)
     mtimer_arm_rel(&s->ths_remove_timer, subscription_unsubscribe_cb, s, 0);
 
 stop:
-  if(resched || LIST_FIRST(&t->s_subscriptions) == NULL) {
-    if (!descrambler_stopped)
-      descrambler_service_stop(t);
+  if(resched || LIST_FIRST(&t->s_subscriptions) == NULL)
     service_stop(t);
-  }
   return 1;
 }
 

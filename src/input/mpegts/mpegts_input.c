@@ -1180,7 +1180,7 @@ mpegts_input_queue_packets
 
   tvh_mutex_lock(&mi->mi_input_lock);
   if (mmi->mmi_mux->mm_active == mmi) {
-    if (mi->mi_input_queue_size < 128*1024*1024) {
+    if (mi->mi_input_queue_size < 50*1024*1024) {
       mi->mi_input_queue_size += len;
       memoryinfo_alloc(&mpegts_input_queue_memoryinfo, sizeof(mpegts_packet_t) + len);
       mpegts_mux_grab(mp->mp_mux);
