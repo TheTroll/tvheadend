@@ -186,13 +186,13 @@ nc_flush ( void *p )
       }
 
       // Make sure we won't set the key too early (and break old packets)
-      pthread_mutex_lock(&csa->nc.key_mutex);
+      tvh_mutex_lock(&csa->nc.key_mutex);
       if ((!has_odd && csa->nc.odd_available) || !csa->nc.first_odd_set)
       {
         if (nc_set_key(0, csa))
         {
           nc_log(csa, "set ODD key failed\n");
-          pthread_mutex_unlock(&csa->nc.key_mutex);
+          tvh_mutex_unlock(&csa->nc.key_mutex);
           break;
         }
         csa->nc.first_odd_set = 1;
@@ -202,12 +202,12 @@ nc_flush ( void *p )
         if (nc_set_key(1, csa))
         {
           nc_log(csa, "set EVEN key failed\n");
-          pthread_mutex_unlock(&csa->nc.key_mutex);
+          tvh_mutex_unlock(&csa->nc.key_mutex);
           break;
         }
         csa->nc.first_even_set = 1;
       } 
-      pthread_mutex_unlock(&csa->nc.key_mutex);
+      tvh_mutex_unlock(&csa->nc.key_mutex);
 
       if (csa->cluster[csa->cluster_rptr].csa_fill)
       {
@@ -228,12 +228,12 @@ nc_flush ( void *p )
       if (!csa->nc.flush_task_running)
         break;
 
-      pthread_mutex_lock(&s->s_stream_mutex);
+      tvh_mutex_lock(&s->s_stream_mutex);
       if (csa->cluster[csa->cluster_rptr].clear_fill)
         ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].clear_tsbcluster, csa->cluster[csa->cluster_rptr].clear_fill * 188);
       if (csa->cluster[csa->cluster_rptr].csa_fill)
         ts_recv_packet2(s, csa->cluster[csa->cluster_rptr].csa_tsbcluster, csa->cluster[csa->cluster_rptr].csa_fill * 188);
-      pthread_mutex_unlock(&s->s_stream_mutex);
+      tvh_mutex_unlock(&s->s_stream_mutex);
 
       // Next one
       csa->cluster[csa->cluster_rptr].csa_fill = 0;
@@ -509,16 +509,16 @@ static void tvhcsa_set_key( tvhcsa_t *csa, const uint8_t *key, uint8_t is_even )
 
 void tvhcsa_set_key_even( tvhcsa_t *csa, const uint8_t *even )
 {
-  pthread_mutex_lock(&csa->nc.key_mutex);
+  tvh_mutex_lock(&csa->nc.key_mutex);
   tvhcsa_set_key( csa, even , 1 );
-  pthread_mutex_unlock(&csa->nc.key_mutex);
+  tvh_mutex_unlock(&csa->nc.key_mutex);
 }
 
 void tvhcsa_set_key_odd( tvhcsa_t *csa, const uint8_t *odd )
 {
-  pthread_mutex_lock(&csa->nc.key_mutex);
+  tvh_mutex_lock(&csa->nc.key_mutex);
   tvhcsa_set_key( csa, odd , 0 );
-  pthread_mutex_unlock(&csa->nc.key_mutex);
+  tvh_mutex_unlock(&csa->nc.key_mutex);
 }
 
 void
@@ -536,9 +536,9 @@ tvhcsa_init ( tvhcsa_t *csa , struct mpegts_service *service )
     csa->cluster_wptr = 0;
     csa->nc.first_odd_set = csa->nc.first_even_set = 0;
     sem_init(&csa->nc.flush_sem, 0, 0);
-    pthread_mutex_init(&csa->nc.key_mutex, NULL);
+    tvh_mutex_init(&csa->nc.key_mutex, NULL);
     csa->nc.flush_task_running = 1;
-    tvhthread_create(&csa->nc.flush_task_id, NULL, nc_flush, csa, "DVBCSA");
+    tvh_thread_create(&csa->nc.flush_task_id, NULL, nc_flush, csa, "DVBCSA");
   }
 }
 
@@ -561,7 +561,7 @@ tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service )
       sem_post(&csa->nc.flush_sem);
       pthread_join(csa->nc.flush_task_id, NULL);
     }
-    pthread_mutex_destroy(&csa->nc.key_mutex);
+    tvh_mutex_destroy(&csa->nc.key_mutex);
   }
 
 

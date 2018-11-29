@@ -23,7 +23,7 @@ struct mpegts_service;
 struct elementary_stream;
 
 #include <stdint.h>
-#include <pthread.h>
+#include <tvh_thread.h>
 #include "build.h"
 #include <dvbcsa/dvbcsa.h>
 #include <semaphore.h>
@@ -95,7 +95,7 @@ typedef struct tvhcsa
     uint8_t flush_task_running;
     sem_t flush_sem;
 
-    pthread_mutex_t key_mutex;
+    tvh_mutex_t key_mutex;
  } nc;
 
   void *csa_priv;

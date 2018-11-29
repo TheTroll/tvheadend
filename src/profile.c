@@ -759,7 +759,7 @@ profile_input_queue(void *opaque, streaming_message_t *sm)
   profile_sharer_message_t *psm = malloc(sizeof(*psm));
   psm->psm_prch = prch;
   psm->psm_sm = sm;
-  pthread_mutex_lock(&prsh->prsh_queue_mutex);
+  tvh_mutex_lock(&prsh->prsh_queue_mutex);
   if (prsh->prsh_queue_run) {
     TAILQ_INSERT_TAIL(&prsh->prsh_queue, psm, psm_link);
     tvh_cond_signal(&prsh->prsh_queue_cond, 0);
@@ -767,7 +767,7 @@ profile_input_queue(void *opaque, streaming_message_t *sm)
     streaming_msg_free(sm);
     free(psm);
   }
-  pthread_mutex_unlock(&prsh->prsh_queue_mutex);
+  tvh_mutex_unlock(&prsh->prsh_queue_mutex);
 }
 
 static htsmsg_t *
@@ -898,8 +898,8 @@ profile_sharer_find(profile_chain_t *prch)
     prsh = calloc(1, sizeof(*prsh));
     prsh->prsh_do_queue = do_queue;
     if (do_queue) {
-      pthread_mutex_init(&prsh->prsh_queue_mutex, NULL);
-      tvh_cond_init(&prsh->prsh_queue_cond);
+      tvh_mutex_init(&prsh->prsh_queue_mutex, NULL);
+      tvh_cond_init(&prsh->prsh_queue_cond, 1);
       TAILQ_INIT(&prsh->prsh_queue);
     }
     streaming_target_init(&prsh->prsh_input, &profile_sharer_input_ops, prsh, 0);
@@ -919,7 +919,7 @@ profile_sharer_thread(void *aux)
   int run = 1;
 
   while (run) {
-    pthread_mutex_lock(&prsh->prsh_queue_mutex);
+    tvh_mutex_lock(&prsh->prsh_queue_mutex);
     run = prsh->prsh_queue_run;
     psm = TAILQ_FIRST(&prsh->prsh_queue);
     if (run && psm == NULL) {
@@ -934,7 +934,7 @@ profile_sharer_thread(void *aux)
         free(psm);
       }
     }
-    pthread_mutex_unlock(&prsh->prsh_queue_mutex);
+    tvh_mutex_unlock(&prsh->prsh_queue_mutex);
   }
   return NULL;
 }
@@ -952,8 +952,8 @@ profile_sharer_postinit(profile_sharer_t *prsh)
   if (prsh->prsh_queue_run)
     return 0;
   prsh->prsh_queue_run = 1;
-  r = tvhthread_create(&prsh->prsh_queue_thread, NULL,
-                       profile_sharer_thread, prsh, "sharer");
+  r = tvh_thread_create(&prsh->prsh_queue_thread, NULL,
+                        profile_sharer_thread, prsh, "sharer");
   if (r) {
     prsh->prsh_queue_run = 0;
     tvherror(LS_PROFILE, "unable to create sharer thread");
@@ -970,13 +970,13 @@ profile_sharer_create(profile_sharer_t *prsh,
                       streaming_target_t *dst)
 {
   prch->prch_post_share = dst;
-  pthread_mutex_lock(&prsh->prsh_queue_mutex);
+  tvh_mutex_lock(&prsh->prsh_queue_mutex);
   prch->prch_ts_delta = LIST_EMPTY(&prsh->prsh_chains) ? 0 : PTS_UNSET;
   LIST_INSERT_HEAD(&prsh->prsh_chains, prch, prch_sharer_link);
   prch->prch_sharer = prsh;
   if (!prsh->prsh_master)
     prsh->prsh_master = prch;
-  pthread_mutex_unlock(&prsh->prsh_queue_mutex);
+  tvh_mutex_unlock(&prsh->prsh_queue_mutex);
   return 0;
 }
 
@@ -992,7 +992,7 @@ profile_sharer_destroy(profile_chain_t *prch)
 
   if (prsh == NULL)
     return;
-  pthread_mutex_lock(&prsh->prsh_queue_mutex);
+  tvh_mutex_lock(&prsh->prsh_queue_mutex);
   LIST_REMOVE(prch, prch_sharer_link);
   if (LIST_EMPTY(&prsh->prsh_chains)) {
     if ((run = prsh->prsh_queue_run) != 0) {
@@ -1002,7 +1002,7 @@ profile_sharer_destroy(profile_chain_t *prch)
     prch->prch_sharer = NULL;
     prch->prch_post_share = NULL;
   }
-  pthread_mutex_unlock(&prsh->prsh_queue_mutex);
+  tvh_mutex_unlock(&prsh->prsh_queue_mutex);
   if (run) {
     pthread_join(prsh->prsh_queue_thread, NULL);
     while ((psm = TAILQ_FIRST(&prsh->prsh_queue)) != NULL) {
@@ -1021,7 +1021,7 @@ profile_sharer_destroy(profile_chain_t *prch)
     free(prsh);
   } else {
     if (prsh->prsh_queue_run) {
-      pthread_mutex_lock(&prsh->prsh_queue_mutex);
+      tvh_mutex_lock(&prsh->prsh_queue_mutex);
       for (psm = TAILQ_FIRST(&prsh->prsh_queue); psm; psm = psm2) {
         psm2 = TAILQ_NEXT(psm, psm_link);
         if (psm->psm_prch != prch) continue;
@@ -1037,14 +1037,14 @@ profile_sharer_destroy(profile_chain_t *prch)
       prch->prch_post_share = NULL;
       if (prsh->prsh_master == prch)
         prsh->prsh_master = NULL;
-      pthread_mutex_unlock(&prsh->prsh_queue_mutex);
+      tvh_mutex_unlock(&prsh->prsh_queue_mutex);
     } else {
-      pthread_mutex_lock(&prsh->prsh_queue_mutex);
+      tvh_mutex_lock(&prsh->prsh_queue_mutex);
       prch->prch_sharer = NULL;
       prch->prch_post_share = NULL;
       if (prsh->prsh_master == prch)
         prsh->prsh_master = NULL;
-      pthread_mutex_unlock(&prsh->prsh_queue_mutex);
+      tvh_mutex_unlock(&prsh->prsh_queue_mutex);
     }
   }
 }
@@ -2826,7 +2826,7 @@ profile_done(void)
   profile_t *pro;
   profile_build_t *pb;
 
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   profile_default = NULL;
   while ((pro = TAILQ_FIRST(&profiles)) != NULL)
     profile_delete(pro, 0);
@@ -2834,5 +2834,5 @@ profile_done(void)
     LIST_REMOVE(pb, link);
     free(pb);
   }
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
 }

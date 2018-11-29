@@ -17,19 +17,8 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#define _GNU_SOURCE /* for splice() */
-#include <fcntl.h>
-
-#include <pthread.h>
-#include <assert.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
-#include <arpa/inet.h>
-
 #include <sys/stat.h>
+#include <fcntl.h>
 
 #include "tvheadend.h"
 #include "config.h"
@@ -126,7 +115,7 @@ page_root(http_connection_t *hc, const char *remain, void *opaque)
 static int
 page_root2(http_connection_t *hc, const char *remain, void *opaque)
 {
-  if (!tvheadend_webroot) return 1;
+  if (!tvheadend_webroot) return HTTP_STATUS_NOT_FOUND;
   http_redirect(hc, "/", &hc->hc_req_args, 0);
   return 0;
 }
@@ -366,13 +355,13 @@ http_stream_run(http_connection_t *hc, profile_chain_t *prch,
   ptimeout = prch->prch_pro ? prch->prch_pro->pro_timeout : 5;
 
   if (hc->hc_no_output) {
-    pthread_mutex_lock(&sq->sq_mutex);
+    tvh_mutex_lock(&sq->sq_mutex);
     sq->sq_maxsize = 100000;
-    pthread_mutex_unlock(&sq->sq_mutex);
+    tvh_mutex_unlock(&sq->sq_mutex);
   }
 
   while(!hc->hc_shutdown && run && tvheadend_is_running()) {
-    pthread_mutex_lock(&sq->sq_mutex);
+    tvh_mutex_lock(&sq->sq_mutex);
     sm = TAILQ_FIRST(&sq->sq_queue);
     if(sm == NULL) {
       mono = mclk() + sec2mono(1);
@@ -391,12 +380,12 @@ http_stream_run(http_connection_t *hc, profile_chain_t *prch,
           break;
         }
       } while (ERRNO_AGAIN(r));
-      pthread_mutex_unlock(&sq->sq_mutex);
+      tvh_mutex_unlock(&sq->sq_mutex);
       continue;
     }
 
     streaming_queue_remove(sq, sm);
-    pthread_mutex_unlock(&sq->sq_mutex);
+    tvh_mutex_unlock(&sq->sq_mutex);
 
     switch(sm->sm_type) {
     case SMT_MPEGTS:
@@ -450,6 +439,8 @@ http_stream_run(http_connection_t *hc, profile_chain_t *prch,
       break;
 
     case SMT_STOP:
+      if((mux->m_caps & MC_CAP_ANOTHER_SERVICE) != 0) /* give a chance to use another svc */
+        break;
       if(sm->sm_code != SM_CODE_SOURCE_RECONFIGURED) {
         tvhwarn(LS_WEBUI,  "Stop streaming %s, %s", hc->hc_url_orig, 
                 streaming_code2txt(sm->sm_code));
@@ -1042,7 +1033,7 @@ page_http_playlist_
   if(nc == 2)
     http_deescape(components[1]);
 
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
 
   if(nc == 2 && !strcmp(components[0], "channelid"))
     ch = channel_find_by_id(atoi(components[1]));
@@ -1095,7 +1086,7 @@ page_http_playlist_
     }
   }
 
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
 
   if (r == 0)
     http_output_content(hc, pltype == PLAYLIST_E2 ? MIME_E2 : MIME_M3U);
@@ -1184,9 +1175,9 @@ http_stream_service(http_connection_t *hc, service_t *service, int weight)
 				         NULL);
     if(s) {
       name = tvh_strdupa(service->s_nicename);
-      pthread_mutex_unlock(&global_lock);
+      tvh_mutex_unlock(&global_lock);
       http_stream_run(hc, &prch, name, s);
-      pthread_mutex_lock(&global_lock);
+      tvh_mutex_lock(&global_lock);
       subscription_unsubscribe(s, UNSUBSCRIBE_FINAL);
       res = 0;
     }
@@ -1263,9 +1254,9 @@ http_stream_mux(http_connection_t *hc, mpegts_mux_t *mm, int weight)
       name = tvh_strdupa(s->ths_title);
       ms = (mpegts_service_t *)s->ths_service;
       if (ms->s_update_pids(ms, &pids) == 0) {
-        pthread_mutex_unlock(&global_lock);
+        tvh_mutex_unlock(&global_lock);
         http_stream_run(hc, &prch, name, s);
-        pthread_mutex_lock(&global_lock);
+        tvh_mutex_lock(&global_lock);
       }
       subscription_unsubscribe(s, UNSUBSCRIBE_FINAL);
       res = 0;
@@ -1352,9 +1343,9 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
 
     if(s) {
       name = tvh_strdupa(channel_get_name(ch, channel_blank_name));
-      pthread_mutex_unlock(&global_lock);
+      tvh_mutex_unlock(&global_lock);
       http_stream_run(hc, &prch, name, s);
-      pthread_mutex_lock(&global_lock);
+      tvh_mutex_lock(&global_lock);
       subscription_unsubscribe(s, UNSUBSCRIBE_FINAL);
       res = 0;
     }
@@ -1385,7 +1376,7 @@ http_stream(http_connection_t *hc, const char *remain, void *opaque)
   mpegts_mux_t *mm = NULL;
 #endif
   const char *str;
-  int weight = 0;
+  int weight = 0, r;
 
   hc->hc_keep_alive = 0;
 
@@ -1400,7 +1391,7 @@ http_stream(http_connection_t *hc, const char *remain, void *opaque)
   if ((str = http_arg_get(&hc->hc_req_args, "weight")))
     weight = atoi(str);
 
-  scopedgloballock();
+  tvh_mutex_lock(&global_lock);
 
   if(!strcmp(components[0], "channelid")) {
     ch = channel_find_by_id(atoi(components[1]));
@@ -1415,21 +1406,24 @@ http_stream(http_connection_t *hc, const char *remain, void *opaque)
 #if ENABLE_MPEGTS
   } else if(!strcmp(components[0], "mux")) {
     // TODO: do we want to be able to force starting a particular instance
-    mm      = mpegts_mux_find(components[1]);
+    mm = mpegts_mux_find(components[1]);
 #endif
   }
 
   if(ch != NULL) {
-    return http_stream_channel(hc, ch, weight);
+    r = http_stream_channel(hc, ch, weight);
   } else if(service != NULL) {
-    return http_stream_service(hc, service, weight);
+    r = http_stream_service(hc, service, weight);
 #if ENABLE_MPEGTS
   } else if(mm != NULL) {
-    return http_stream_mux(hc, mm, weight);
+    r = http_stream_mux(hc, mm, weight);
 #endif
   } else {
-    return HTTP_STATUS_BAD_REQUEST;
+    r = HTTP_STATUS_BAD_REQUEST;
   }
+
+  tvh_mutex_unlock(&global_lock);
+  return r;
 }
 
 /**
@@ -1464,9 +1458,9 @@ page_xspf(http_connection_t *hc, const char *remain, void *opaque, int urlauth)
     ticket = http_arg_get(&hc->hc_req_args, "ticket");
     if (strempty(ticket)) {
       snprintf(buf, sizeof(buf), "/%s", remain);
-      pthread_mutex_lock(&global_lock);
+      tvh_mutex_lock(&global_lock);
       ticket = access_ticket_create(buf, hc->hc_access);
-      pthread_mutex_unlock(&global_lock);
+      tvh_mutex_unlock(&global_lock);
     }
     htsbuf_qprintf(hq, "%sticket=%s", delim, ticket);
     break;
@@ -1522,9 +1516,9 @@ page_m3u(http_connection_t *hc, const char *remain, void *opaque, int urlauth)
     ticket = http_arg_get(&hc->hc_req_args, "ticket");
     if (strempty(ticket)) {
       snprintf(buf, sizeof(buf), "/%s", remain);
-      pthread_mutex_lock(&global_lock);
+      tvh_mutex_lock(&global_lock);
       ticket = access_ticket_create(buf, hc->hc_access);
-      pthread_mutex_unlock(&global_lock);
+      tvh_mutex_unlock(&global_lock);
     }
     htsbuf_qprintf(hq, "%sticket=%s", delim, ticket);
     break;
@@ -1646,17 +1640,19 @@ http_serve_file(http_connection_t *hc, const char *fname,
                 int fconv, const char *content,
                 int (*preop)(http_connection_t *hc, off_t file_start,
                              size_t content_len, void *opaque),
+                int (*postop)(http_connection_t *hc, off_t file_start,
+                              size_t content_len, off_t file_size, void *opaque),
                 void (*stats)(http_connection_t *hc, size_t len, void *opaque),
                 void *opaque)
 {
-  int fd, ret;
+  int fd, ret, close_ret;
   struct stat st;
   const char *range;
   char *basename;
   char *str, *str0;
   char range_buf[255];
   char *disposition = NULL;
-  off_t content_len, chunk;
+  off_t content_len, total_len, chunk;
   intmax_t file_start, file_end;
   htsbuf_queue_t q;
 #if defined(PLATFORM_LINUX)
@@ -1721,7 +1717,7 @@ http_serve_file(http_connection_t *hc, const char *fname,
     return HTTP_STATUS_OK;
   }
 
-  content_len = file_end - file_start+1;
+  content_len = total_len = file_end - file_start+1;
   
   sprintf(range_buf, "bytes %jd-%jd/%jd",
           file_start, file_end, (intmax_t)st.st_size);
@@ -1780,8 +1776,17 @@ http_serve_file(http_connection_t *hc, const char *fname,
         stats(hc, r, opaque);
     }
   }
+
   http_send_end(hc);
-  close(fd);
+  close_ret = close(fd);
+  if (close_ret != 0)
+    ret = close_ret;
+
+  /* We do postop _after_ the close since close will block until the
+   * buffers have been received by the client.
+   */
+  if (ret == 0 && postop)
+    ret = postop(hc, file_start, total_len, st.st_size, opaque);
 
   return ret;
 }
@@ -1803,9 +1808,8 @@ page_dvrfile_preop(http_connection_t *hc, off_t file_start,
                    size_t content_len, void *opaque)
 {
   page_dvrfile_priv_t *priv = opaque;
-  dvr_entry_t *de;
 
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   priv->tcp_id = http_stream_preop(hc);
   priv->sub = NULL;
   if (priv->tcp_id && !hc->hc_no_output && content_len > 64*1024) {
@@ -1818,19 +1822,41 @@ page_dvrfile_preop(http_connection_t *hc, off_t file_start,
       priv->tcp_id = NULL;
     }
   }
-  /* Play count + 1 when write access */
-  if (!hc->hc_no_output && file_start <= 0) {
+  tvh_mutex_unlock(&global_lock);
+  if (priv->tcp_id == NULL)
+    return HTTP_STATUS_NOT_ALLOWED;
+  return 0;
+}
+
+static int
+page_dvrfile_postop(http_connection_t *hc,
+                    off_t file_start,
+                    size_t content_len,
+                    off_t file_size,
+                    void *opaque)
+{
+  dvr_entry_t *de;
+  const page_dvrfile_priv_t *priv = opaque;
+  /* We are fully played when we send the last segment */
+  const int is_fully_played = file_start + content_len >= file_size;
+  tvhdebug(LS_HTTP, "page_dvrfile_postop: file start=%ld content len=%ld file size=%ld done=%d",
+           (long)file_start, (long)content_len, (long)file_size, is_fully_played);
+
+  if (!is_fully_played)
+    return 0;
+
+  tvh_mutex_lock(&global_lock);
+  /* Play count + 1 when not doing HEAD */
+  if (!hc->hc_no_output) {
     de = dvr_entry_find_by_uuid(priv->uuid);
     if (de == NULL)
       de = dvr_entry_find_by_id(atoi(priv->uuid));
     if (de && !dvr_entry_verify(de, hc->hc_access, 0)) {
-      de->de_playcount = de->de_playcount + 1;
+      dvr_entry_incr_playcount(de);
       dvr_entry_changed(de);
     }
   }
-  pthread_mutex_unlock(&global_lock);
-  if (priv->tcp_id == NULL)
-    return HTTP_STATUS_NOT_ALLOWED;
+  tvh_mutex_unlock(&global_lock);
   return 0;
 }
 
@@ -1862,16 +1888,16 @@ page_dvrfile(http_connection_t *hc, const char *remain, void *opaque)
                                     ACCESS_RECORDER)))
     return HTTP_STATUS_UNAUTHORIZED;
 
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   de = dvr_entry_find_by_uuid(remain);
   if (de == NULL)
     de = dvr_entry_find_by_id(atoi(remain));
   if(de == NULL || (filename = dvr_get_filename(de)) == NULL) {
-    pthread_mutex_unlock(&global_lock);
+    tvh_mutex_unlock(&global_lock);
     return HTTP_STATUS_NOT_FOUND;
   }
   if(dvr_entry_verify(de, hc->hc_access, 1)) {
-    pthread_mutex_unlock(&global_lock);
+    tvh_mutex_unlock(&global_lock);
     return HTTP_STATUS_UNAUTHORIZED;
   }
 
@@ -1882,16 +1908,16 @@ page_dvrfile(http_connection_t *hc, const char *remain, void *opaque)
   priv.tcp_id = NULL;
   priv.sub = NULL;
 
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
 
   ret = http_serve_file(hc, priv.fname, 1, priv.content,
-                        page_dvrfile_preop, page_dvrfile_stats, &priv);
+                        page_dvrfile_preop, page_dvrfile_postop, page_dvrfile_stats, &priv);
 
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   if (priv.sub)
     subscription_unsubscribe(priv.sub, UNSUBSCRIBE_FINAL);
   http_stream_postop(priv.tcp_id);
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
   return ret;
 }
 
@@ -1925,14 +1951,14 @@ page_imagecache(http_connection_t *hc, const char *remain, void *opaque)
     return HTTP_STATUS_BAD_REQUEST;
 
   /* Fetch details */
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   r = imagecache_filename(id, fname, sizeof(fname));
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
 
   if (r)
     return HTTP_STATUS_NOT_FOUND;
 
-  return http_serve_file(hc, fname, 0, NULL, NULL, NULL, NULL);
+  return http_serve_file(hc, fname, 0, NULL, NULL, NULL, NULL, NULL);
 }
 
 /**

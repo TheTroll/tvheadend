@@ -170,6 +170,7 @@ typedef struct access {
   htsmsg_t *aa_dvrcfgs;
   uint64_t *aa_chrange;
   int       aa_chrange_count;
+  htsmsg_t *aa_chtags_exclude;
   htsmsg_t *aa_chtags;
   int       aa_match;
   uint32_t  aa_conn_limit;
@@ -266,7 +267,7 @@ access_get_theme(access_t *a);
  *
  * Return 0 if access is granted, -1 otherwise
  */
-static inline int access_verify2(access_t *a, uint32_t mask)
+static inline int access_verify2(const access_t *a, uint32_t mask)
   { return (mask & ACCESS_OR) ?
       ((a->aa_rights & mask) ? 0 : -1) :
       ((a->aa_rights & mask) == mask ? 0 : -1); }

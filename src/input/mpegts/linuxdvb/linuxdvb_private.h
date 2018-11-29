@@ -70,7 +70,6 @@ struct linuxdvb_adapter
   char    *la_name;
   char    *la_rootpath;
   int      la_dvb_number;
-  int      la_exclusive; /* one frontend at a time */
 
   /*
    * Frontends
@@ -116,7 +115,7 @@ struct linuxdvb_frontend
   int                       lfe_fe_fd;
   pthread_t                 lfe_dvr_thread;
   th_pipe_t                 lfe_dvr_pipe;
-  pthread_mutex_t           lfe_dvr_lock;
+  tvh_mutex_t           lfe_dvr_lock;
   tvh_cond_t                lfe_dvr_cond;
   mpegts_apids_t            lfe_pids;
   int                       lfe_pids_max;

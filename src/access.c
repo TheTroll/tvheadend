@@ -16,21 +16,9 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <pthread.h>
-#include <ctype.h>
-#include <assert.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdarg.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-
 #include "tvheadend.h"
+#include <ctype.h>
+#include <arpa/inet.h>
 #include "config.h"
 #include "access.h"
 #include "settings.h"
@@ -98,7 +86,7 @@ access_ticket_find(const char *id)
     /* assume that newer tickets are hit more probably */
     TAILQ_FOREACH_REVERSE(at, &access_tickets, access_ticket_queue, at_link)
       if(!strcmp(at->at_id, id))
-	return at;
+        return at;
   }
   
   return NULL;
@@ -299,7 +287,9 @@ access_copy(access_t *src)
       memcpy(dst->aa_chrange, src->aa_chrange, l);
   }
   if (src->aa_chtags)
-    dst->aa_chtags  = htsmsg_copy(src->aa_chtags);
+    dst->aa_chtags = htsmsg_copy(src->aa_chtags);
+  if (src->aa_chtags_exclude)
+    dst->aa_chtags_exclude = htsmsg_copy(src->aa_chtags_exclude);
   if (src->aa_auth)
     dst->aa_auth = strdup(src->aa_auth);
   return dst;
@@ -354,6 +344,7 @@ access_destroy(access_t *a)
   htsmsg_destroy(a->aa_profiles);
   htsmsg_destroy(a->aa_dvrcfgs);
   htsmsg_destroy(a->aa_chtags);
+  htsmsg_destroy(a->aa_chtags_exclude);
   free(a);
 }
 
@@ -443,6 +434,32 @@ access_ip_blocked(struct sockaddr_storage *src)
  *
  */
 static void
+access_dump_tags
+  (const char *prefix, char *buf, size_t buflen, size_t *_l, htsmsg_t *tags)
+{
+  size_t l = *_l;
+  if (tags) {
+    int first = 1;
+    htsmsg_field_t *f;
+    HTSMSG_FOREACH(f, tags) {
+      channel_tag_t *ct = channel_tag_find_by_uuid(htsmsg_field_get_str(f) ?: "");
+      if (ct) {
+        if (first)
+          tvh_strlcatf(buf, sizeof(buf), l, ", %s tags=", prefix);
+        tvh_strlcatf(buf, sizeof(buf), l, "%s'%s'", first ? "" : ",", ct->ct_name ?: "");
+        first = 0;
+      }
+    }
+  } else {
+    tvh_strlcatf(buf, sizeof(buf), l, ", %s tag=ANY", prefix);
+  }
+  *_l = l;
+}
+
+/*
+ *
+ */
+static void
 access_dump_a(access_t *a)
 {
   htsmsg_field_t *f;
@@ -512,19 +529,9 @@ access_dump_a(access_t *a)
                    (long long)a->aa_chrange[first+1]);
   }
 
-  if (a->aa_chtags) {
-    first = 1;
-    HTSMSG_FOREACH(f, a->aa_chtags) {
-      channel_tag_t *ct = channel_tag_find_by_uuid(htsmsg_field_get_str(f) ?: "");
-      if (ct) {
-        tvh_strlcatf(buf, sizeof(buf), l, "%s'%s'",
-                 first ? ", tags=" : ",", ct->ct_name ?: "");
-        first = 0;
-      }
-    }
-  } else {
-    tvh_strlcatf(buf, sizeof(buf), l, ", tag=ANY");
-  }
+
+  access_dump_tags("exclude ", buf, sizeof(buf), &l, a->aa_chtags_exclude);
+  access_dump_tags("", buf, sizeof(buf), &l, a->aa_chtags);
 
   tvhtrace(LS_ACCESS, "%s", buf);
 }
@@ -630,32 +637,26 @@ access_update(access_t *a, access_entry_t *ae)
   }
 
   if (ae->ae_change_chtags) {
-    if (ae->ae_chtags_exclude && !LIST_EMPTY(&ae->ae_chtags)) {
-      channel_tag_t *ct;
-      TAILQ_FOREACH(ct, &channel_tags, ct_link) {
-        if(ct && ct->ct_name[0] != '\0') {
-          LIST_FOREACH(ilm, &ae->ae_chtags, ilm_in1_link) {
-            channel_tag_t *ct2 = (channel_tag_t *)ilm->ilm_in2;
-            if (ct == ct2) break;
-          }
-          if (ilm == NULL) {
-            if (a->aa_chtags == NULL)
-              a->aa_chtags = htsmsg_create_list();
-            htsmsg_add_str_exclusive(a->aa_chtags, idnode_uuid_as_str(&ct->ct_id, ubuf));
-          }
-        }
-      }
+    if (LIST_EMPTY(&ae->ae_chtags)) {
+      idnode_list_destroy(&ae->ae_chtags, ae);
     } else {
-      if (LIST_EMPTY(&ae->ae_chtags)) {
-        idnode_list_destroy(&ae->ae_chtags, ae);
-      } else {
-        LIST_FOREACH(ilm, &ae->ae_chtags, ilm_in1_link) {
-          channel_tag_t *ct = (channel_tag_t *)ilm->ilm_in2;
-          if(ct && ct->ct_name[0] != '\0') {
-            if (a->aa_chtags == NULL)
-              a->aa_chtags = htsmsg_create_list();
-            htsmsg_add_str_exclusive(a->aa_chtags, idnode_uuid_as_str(&ct->ct_id, ubuf));
+      htsmsg_t **lst, *lst2;
+      LIST_FOREACH(ilm, &ae->ae_chtags, ilm_in1_link) {
+        channel_tag_t *ct = (channel_tag_t *)ilm->ilm_in2;
+        if(ct && ct->ct_name[0] != '\0') {
+          const char *ct_uuid = idnode_uuid_as_str(&ct->ct_id, ubuf);
+          if (ae->ae_chtags_exclude) {
+            lst = &a->aa_chtags_exclude;
+            lst2 = a->aa_chtags;
+          } else {
+            lst = &a->aa_chtags;
+            lst2 = a->aa_chtags_exclude;
           }
+          /* remove the tag from the accepted or exclude list */
+          htsmsg_remove_string_from_list(lst2, ct_uuid);
+          if (*lst == NULL)
+            *lst = htsmsg_create_list();
+          htsmsg_add_str_exclusive(*lst, ct_uuid);
         }
       }
     }
@@ -755,7 +756,7 @@ access_get(struct sockaddr_storage *src, const char *username, verify_callback_t
     if(ae->ae_username[0] != '*') {
       /* acl entry requires username to match */
       if(username == NULL || strcmp(username, ae->ae_username))
-	continue; /* Didn't get one */
+        continue; /* Didn't get one */
     }
 
     if(!netmask_verify(&ae->ae_ipmasks, src))
@@ -2206,6 +2207,8 @@ passwd_entry_class_auth_set ( void *obj, const void *p )
 }
 
 CLASS_DOC(passwd)
+PROP_DOC(auth)
+PROP_DOC(authcode)
 
 const idclass_t passwd_entry_class = {
   .ic_class      = "passwd",
@@ -2256,6 +2259,7 @@ const idclass_t passwd_entry_class = {
       .id       = "auth",
       .name     = N_("Persistent authentication"),
       .desc     = N_("Manage persistent authentication for HTTP streaming."),
+      .doc      = prop_doc_auth,
       .list     = passwd_entry_class_auth_enum,
       .get      = passwd_entry_class_auth_get,
       .set      = passwd_entry_class_auth_set,
@@ -2266,7 +2270,8 @@ const idclass_t passwd_entry_class = {
       .type     = PT_STR,
       .id       = "authcode",
       .name     = N_("Persistent authentication code"),
-      .desc     = N_("The code which may be used for the HTTP streaming."),
+      .desc     = N_("The code which may be used for HTTP streaming."),
+      .doc      = prop_doc_authcode,
       .off      = offsetof(passwd_entry_t, pw_auth),
       .opts     = PO_RDONLY,
     },
@@ -2519,7 +2524,7 @@ access_done(void)
   passwd_entry_t *pw;
   ipblock_entry_t *ib;
 
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   while ((ae = TAILQ_FIRST(&access_entries)) != NULL)
     access_entry_destroy(ae, 0);
   while ((at = TAILQ_FIRST(&access_tickets)) != NULL)
@@ -2532,5 +2537,5 @@ access_done(void)
   superuser_username = NULL;
   free((void *)superuser_password);
   superuser_password = NULL;
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
 }

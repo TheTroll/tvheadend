@@ -17,17 +17,10 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <pthread.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <assert.h>
-#include <string.h>
 #include <ctype.h>
-#include <string_list.h>
-
-#include "settings.h"
 
 #include "tvheadend.h"
+#include "settings.h"
 #include "dvr.h"
 #include "htsp_server.h"
 #include "streaming.h"
@@ -60,6 +53,8 @@ static void dvr_timer_start_recording(void *aux);
 static void dvr_timer_stop_recording(void *aux);
 static int dvr_entry_rerecord(dvr_entry_t *de);
 static time_t dvr_entry_get_segment_stop_extra(dvr_entry_t *de);
+static void dvr_entry_watched_timer_arm(dvr_entry_t* de);
+static void dvr_entry_watched_timer_disarm(dvr_entry_t* de);
 
 static dvr_entry_t *_dvr_duplicate_event(dvr_entry_t *de);
 
@@ -1039,7 +1034,7 @@ dvr_entry_t *
 dvr_entry_create(const char *uuid, htsmsg_t *conf, int clone)
 {
   dvr_entry_t *de, *de2;
-  int64_t start, stop, create, now;
+  int64_t start, stop, create, watched, now;
   htsmsg_t *m;
   char ubuf[UUID_HEX_SIZE], ubuf2[UUID_HEX_SIZE];
   const char *s;
@@ -1088,6 +1083,11 @@ dvr_entry_create(const char *uuid, htsmsg_t *conf, int clone)
       else
           create = now;
       de->de_create = create;
+  }
+  if (!htsmsg_get_s64(conf, "watched", &watched)) {
+    de->de_watched = watched;
+  } else {
+    de->de_watched = 0;
   }
 
   /* Extract episode info */
@@ -1151,6 +1151,11 @@ dvr_entry_create(const char *uuid, htsmsg_t *conf, int clone)
 
   if (!clone)
     dvr_entry_set_timer(de);
+
+  /* Entry is marked for deletion, so set timer. */
+  if (de->de_watched)
+    dvr_entry_watched_timer_arm(de);
+
   htsp_dvr_entry_add(de);
   dvr_vfs_refresh_entry(de);
 
@@ -1606,13 +1611,30 @@ static int _dvr_duplicate_unique_match(dvr_entry_t *de1, dvr_entry_t *de2, void 
    * AND episode are present since OTA often have just "Ep 1" without
    * giving the season.
    */
-  if (de1->de_epnum.e_num && de2->de_epnum.e_num)
-    return de1->de_epnum.e_num == de2->de_epnum.e_num ? DUP : NOT_DUP;
+  if (de1->de_epnum.s_num && de1->de_epnum.e_num &&
+      de2->de_epnum.s_num && de2->de_epnum.e_num)
+    return de1->de_epnum.s_num == de2->de_epnum.s_num && de1->de_epnum.e_num == de2->de_epnum.e_num ? DUP : NOT_DUP;
 
-  /* Only one has season and episode? Then can't be a dup with the
-   * other one that doesn't have season+episode
+  /* If we don't have Season & Episode, then we will try matching just
+   * season and just episode (if available). This is because if OTA
+   * has just "Ep 1" then we don't know the season (so we would have
+   * season 0 internally even though it could be S1 or S2), so we
+   * can't know if it is a DUP with another showing of "Ep 1" (could
+   * be different season), but we _do_ know that if they differ then
+   * it's definitely a different episode.
+   *
+   * So:
+   * - Ep1 == Ep1 ==> don't know if it's a dup or not
+   * - Ep1 != Ep2 ==> definitely not a dup.
+   * - S1 == S1 ==> don't know if dup or not
+   * - S1 != S2 ==> definitely not a dup.
+   * This assumes consistent metadata (so always have Season & Episode
+   * info, or always only have same partial info of just season or
+   * just episode).
    */
-  if (de1->de_epnum.e_num || de2->de_epnum.e_num)
+  if (de1->de_epnum.s_num != de2->de_epnum.s_num)
+    return NOT_DUP;
+  if (de1->de_epnum.e_num != de2->de_epnum.e_num)
     return NOT_DUP;
 
   /* Now, near the end, we can check for unequal programme ids. We do
@@ -2014,6 +2036,7 @@ dvr_entry_create_by_autorec(int enabled, epg_broadcast_t *e, dvr_autorec_entry_t
             gmtime2local(replace->de_bcast->start, t1buf, sizeof t1buf),
             e->channel ? channel_get_name(e->channel, channel_blank_name) : channel_blank_name,
             gmtime2local(e->start, t2buf, sizeof t2buf));
+    dvr_entry_delete(replace);
     dvr_entry_destroy(replace, 1);
   }
 
@@ -2123,6 +2146,7 @@ dvr_entry_destroy(dvr_entry_t *de, int delconf)
 
   gtimer_disarm(&de->de_timer);
   mtimer_disarm(&de->de_deferred_timer);
+  gtimer_disarm(&de->de_watched_timer);
 #if ENABLE_DBUS_1
   mtimer_arm_rel(&dvr_dbus_timer, dvr_dbus_timer_cb, NULL, sec2mono(2));
 #endif
@@ -2207,9 +2231,77 @@ static void
 dvr_timer_expire(void *aux)
 {
   dvr_entry_t *de = aux;
-  dvr_entry_destroy(de, 1);
+  tvhinfo(LS_DVR, "Watched timer expiring \"%s\"",
+          lang_str_get(de->de_title, NULL));
+  /* Force the watched timer to be reset. This ensures it
+   * cannot be re-triggered on a restart of tvheadend.
+   */
+  de->de_watched = 0;
+  dvr_entry_changed(de);
+  /* Allow re-record if recording errors */
+  dvr_entry_cancel_remove(de, 1);
 }
 
+static void
+dvr_entry_watched_timer_cb(void *aux)
+{
+  tvhtrace(LS_DVR, "Entry watched cb");
+  dvr_timer_expire(aux);
+}
+
+static void
+dvr_entry_watched_timer_arm(dvr_entry_t* de)
+{
+  if (!de || !de->de_watched ||
+      dvr_entry_get_removal_days(de) == DVR_RET_REM_FOREVER ||
+      !de->de_config || !de->de_config->dvr_removal_after_playback)
+    return;
+
+  char t1buf[32];
+  const time_t now = gclk();
+  char ubuf[UUID_HEX_SIZE];
+  time_t when = de->de_watched + de->de_config->dvr_removal_after_playback;
+
+  /* We could just call the cb ourselves, but we'll set a timer if
+   * the event is in the past so that we are always async.
+   * This avoids any potential problems with caller trying to
+   * reference our de after it is destroyed.
+   */
+  if (when < now)
+    when = now;
+  tvhinfo(LS_DVR, "Arming watched timer to delete \"%s\" %s @ %s (now+%"PRId64")",
+          lang_str_get(de->de_title, NULL),
+          idnode_uuid_as_str(&de->de_id, ubuf),
+          gmtime2local(when, t1buf, sizeof t1buf),
+          (int64_t)when-now);
+  gtimer_arm_absn(&de->de_watched_timer, dvr_entry_watched_timer_cb, de, when);
+}
+
+static void
+dvr_entry_watched_timer_disarm(dvr_entry_t* de)
+{
+  if (de) {
+    dvr_entry_trace(de, "watched timer - disarm");
+    de->de_watched = 0;
+    gtimer_disarm(&de->de_watched_timer);
+  }
+}
+
+/// Check if user wants played entries to be automatically deleted
+/// If so, arm the timers.
+static void
+dvr_entry_watched_set_watched(dvr_entry_t* de)
+{
+  if (!de)
+    return;
+
+  /* User wants entry deleted after it is played, so mark earliest
+   * "deleted" timestamp and arm.
+   */
+  de->de_watched = gclk();
+  if (de->de_config && de->de_config->dvr_removal_after_playback)
+    dvr_entry_watched_timer_arm(de);
+}
 
 /**
  *
@@ -2273,6 +2365,25 @@ static char *dvr_updated_str(char *buf, size_t buflen, int flags)
   return buf;
 }
 
+int
+dvr_entry_set_playcount(dvr_entry_t *de, uint32_t playcount)
+{
+  if (de->de_playcount == playcount)
+    return 0;
+  de->de_playcount = playcount;
+  if (de->de_playcount)
+    dvr_entry_watched_set_watched(de);
+  else                          /* Not watched, so disarm timer */
+    dvr_entry_watched_timer_disarm(de);
+  return 1;
+}
+
+int
+dvr_entry_incr_playcount(dvr_entry_t *de)
+{
+  return dvr_entry_set_playcount(de, de->de_playcount + 1);
+}
+
 /**
  *
  */
@@ -2323,7 +2434,7 @@ static dvr_entry_t *_dvr_entry_update
     }
     if (de->de_sched_state == DVR_RECORDING || de->de_sched_state == DVR_COMPLETED) {
       if (playcount >= 0 && playcount != de->de_playcount) {
-        de->de_playcount = playcount;
+        dvr_entry_set_playcount(de, playcount);
         save |= DVR_UPDATED_PLAYCOUNT;
       }
       if (playposition >= 0 && playposition != de->de_playposition) {
@@ -3928,6 +4039,14 @@ const idclass_t dvr_entry_class = {
     },
     {
       .type     = PT_TIME,
+      .id       = "watched",
+      .name     = N_("Time the entry was last watched"),
+      .desc     = N_("Time the entry was last watched."),
+      .off      = offsetof(dvr_entry_t, de_watched),
+      .opts     = PO_RDONLY,
+    },
+    {
+      .type     = PT_TIME,
       .id       = "start",
       .name     = N_("Start time"),
       .desc     = N_("The start time of the recording."),
@@ -4353,7 +4472,8 @@ const idclass_t dvr_entry_class = {
       .desc     = N_("Broadcast."),
       .set      = dvr_entry_class_broadcast_set,
       .get      = dvr_entry_class_broadcast_get,
-      .opts     = PO_RDONLY | PO_NOUI,
+      /* Has to be available to UI for "show duplicate" from dvr upcoming */
+      .opts     = PO_RDONLY | PO_HIDDEN,
     },
     {
       .type     = PT_STR,
@@ -4790,7 +4910,7 @@ dvr_entry_file_moved(const char *src, const char *dst)
 
   if (!src || !dst || src[0] == '\0' || dst[0] == '\0' || access(dst, R_OK))
     return r;
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   LIST_FOREACH(de, &dvrentries, de_global_link) {
     if (htsmsg_is_empty(de->de_files)) continue;
     chg = 0;
@@ -4807,7 +4927,7 @@ dvr_entry_file_moved(const char *src, const char *dst)
     if (chg)
       idnode_changed(&de->de_id);
   }
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
   return r;
 }
 

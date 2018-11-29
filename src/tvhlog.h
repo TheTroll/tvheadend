@@ -19,16 +19,15 @@
 #define __TVH_LOGGING_H__
 
 #include <sys/types.h>
+#include <stdarg.h>
 #include "build.h"
 #if ENABLE_ANDROID
 #include <syslog.h>
 #else
 #include <sys/syslog.h>
 #endif
-#include <pthread.h>
-#include <stdarg.h>
-#include <time.h>
 
+#include "tvh_thread.h"
 #include "atomic.h"
 #include "clock.h"
 #include "htsmsg.h"
@@ -47,7 +46,7 @@ typedef struct {
 extern int              tvhlog_level;
 extern char            *tvhlog_path;
 extern int              tvhlog_options;
-extern pthread_mutex_t  tvhlog_mutex;
+extern tvh_mutex_t      tvhlog_mutex;
 extern tvhlog_subsys_t  tvhlog_subsystems[];
 
 /* Initialise */
@@ -245,5 +244,11 @@ static inline void tvhtrace_no_warnings(const char *fmt, ...) { (void)fmt; }
 } while (0)
 
 void tvhlog_backtrace_printf(const char *fmt, ...);
+
+#if ENABLE_TRACE
+void tvhdbg(int subsys, const char *fmt, ...);
+#else
+static inline void tvhdbg(int subsys, const char *fmt, ...) {};
+#endif
 
 #endif /* __TVH_LOGGING_H__ */

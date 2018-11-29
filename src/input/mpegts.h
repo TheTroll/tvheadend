@@ -508,13 +508,13 @@ struct mpegts_mux
   int                         mm_num_tables;
   LIST_HEAD(, mpegts_table)   mm_tables;
   TAILQ_HEAD(, mpegts_table)  mm_defer_tables;
-  pthread_mutex_t             mm_tables_lock;
+  tvh_mutex_t                 mm_tables_lock;
   TAILQ_HEAD(, mpegts_table)  mm_table_queue;
 
   LIST_HEAD(, caid)           mm_descrambler_caids;
   TAILQ_HEAD(, descrambler_table) mm_descrambler_tables;
   TAILQ_HEAD(, descrambler_emm) mm_descrambler_emms;
-  pthread_mutex_t             mm_descrambler_lock;
+  tvh_mutex_t                 mm_descrambler_lock;
   int                         mm_descrambler_flush;
 
   /*
@@ -709,7 +709,7 @@ struct mpegts_input
   // Note: this section is protected by mi_input_lock
   pthread_t                       mi_input_tid;
   mtimer_t                        mi_input_thread_start;
-  pthread_mutex_t                 mi_input_lock;
+  tvh_mutex_t                     mi_input_lock;
   tvh_cond_t                      mi_input_cond;
   TAILQ_HEAD(,mpegts_packet)      mi_input_queue;
   uint64_t                        mi_input_queue_size;
@@ -720,7 +720,7 @@ struct mpegts_input
   /* Data processing/output */
   // Note: this lock (mi_output_lock) protects all the remaining
   //       data fields (excluding the callback functions)
-  pthread_mutex_t                 mi_output_lock;
+  tvh_mutex_t                     mi_output_lock;
 
   /* Active sources */
   LIST_HEAD(,mpegts_mux_instance) mi_mux_active;
@@ -1064,6 +1064,10 @@ static inline void mpegts_table_reset(mpegts_table_t *mt)
 void mpegts_table_consistency_check(mpegts_mux_t *mm);
 
 void dvb_bat_destroy(struct mpegts_table *mt);
+
+void dvb_cat_decode( const uint8_t *data, int len,
+                     void (*add_emm)(void *aux, uint16_t caid, uint32_t prov, uint16_t pid),
+                     void *aux );
 
 int dvb_pat_callback
   (struct mpegts_table *mt, const uint8_t *ptr, int len, int tableid);

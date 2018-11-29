@@ -72,9 +72,9 @@ api_epg_add_channel ( htsmsg_t *m, channel_t *ch, const char *blank )
 }
 
 static htsmsg_t *
-api_epg_entry ( epg_broadcast_t *eb, const char *lang, access_t *perm, const char **blank )
+api_epg_entry ( epg_broadcast_t *eb, const char *lang, const access_t *perm, const char **blank )
 {
-  const char *s;
+  const char *s, *blank2 = NULL;
   char buf[64];
   channel_t     *ch = eb->channel;
   htsmsg_t *m, *m2;
@@ -85,6 +85,8 @@ api_epg_entry ( epg_broadcast_t *eb, const char *lang, access_t *perm, const cha
 
   if (!ch) return NULL;
 
+  if (blank == NULL)
+    blank = &blank2;
   if (*blank == NULL)
     *blank = tvh_gettext_lang(lang, channel_blank_name);
 
@@ -482,7 +484,7 @@ api_epg_grid
   limit = htsmsg_get_u32_or_default(args, "limit", 50);
 
   /* Query the EPG */
-  pthread_mutex_lock(&global_lock); 
+  tvh_mutex_lock(&global_lock);
   epg_query(&eq, perm);
 
   /* Build response */
@@ -493,7 +495,7 @@ api_epg_grid
     if (!(e = api_epg_entry(eq.result[i], lang, perm, &blank))) continue;
     htsmsg_add_msg(l, NULL, e);
   }
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
 
   epg_query_free(&eq);
   free(lang);
@@ -506,27 +508,80 @@ api_epg_grid
   return 0;
 }
 
+static int
+api_epg_sort_by_time_t(const void *a, const void *b, void *arg)
+{
+  const time_t *at= (const time_t*)a;
+  const time_t *bt= (const time_t*)b;
+  return *at - *bt;
+}
+
+/// Generate a sorted list of episodes that
+/// do NOT match ebc_skip in to message l.
+/// @return number of entries allocated.
+static uint32_t
+api_epg_episode_sorted(const struct epg_set *set,
+                       const access_t *perm,
+                       htsmsg_t *l,
+                       const char *lang,
+                       const epg_broadcast_t *ebc_skip)
+{
+  typedef struct {
+    time_t start;
+    htsmsg_t *m;
+  } bcast_entry_t;
+
+  epg_broadcast_t *ebc;
+  htsmsg_t *m;
+  bcast_entry_t *bcast_entries = NULL;
+  const epg_set_item_t *item;
+  bcast_entry_t new_bcast_entry;
+  size_t num_allocated = 0;
+  size_t num_entries = 0;
+  size_t i;
+
+  LIST_FOREACH(item, &set->broadcasts, item_link) {
+    ebc = item->broadcast;
+    if (ebc != ebc_skip) {
+      m = api_epg_entry(ebc, lang, perm, NULL);
+      if (num_entries == num_allocated) {
+        num_allocated = MAX(100, num_allocated + 100);
+        /* We don't expect any/many reallocs so we store physical struct instead of pointers */
+        bcast_entries = realloc(bcast_entries, num_allocated * sizeof(bcast_entry_t));
+      }
+
+      new_bcast_entry.start = htsmsg_get_u32_or_default(m, "start", 0);
+      new_bcast_entry.m = m;
+      bcast_entries[num_entries++] = new_bcast_entry;
+    }
+  }
+
+  tvh_qsort_r(bcast_entries, num_entries, sizeof(bcast_entry_t), api_epg_sort_by_time_t, 0);
+
+  for (i=0; i<num_entries; ++i) {
+    htsmsg_t *m = bcast_entries[i].m;
+    htsmsg_add_msg(l, NULL, m);
+  }
+  free(bcast_entries);
+
+  return num_entries;
+}
+
+
 static void
 api_epg_episode_broadcasts
   ( access_t *perm, htsmsg_t *l, const char *lang, epg_broadcast_t *ep,
     uint32_t *entries, epg_broadcast_t *ebc_skip )
 {
-  epg_broadcast_t *ebc;
-  htsmsg_t *m;
   epg_set_t *episodelink = ep->episodelink;
-  epg_set_item_t *item;
 
   if (episodelink == NULL)
     return;
 
-  LIST_FOREACH(item, &episodelink->broadcasts, item_link) {
-    ebc = item->broadcast;
-    if (ebc != ebc_skip) {
-      m = api_epg_entry(ebc, lang, perm, NULL);
-      htsmsg_add_msg(l, NULL, m);
-      (*entries)++;
-    }
-  }
+  /* Need to sort these ourselves since they are used as a livegrid
+   * which requires remote sort.
+   */
+  *entries = api_epg_episode_sorted(episodelink, perm, l, lang, ebc_skip);
 }
 
 static int
@@ -543,11 +598,11 @@ api_epg_alternative
 
   /* Main Job */
   lang = access_get_lang(perm, htsmsg_get_str(args, "lang"));
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   e = epg_broadcast_find_by_id(id);
   if (e)
     api_epg_episode_broadcasts(perm, l, lang, e, &entries, e);
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
   free(lang);
 
   /* Build response */
@@ -563,31 +618,23 @@ api_epg_related
   ( access_t *perm, void *opaque, const char *op, htsmsg_t *args, htsmsg_t **resp )
 {
   uint32_t id, entries = 0;
-  htsmsg_t *l = htsmsg_create_list(), *m;
-  epg_broadcast_t *e, *ebc;
+  htsmsg_t *l = htsmsg_create_list();
+  epg_broadcast_t *e;
   char *lang;
   epg_set_t *serieslink;
-  epg_set_item_t *item;
   
   if (htsmsg_get_u32(args, "eventId", &id))
     return -EINVAL;
 
   /* Main Job */
   lang = access_get_lang(perm, htsmsg_get_str(args, "lang"));
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   e = epg_broadcast_find_by_id(id);
   serieslink = e->serieslink;
-  if (serieslink) {
-    LIST_FOREACH(item, &serieslink->broadcasts, item_link) {
-      ebc = item->broadcast;
-      if (ebc != e) {
-        m = api_epg_entry(ebc, lang, perm, NULL);
-        htsmsg_add_msg(l, NULL, m);
-        entries++;
-      }
-    }
-  }
-  pthread_mutex_unlock(&global_lock);
+  if (serieslink)
+    entries = api_epg_episode_sorted(serieslink, perm, l, lang, e);
+
+  tvh_mutex_unlock(&global_lock);
   free(lang);
 
   /* Build response */
@@ -616,7 +663,7 @@ api_epg_load
       return -EINVAL;
 
   /* Main Job */
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   lang = access_get_lang(perm, htsmsg_get_str(args, "lang"));
   if (ids) {
     HTSMSG_FOREACH(f, ids) {
@@ -634,7 +681,7 @@ api_epg_load
       entries++;
     }
   }
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
   free(lang);
 
   /* Build response */
