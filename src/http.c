@@ -33,7 +33,7 @@
 void *http_server;
 static int http_server_running;
 
-static tvh_mutex_t http_paths_mutex = { .mutex = PTHREAD_MUTEX_INITIALIZER };
+static tvh_mutex_t http_paths_mutex = TVH_THREAD_MUTEX_INITIALIZER;
 static http_path_list_t http_paths;
 
 static struct strtab HTTP_cmdtab[] = {
@@ -1132,8 +1132,18 @@ const char *
 http_username(http_connection_t *hc)
 {
   if (strempty(hc->hc_username) && hc->hc_access)
-      return hc->hc_access->aa_username;
+    return hc->hc_access->aa_username;
   return hc->hc_username;
+}
+
+/**
+ *
+ */
+int
+http_noaccess_code(http_connection_t *hc)
+{
+  return strempty(hc->hc_username) ?
+              HTTP_STATUS_UNAUTHORIZED : HTTP_STATUS_FORBIDDEN;
 }
 
 /**
@@ -1159,10 +1169,9 @@ http_exec(http_connection_t *hc, http_path_t *hp, char *remain)
 {
   int err;
 
-  if ((hc->hc_username && hc->hc_username[0] == '\0') ||
-      http_access_verify(hc, hp->hp_accessmask)) {
+  if (http_access_verify(hc, hp->hp_accessmask)) {
     if ((hp->hp_flags & HTTP_PATH_NO_VERIFICATION) == 0) {
-      err = HTTP_STATUS_UNAUTHORIZED;
+      err = http_noaccess_code(hc);
       goto destroy;
     }
   }

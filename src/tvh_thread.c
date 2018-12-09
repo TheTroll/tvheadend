@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/resource.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <signal.h>
 
@@ -29,6 +30,10 @@ static TAILQ_HEAD(, tvh_mutex) thrwatch_mutexes = TAILQ_HEAD_INITIALIZER(thrwatc
 static int64_t tvh_thread_crash_time;
 #endif
 
+#if ENABLE_TRACE
+static void tvh_thread_mutex_failed(tvh_mutex_t *mutex, const char *reason);
+#endif
+
 /*
  * thread routines
  */
@@ -44,24 +49,17 @@ thread_state {
   char name[17];
 };
 
-#if ENABLE_TRACE
-static void
-thread_get_name(pthread_t tid, char *buf, int len)
+static inline int
+thread_get_tid(void)
 {
-  buf[0] = '?';
-  buf[1] = '\0';
-#if defined(PLATFORM_LINUX)
-  /* Set name */
-  if (len >= 16)
-    prctl(PR_GET_NAME, buf);
-#elif defined(PLATFORM_FREEBSD)
-  /* Get name of thread */
-  //pthread_get_name_np(tid, buf); ???
-#elif defined(PLATFORM_DARWIN)
-  // ???
+#ifdef SYS_gettid
+  return syscall(SYS_gettid);
+#elif ENABLE_ANDROID
+  return gettid();
+#else
+  return -1;
 #endif
 }
-#endif
 
 static void *
 thread_wrapper(void *p)
@@ -127,13 +125,8 @@ int
 tvh_thread_renice(int value)
 {
   int ret = 0;
-#ifdef SYS_gettid
-  pid_t tid;
-  tid = syscall(SYS_gettid);
-  ret = setpriority(PRIO_PROCESS, tid, value);
-#elif ENABLE_ANDROID
-  pid_t tid;
-  tid = gettid();
+#if defined(SYS_gettid) || ENABLE_ANDROID
+  pid_t tid = thread_get_tid();
   ret = setpriority(PRIO_PROCESS, tid, value);
 #elif defined(PLATFORM_DARWIN)
   /* Currently not possible */
@@ -145,14 +138,34 @@ tvh_thread_renice(int value)
   return ret;
 }
 
+#if ENABLE_TRACE
+static void tvh_mutex_check_magic(tvh_mutex_t *mutex)
+{
+  if (mutex &&
+      mutex->magic1 == TVH_THREAD_MUTEX_MAGIC1 &&
+      mutex->magic2 == TVH_THREAD_MUTEX_MAGIC2)
+    return;
+  tvh_thread_mutex_failed(mutex, "magic");
+}
+#else
+static inline void tvh_mutex_check_magic(tvh_mutex_t *mutex)
+{
+}
+#endif
+
 int tvh_mutex_init(tvh_mutex_t *mutex, const pthread_mutexattr_t *attr)
 {
   memset(mutex, 0, sizeof(*mutex));
+#if ENABLE_TRACE
+  mutex->magic1 = TVH_THREAD_MUTEX_MAGIC1;
+  mutex->magic2 = TVH_THREAD_MUTEX_MAGIC2;
+#endif
   return pthread_mutex_init(&mutex->mutex, attr);
 }
 
 int tvh_mutex_destroy(tvh_mutex_t *mutex)
 {
+  tvh_mutex_check_magic(mutex);
   return pthread_mutex_destroy(&mutex->mutex);
 }
 
@@ -161,7 +174,7 @@ static void tvh_mutex_add_to_list(tvh_mutex_t *mutex, const char *filename, int 
 {
   pthread_mutex_lock(&thrwatch_mutex);
   if (filename != NULL) {
-    mutex->thread = pthread_self();
+    mutex->tid = thread_get_tid();
     mutex->filename = filename;
     mutex->lineno = lineno;
   }
@@ -203,9 +216,43 @@ static void tvh_mutex_remove_from_list(tvh_mutex_t *mutex, const char **filename
 #endif
 
 #if ENABLE_TRACE
+static tvh_mutex_waiter_t *
+tvh_mutex_add_to_waiters(tvh_mutex_t *mutex, const char *filename, int lineno)
+{
+  tvh_mutex_waiter_t *w = malloc(sizeof(*w));
+
+  pthread_mutex_lock(&thrwatch_mutex);
+  if (filename != NULL) {
+    w->tid = thread_get_tid();
+    w->filename = filename;
+    w->lineno = lineno;
+  }
+  w->tstamp = getfastmonoclock();
+  LIST_INSERT_HEAD(&mutex->waiters, w, link);
+  pthread_mutex_unlock(&thrwatch_mutex);
+  return w;
+}
+#endif
+
+#if ENABLE_TRACE
+static void
+tvh_mutex_remove_from_waiters(tvh_mutex_waiter_t *w)
+{
+  pthread_mutex_lock(&thrwatch_mutex);
+  LIST_REMOVE(w, link);
+  free(w);
+  pthread_mutex_unlock(&thrwatch_mutex);
+}
+#endif
+
+#if ENABLE_TRACE
 int tvh__mutex_lock(tvh_mutex_t *mutex, const char *filename, int lineno)
 {
+  tvh_mutex_waiter_t *w;
+  tvh_mutex_check_magic(mutex);
+  w = tvh_mutex_add_to_waiters(mutex, filename, lineno);
   int r = pthread_mutex_lock(&mutex->mutex);
+  tvh_mutex_remove_from_waiters(w);
   if (r == 0)
     tvh_mutex_add_to_list(mutex, filename, lineno);
   return r;
@@ -215,6 +262,7 @@ int tvh__mutex_lock(tvh_mutex_t *mutex, const char *filename, int lineno)
 #if ENABLE_TRACE
 int tvh__mutex_trylock(tvh_mutex_t *mutex, const char *filename, int lineno)
 {
+  tvh_mutex_check_magic(mutex);
   int r = pthread_mutex_trylock(&mutex->mutex);
   if (r == 0)
     tvh_mutex_add_to_list(mutex, filename, lineno);
@@ -225,8 +273,8 @@ int tvh__mutex_trylock(tvh_mutex_t *mutex, const char *filename, int lineno)
 #if ENABLE_TRACE
 int tvh__mutex_unlock(tvh_mutex_t *mutex)
 {
-  int r;
-  r = pthread_mutex_unlock(&mutex->mutex);
+  tvh_mutex_check_magic(mutex);
+  int r = pthread_mutex_unlock(&mutex->mutex);
   if (r == 0)
     tvh_mutex_remove_from_list(mutex, NULL, NULL);
   return r;
@@ -240,6 +288,7 @@ tvh_mutex_timedlock
   int64_t finish = getfastmonoclock() + usec;
   int retcode;
 
+  tvh_mutex_check_magic(mutex);
   while ((retcode = pthread_mutex_trylock (&mutex->mutex)) == EBUSY) {
     if (getfastmonoclock() >= finish)
       return ETIMEDOUT;
@@ -307,6 +356,7 @@ tvh_cond_wait
 #if ENABLE_TRACE
   const char *filename = NULL;
   int lineno = -1;
+  tvh_mutex_check_magic(mutex);
   if (tvh_thread_debug > 0)
     tvh_mutex_remove_from_list(mutex, &filename, &lineno);
 #endif
@@ -327,6 +377,7 @@ tvh_cond_timedwait
 #if ENABLE_TRACE
   const char *filename = NULL;
   int lineno = -1;
+  tvh_mutex_check_magic(mutex);
   if (tvh_thread_debug > 0)
     tvh_mutex_remove_from_list(mutex, &filename, &lineno);
 #endif
@@ -367,6 +418,7 @@ int tvh_cond_timedwait_ts(tvh_cond_t *cond, tvh_mutex_t *mutex, struct timespec 
 #if ENABLE_TRACE
   const char *filename = NULL;
   int lineno = -1;
+  tvh_mutex_check_magic(mutex);
   if (tvh_thread_debug > 0)
     tvh_mutex_remove_from_list(mutex, &filename, &lineno);
 #endif
@@ -386,32 +438,52 @@ tvh_mutex_not_held(const char *file, int line)
 }
 
 #if ENABLE_TRACE
-static void tvh_thread_mutex_deadlock(tvh_mutex_t *mutex)
+static void tvh_thread_deadlock_write(htsbuf_queue_t *q)
 {
-  int fd = hts_settings_open_file(HTS_SETTINGS_OPEN_WRITE | HTS_SETTINGS_OPEN_DIRECT, "mutex-deadlock.txt");
-  if (fd < 0) fd = fileno(stderr);
-#if __GLIBC__
-  int sid = mutex->mutex.__data.__owner; /* unportable */
-#else
-  int sid = -1;
-#endif
-  char name[256], *s;
-  htsbuf_queue_t q;
   size_t l;
+  char *s, *s2, *saveptr;
+  const int fd_stderr = fileno(stderr);
+  int fd = hts_settings_open_file(HTS_SETTINGS_OPEN_WRITE | HTS_SETTINGS_OPEN_DIRECT, "mutex-deadlock.txt");
+  if (fd < 0) fd = fd_stderr;
 
-  thread_get_name(mutex->thread, name, sizeof(name));
-
-  htsbuf_queue_init(&q, 0);
-  htsbuf_qprintf(&q, "Thread %i: %s\n", sid, name);
-  htsbuf_qprintf(&q, "  locked in: %s:%i\n", mutex->filename, mutex->lineno);
-
-  s = htsbuf_to_string(&q);
+  s = htsbuf_to_string(q);
   l = s ? strlen(s) : 0;
   if (l > 0) {
     tvh_write(fd, s, l);
-    tvh_write(STDERR_FILENO, s, l);
+    if (fd != fd_stderr)
+      tvh_write(fd_stderr, s, l);
   }
 
+  saveptr = NULL;
+  for (; ; s = NULL) {
+    s2 = strtok_r(s, "\n", &saveptr);
+    if (s2 == NULL)
+      break;
+    tvhdbg(LS_THREAD, "%s", s2);
+  }
+}
+#endif
+
+#if ENABLE_TRACE
+static void tvh_thread_mutex_failed(tvh_mutex_t *mutex, const char *reason)
+{
+  htsbuf_queue_t q;
+  tvh_mutex_t *m;
+  tvh_mutex_waiter_t *w;
+
+  htsbuf_queue_init(&q, 0);
+  htsbuf_qprintf(&q, "REASON: %s\n", reason);
+  htsbuf_qprintf(&q, "mutex %p locked in: %s:%i (thread %ld)\n", mutex, mutex->filename, mutex->lineno, mutex->tid);
+  LIST_FOREACH(w, &mutex->waiters, link)
+    htsbuf_qprintf(&q, "mutex %p   waiting in: %s:%i (thread %ld)\n", mutex, w->filename, w->lineno, w->tid);
+  TAILQ_FOREACH(m, &thrwatch_mutexes, link) {
+    if (m == mutex) continue;
+    htsbuf_qprintf(&q, "mutex %p other in: %s:%i (thread %ld)\n", mutex, mutex->filename, mutex->lineno, mutex->tid);
+    LIST_FOREACH(w, &m->waiters, link)
+      htsbuf_qprintf(&q, "mutex %p   waiting in: %s:%i (thread %ld)\n", mutex, w->filename, w->lineno, w->tid);
+  }
+  tvh_thread_deadlock_write(&q);
+  tvh_safe_usleep(2000000);
   abort();
 }
 #endif
@@ -428,7 +500,7 @@ static void *tvh_thread_watch_thread(void *aux)
     mutex = TAILQ_LAST(&thrwatch_mutexes, tvh_mutex_queue);
     if (mutex && mutex->tstamp + sec2mono(5) < now) {
       pthread_mutex_unlock(&thrwatch_mutex);
-      tvh_thread_mutex_deadlock(mutex);
+      tvh_thread_mutex_failed(mutex, "deadlock");
     }
     pthread_mutex_unlock(&thrwatch_mutex);
     if (tvh_thread_debug == 12345678 && tvh_thread_crash_time < getfastmonoclock()) {
