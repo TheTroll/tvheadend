@@ -1064,7 +1064,9 @@ dvb_cat_decode( const uint8_t *data, int len,
     if (pid > 0) {
       ctype = detect_card_type(caid);
       add_emm(aux, caid, 0, pid);
-      if (ctype == CARD_SECA) {
+      switch (ctype)
+      {
+      case CARD_SECA:
         dlen2 = dlen - 5;
         data2 = data + 5;
         len2  = len - 5;
@@ -1076,6 +1078,17 @@ dvb_cat_decode( const uint8_t *data, int len,
           len2 -= 4;
           dlen2 -= 4;
         }
+        break;
+      case CARD_NAGRA:
+        if (dlen < 7)
+          break;
+        dlen2 = dlen - 5;
+        data2 = data + 5;
+        prov = (data2[0] << 8) | data2[1];
+        add_emm(aux, caid, prov, pid);
+        break;
+      default:
+        break;
       }
     }
 next:
@@ -1088,8 +1101,8 @@ static void
 dvb_cat_entry(void *_mt, uint16_t caid, uint32_t prov, uint16_t pid)
 {
   mpegts_table_t *mt = _mt;
-  tvhdebug(mt->mt_subsys, "%s:  caid %04X (%d) pid %04X (%d)",
-           mt->mt_name, (uint16_t)caid, (uint16_t)caid, pid, pid);
+  tvhdebug(mt->mt_subsys, "%s:  caid %04X prov %04X (%d) pid %04X (%d)",
+           mt->mt_name, (uint16_t)caid, prov, (uint16_t)caid, pid, pid);
 }
 
 int

@@ -432,6 +432,7 @@ emm_nagra
       }
       break;
     default:
+      //tvhinfo(ra->subsys, "0x%x", data[0]);
       switch (data[0])
       {
         // Unique
