@@ -201,6 +201,7 @@ typedef struct dvr_entry {
   char *de_channel_name;
 
   gtimer_t de_timer;
+  gtimer_t de_notify_timer;
   gtimer_t de_watched_timer;
   mtimer_t de_deferred_timer;
 
@@ -702,7 +703,8 @@ htsmsg_t * dvr_autorec_entry_class_time_list(void *o, const char *null);
 htsmsg_t * dvr_autorec_entry_class_weekdays_get(uint32_t weekdays);
 htsmsg_t * dvr_autorec_entry_class_weekdays_list (void *o, const char *list);
 char * dvr_autorec_entry_class_weekdays_rend(uint32_t weekdays, const char *lang);
-const char *dvr_entry_class_image_url_get(const dvr_entry_t *o);
+const char *dvr_entry_get_image(const dvr_entry_t *o);
+const char *dvr_entry_get_fanart_image(const dvr_entry_t *o);
 
 void dvr_autorec_check_event(epg_broadcast_t *e);
 

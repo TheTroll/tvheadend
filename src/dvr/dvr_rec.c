@@ -221,6 +221,8 @@ dvr_rec_unsubscribe(dvr_entry_t *de)
 
   pthread_join(de->de_thread, (void **)&postproc);
 
+  gtimer_disarm(&de->de_notify_timer);
+
   if (prch->prch_muxer)
     dvr_thread_epilog(de, postproc);
 
@@ -1203,8 +1205,9 @@ dvr_rec_fatal_error(dvr_entry_t *de, const char *fmt, ...)
  *
  */
 static void
-dvr_notify(dvr_entry_t *de)
+dvr_notify(void *aux)
 {
+  dvr_entry_t *de = aux;
   if (de->de_last_notify + sec2mono(5) < mclk()) {
     idnode_notify_changed(&de->de_id);
     de->de_last_notify = mclk();
@@ -1599,7 +1602,7 @@ dvr_thread(void *aux)
   int commercial = COMMERCIAL_UNKNOWN;
   int running_disabled;
   int64_t packets = 0, dts_offset = PTS_UNSET;
-  time_t real_start, start_time = 0, running_start = 0, running_stop = 0;
+  time_t now, real_start, start_time = 0, running_start = 0, running_stop = 0;
   char *postproc;
   char ubuf[UUID_HEX_SIZE];
 
@@ -1612,13 +1615,13 @@ dvr_thread(void *aux)
   tvhtrace(LS_DVR, "%s - recoding thread started for \"%s\"",
            idnode_uuid_as_str(&de->de_id, ubuf), lang_str_get(de->de_title, NULL));
   if (!running_disabled && de->de_bcast) {
-    real_start = gclk();
+    now = gclk();
     switch (de->de_bcast->running) {
     case EPG_RUNNING_PAUSE:
-      atomic_set_time_t(&de->de_running_pause, real_start);
+      atomic_set_time_t(&de->de_running_pause, now);
       /* fall through */
     case EPG_RUNNING_NOW:
-      atomic_set_time_t(&de->de_running_start, real_start);
+      atomic_set_time_t(&de->de_running_start, now);
       break;
     }
   }
@@ -1736,7 +1739,7 @@ dvr_thread(void *aux)
       } else {
         dvr_thread_pkt_stats(de, pkt, 0);
       }
-      dvr_notify(de);
+      gtimer_arm_rel(&de->de_notify_timer, dvr_notify, de, 0);
       packets++;
       break;
 
@@ -1784,7 +1787,7 @@ dvr_thread(void *aux)
       dvr_thread_mpegts_stats(de, sm->sm_data);
       muxer_write_pkt(prch->prch_muxer, sm->sm_type, sm->sm_data);
       sm->sm_data = NULL;
-      dvr_notify(de);
+      gtimer_arm_rel(&de->de_notify_timer, dvr_notify, de, 0);
       packets++;
       break;
 
@@ -1797,14 +1800,14 @@ dvr_thread(void *aux)
       break;
 
     case SMT_STOP:
-       if (sm->sm_code == SM_CODE_SOURCE_RECONFIGURED) {
-	 // Subscription is restarting, wait for SMT_START
-	 if (muxing)
-           tvhtrace(LS_DVR, "%s - source reconfigured", idnode_uuid_as_str(&de->de_id, ubuf));
-	 muxing = 0; // reconfigure muxer
+      if (sm->sm_code == SM_CODE_SOURCE_RECONFIGURED) {
+	// Subscription is restarting, wait for SMT_START
+	if (muxing)
+          tvhtrace(LS_DVR, "%s - source reconfigured", idnode_uuid_as_str(&de->de_id, ubuf));
+	muxing = 0; // reconfigure muxer
 
-       } else if(sm->sm_code == 0) {
-	 // Recording is completed
+      } else if(sm->sm_code == 0) {
+	// Recording is completed
 
 	dvr_entry_set_state(de, de->de_sched_state, de->de_rec_state, SM_CODE_OK);
 	tvhinfo(LS_DVR, "Recording completed: \"%s\"",
@@ -1824,6 +1827,7 @@ fin:
         streaming_queue_clear(&backlog);
         if (!dvr_thread_global_lock(de, &run))
           break;
+        gtimer_disarm(&de->de_notify_timer);
         dvr_thread_epilog(de, postproc);
         dvr_thread_global_unlock(de);
 	start_time = 0;

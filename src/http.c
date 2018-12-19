@@ -912,19 +912,18 @@ http_extra_send_prealloc(http_connection_t *hc, const void *data,
  *
  */
 char *
-http_get_hostpath(http_connection_t *hc)
+http_get_hostpath(http_connection_t *hc, char *buf, size_t buflen)
 {
-  char buf[256];
   const char *host, *proto;
 
   host  = http_arg_get(&hc->hc_args, "Host") ?:
           http_arg_get(&hc->hc_args, "X-Forwarded-Host");
   proto = http_arg_get(&hc->hc_args, "X-Forwarded-Proto");
 
-  snprintf(buf, sizeof(buf), "%s://%s%s",
+  snprintf(buf, buflen, "%s://%s%s",
            proto ?: "http", host ?: "localhost", tvheadend_webroot ?: "");
 
-  return strdup(buf);
+  return buf;
 }
 
 /**
@@ -939,6 +938,7 @@ http_access_verify_ticket(http_connection_t *hc)
   hc->hc_access = access_ticket_verify2(ticket_id, hc->hc_url);
   if (hc->hc_access == NULL)
     return;
+  hc->hc_auth_type = HC_AUTH_TICKET;
   tvhinfo(hc->hc_subsys, "%s: using ticket %s for %s",
 	  hc->hc_peer_ipstr, ticket_id, hc->hc_url);
 }
@@ -955,6 +955,7 @@ http_access_verify_auth(http_connection_t *hc)
   hc->hc_access = access_get_by_auth(hc->hc_peer, auth_id);
   if (hc->hc_access == NULL)
     return;
+  hc->hc_auth_type = HC_AUTH_PERM;
   tvhinfo(hc->hc_subsys, "%s: using auth %s for %s",
 	  hc->hc_peer_ipstr, auth_id, hc->hc_url);
 }
@@ -1084,6 +1085,7 @@ int
 http_access_verify(http_connection_t *hc, int mask)
 {
   struct http_verify_structure v;
+  int r;
 
   /* quick path */
   if (hc->hc_access)
@@ -1106,8 +1108,16 @@ http_access_verify(http_connection_t *hc, int mask)
   hc->hc_access = access_get(hc->hc_peer, hc->hc_username,
                              http_verify_callback, &v);
   http_verify_free(&v);
-  if (hc->hc_access)
-    return access_verify2(hc->hc_access, mask);
+  if (hc->hc_access) {
+    r = access_verify2(hc->hc_access, mask);
+    if (r == 0) {
+      if (!strempty(hc->hc_username))
+        hc->hc_auth_type = hc->hc_authhdr ? HC_AUTH_DIGEST : HC_AUTH_PLAIN;
+      else
+        hc->hc_auth_type = HC_AUTH_ADDR;
+    }
+    return r;
+  }
 
   return -1;
 }

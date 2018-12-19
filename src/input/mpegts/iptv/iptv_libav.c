@@ -194,7 +194,7 @@ iptv_libav_start
   sbuf_init(&la->sbuf);
   tvh_thread_create(&la->thread, NULL, iptv_libav_thread, la, "libavinput");
   if (raw[0])
-    iptv_input_mux_started(mi, im);
+    iptv_input_mux_started(mi, im, 1);
   return 0;
 }
 

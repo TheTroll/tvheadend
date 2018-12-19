@@ -172,6 +172,14 @@ typedef struct http_connection {
   char *hc_authhdr;
   char *hc_nonce;
   access_t *hc_access;
+  enum {
+    HC_AUTH_NONE,
+    HC_AUTH_ADDR,
+    HC_AUTH_PLAIN,
+    HC_AUTH_DIGEST,
+    HC_AUTH_TICKET,
+    HC_AUTH_PERM
+  } hc_auth_type;
 
   /* RTSP */
   uint64_t hc_cseq;
@@ -319,7 +327,7 @@ int http_access_verify_channel(http_connection_t *hc, int mask,
 
 void http_parse_args(http_arg_list_t *list, char *args);
 
-char *http_get_hostpath(http_connection_t *hc);
+char *http_get_hostpath(http_connection_t *hc, char *buf, size_t buflen);
 
 /*
  * HTTP/RTSP Client
