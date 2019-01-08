@@ -24,7 +24,7 @@ extern memoryinfo_t mpegts_input_queue_memoryinfo;
 extern memoryinfo_t mpegts_input_table_memoryinfo;
 
 void
-mpegts_init ( int linuxdvb_mask, int nosatip, str_list_t *satip_client,
+mpegts_init ( uint64_t linuxdvb_mask, int nosatip, str_list_t *satip_client,
               str_list_t *tsfiles, int tstuners )
 {
   /* Register classes (avoid API 400 errors due to not yet defined) */
