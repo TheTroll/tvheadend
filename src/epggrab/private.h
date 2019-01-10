@@ -141,6 +141,9 @@ void epggrab_ota_create_and_register_by_id
     int period, int interval, const char *name );
 void epggrab_ota_free_eit_plist ( epggrab_ota_mux_t *ota );
 
+epggrab_ota_map_t *epggrab_ota_find_map
+  ( epggrab_ota_mux_t *om, epggrab_module_ota_t *m );
+
 /*
  * Delete
  */
@@ -208,10 +211,16 @@ void eit_init    ( void );
 void eit_done    ( void );
 void eit_load    ( void );
 
+htsmsg_t *eit_module_id_list( const char *lang );
+const char *eit_check_module_id ( const char *id );
+
 /* OpenTV module */
 void opentv_init ( void );
 void opentv_done ( void );
 void opentv_load ( void );
+
+htsmsg_t *opentv_module_id_list( const char *lang );
+const char *opentv_check_module_id ( const char *id );
 
 /* XMLTV module */
 void xmltv_init  ( void );
@@ -222,5 +231,9 @@ void xmltv_load  ( void );
 void psip_init  ( void );
 void psip_done  ( void );
 void psip_load  ( void );
+
+htsmsg_t *psip_module_id_list( const char *lang );
+const char *psip_check_module_id ( const char *id );
+
 
 #endif /* __EPGGRAB_PRIVATE_H__ */

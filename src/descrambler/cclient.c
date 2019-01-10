@@ -608,7 +608,7 @@ cc_session(cclient_t *cc)
     r = tvhpoll_wait(poll, &ev, 1, 1000);
     tvh_mutex_lock(&cc->cc_mutex);
     if (r == 0)
-      continue;
+      goto keepalive;
     if (r < 0 && ERRNO_AGAIN(errno))
       continue;
     if (r < 0)
@@ -623,6 +623,10 @@ cc_session(cclient_t *cc)
         tvhlog_hexdump(cc->cc_subsys, rbuf.sb_data + rbuf.sb_ptr - len, len);
         if (cc->cc_read(cc, &rbuf))
           break;
+      } else {
+        tvhtrace(cc->cc_subsys, "%s: %s", cc->cc_name,
+                 len == 0 ? "connection close" : "read error");
+        break;
       }
     } else {
       abort();
@@ -638,6 +642,7 @@ cc_session(cclient_t *cc)
       }
       free(cm);
     }
+keepalive:
     if (mono < mclk()) {
       mono = mclk() + sec2mono(cc->cc_keepalive_interval);
       if (cc->cc_keepalive)

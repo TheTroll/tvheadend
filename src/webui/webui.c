@@ -1731,7 +1731,7 @@ http_serve_file(http_connection_t *hc, const char *fname,
         return HTTP_STATUS_INTERNAL;
       }
       htsbuf_queue_init(&q, 0);
-      htsbuf_append_and_escape_url(&q, basename);
+      htsbuf_append_and_escape_rfc8187(&q, basename);
       str = htsbuf_to_string(&q);
       r = 50 + strlen(str0) + strlen(str);
       disposition = alloca(r);
@@ -2007,9 +2007,7 @@ page_imagecache(http_connection_t *hc, const char *remain, void *opaque)
     return HTTP_STATUS_BAD_REQUEST;
 
   /* Fetch details */
-  tvh_mutex_lock(&global_lock);
   r = imagecache_filename(id, fname, sizeof(fname));
-  tvh_mutex_unlock(&global_lock);
 
   if (r)
     return HTTP_STATUS_NOT_FOUND;

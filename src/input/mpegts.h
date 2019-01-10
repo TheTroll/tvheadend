@@ -411,18 +411,9 @@ enum mpegts_mux_epg_flag
   MM_EPG_DISABLE,
   MM_EPG_ENABLE,
   MM_EPG_FORCE,
-  MM_EPG_ONLY_EIT,
-  MM_EPG_ONLY_UK_FREESAT,
-  MM_EPG_ONLY_UK_FREEVIEW,
-  MM_EPG_ONLY_VIASAT_BALTIC,
-  MM_EPG_ONLY_OPENTV_SKY_UK,
-  MM_EPG_ONLY_OPENTV_SKY_ITALIA,
-  MM_EPG_ONLY_OPENTV_SKY_AUSAT,
-  MM_EPG_ONLY_BULSATCOM_39E,
-  MM_EPG_ONLY_PSIP,
-  MM_EPG_ONLY_UK_CABLE_VIRGIN
+  MM_EPG_MANUAL = 100,
+  MM_EPG_DETECTED
 };
-#define MM_EPG_LAST MM_EPG_ONLY_UK_CABLE_VIRGIN
 
 enum mpegts_mux_ac3_flag
 {
@@ -540,6 +531,7 @@ struct mpegts_mux
   char    *mm_crid_authority;
   int      mm_enabled;
   int      mm_epg;
+  char    *mm_epg_module_id;
   char    *mm_charset;
   int      mm_pmt_ac3;
   int      mm_eit_tsid_nocheck;
@@ -950,6 +942,7 @@ int mpegts_mux_set_network_name ( mpegts_mux_t *mm, const char *name );
 int mpegts_mux_set_tsid ( mpegts_mux_t *mm, uint16_t tsid, int force );
 int mpegts_mux_set_onid ( mpegts_mux_t *mm, uint16_t onid );
 int mpegts_mux_set_crid_authority ( mpegts_mux_t *mm, const char *defauth );
+int mpegts_mux_set_epg_module ( mpegts_mux_t *mm, const char *modid );
 
 void mpegts_mux_open_table ( mpegts_mux_t *mm, mpegts_table_t *mt, int subscribe );
 void mpegts_mux_unsubscribe_table ( mpegts_mux_t *mm, mpegts_table_t *mt );

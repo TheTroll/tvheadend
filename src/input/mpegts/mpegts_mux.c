@@ -26,6 +26,7 @@
 #include "access.h"
 #include "profile.h"
 #include "dvb_charset.h"
+#include "epggrab.h"
 
 #include <assert.h>
 
@@ -482,18 +483,16 @@ mpegts_mux_epg_list ( void *o, const char *lang )
     { N_("Disable"),                  MM_EPG_DISABLE },
     { N_("Enable (auto)"),            MM_EPG_ENABLE },
     { N_("Force (auto)"),             MM_EPG_FORCE },
-    { N_("Only EIT"),                 MM_EPG_ONLY_EIT },
-    { N_("Only PSIP (ATSC)"),         MM_EPG_ONLY_PSIP },
-    { N_("Only UK Freesat"),          MM_EPG_ONLY_UK_FREESAT },
-    { N_("Only UK Freeview"),         MM_EPG_ONLY_UK_FREEVIEW },
-    { N_("Only UK Cable Virgin"),     MM_EPG_ONLY_UK_CABLE_VIRGIN },
-    { N_("Only Viasat Baltic"),       MM_EPG_ONLY_VIASAT_BALTIC },
-    { N_("Only Bulsatcom 39E"),       MM_EPG_ONLY_BULSATCOM_39E },
-    { N_("Only OpenTV Sky UK"),       MM_EPG_ONLY_OPENTV_SKY_UK },
-    { N_("Only OpenTV Sky Italia"),   MM_EPG_ONLY_OPENTV_SKY_ITALIA },
-    { N_("Only OpenTV Sky Ausat"),    MM_EPG_ONLY_OPENTV_SKY_AUSAT },
+    { N_("Manual selection"),         MM_EPG_MANUAL },
+    { N_("Auto-Detected"),            MM_EPG_DETECTED },
   };
   return strtab2htsmsg(tab, 1, lang);
+}
+
+static htsmsg_t *
+mpegts_mux_epg_module_id_list ( void *o, const char *lang )
+{
+  return epggrab_ota_module_id_list(lang);
 }
 
 static htsmsg_t *
@@ -542,6 +541,16 @@ const idclass_t mpegts_mux_class =
       .off      = offsetof(mpegts_mux_t, mm_epg),
       .def.i    = MM_EPG_ENABLE,
       .list     = mpegts_mux_epg_list,
+      .opts     = PO_DOC_NLIST,
+    },
+    {
+      .type     = PT_STR,
+      .id       = "epg_module_id",
+      .name     = N_("EPG module id"),
+      .desc     = N_("The EPG grabber to use on the mux. "
+                     "The 'EPG scan' field must be set to 'manual'."),
+      .off      = offsetof(mpegts_mux_t, mm_epg_module_id),
+      .list     = mpegts_mux_epg_module_id_list,
       .opts     = PO_DOC_NLIST,
     },
     {
@@ -755,6 +764,7 @@ mpegts_mux_free ( mpegts_mux_t *mm )
   free(mm->mm_provider_network_name);
   free(mm->mm_crid_authority);
   free(mm->mm_charset);
+  free(mm->mm_epg_module_id);
   free(mm->mm_nicename);
   free(mm);
 }
@@ -1343,6 +1353,25 @@ mpegts_mux_set_crid_authority ( mpegts_mux_t *mm, const char *defauth )
     return 0;
   tvh_str_update(&mm->mm_crid_authority, defauth);
   tvhtrace(LS_MPEGTS, "%s - set crid authority %s", mm->mm_nicename, defauth);
+  idnode_changed(&mm->mm_id);
+  return 1;
+}
+
+int
+mpegts_mux_set_epg_module ( mpegts_mux_t *mm, const char *modid )
+{
+  switch (mm->mm_epg) {
+  case MM_EPG_ENABLE:
+  case MM_EPG_DETECTED:
+    break;
+  default:
+    return 0;
+  }
+  if (modid && !strcmp(modid, mm->mm_epg_module_id ?: ""))
+    return 0;
+  mm->mm_epg = MM_EPG_DETECTED;
+  tvh_str_update(&mm->mm_epg_module_id, modid);
+  tvhtrace(LS_MPEGTS, "%s - set EPG module id %s", mm->mm_nicename, modid);
   idnode_changed(&mm->mm_id);
   return 1;
 }

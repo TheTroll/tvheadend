@@ -273,9 +273,8 @@ struct epggrab_ota_map
   epggrab_module_ota_t               *om_module;
   int                                 om_complete;
   uint8_t                             om_first;
-  uint8_t                             om_forced;
   uint64_t                            om_tune_count;
-  RB_HEAD(,epggrab_ota_svc_link)      om_svcs;         ///< Muxes we carry data for
+  RB_HEAD(,epggrab_ota_svc_link)      om_svcs;         ///< Services we carry data for
   void                               *om_opaque;
 };
 
@@ -396,6 +395,8 @@ void epggrab_channel_mod ( struct channel *ch );
  */
 void epggrab_ota_queue_mux( struct mpegts_mux *mm );
 epggrab_ota_mux_t *epggrab_ota_find_mux ( struct mpegts_mux *mm );
+htsmsg_t *epggrab_ota_module_id_list( const char *lang );
+const char *epggrab_ota_check_module_id( const char *id );
 
 #endif /* __EPGGRAB_H__ */
 

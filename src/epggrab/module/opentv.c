@@ -813,7 +813,6 @@ static int _opentv_start
   };
 
   /* Ignore */
-  if (!m->enabled && !map->om_forced) return -1;
   if (mod->tsid != mm->mm_tsid) return -1;
 
   /* Install tables */
@@ -967,11 +966,9 @@ static void _opentv_done( void *m )
 static int _opentv_tune
   ( epggrab_ota_map_t *map, epggrab_ota_mux_t *om, mpegts_mux_t *mm )
 {
-  epggrab_module_ota_t *m = map->om_module;
-  opentv_module_t *mod = (opentv_module_t*)m;
+  opentv_module_t *mod = (opentv_module_t*)map->om_module;
 
   /* Ignore */
-  if (!m->enabled) return 0;
   if (mod->tsid != mm->mm_tsid) return 0;
 
   return 1;
@@ -1064,6 +1061,31 @@ static void _opentv_prov_load ( htsmsg_t *m )
     }
   }
   htsmsg_destroy(m);
+}
+
+htsmsg_t *opentv_module_id_list( const char *lang )
+{
+  epggrab_module_t *m;
+  htsmsg_t *e, *l = htsmsg_create_list();
+
+  LIST_FOREACH(m, &epggrab_modules, link) {
+    if (strncmp(m->id, "opentv-", 7)) continue;
+    e = htsmsg_create_key_val(m->id, m->name);
+    htsmsg_add_msg(l, NULL, e);
+  }
+  return l;
+}
+
+const char *opentv_check_module_id ( const char *id )
+{
+  epggrab_module_t *m;
+
+  if (!id || strncmp(id, "opentv-", 7))
+    return NULL;
+  LIST_FOREACH(m, &epggrab_modules, link)
+    if (strcmp(m->id, id) == 0)
+      return m->id;
+  return NULL;
 }
 
 /* ************************************************************************
