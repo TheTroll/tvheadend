@@ -396,6 +396,10 @@ service_find_instance
       }
     }
   }
+
+  /* Fix hd prio mode */
+  r++;
+
   TAILQ_FOREACH(si, sil, si_link) {
     si->si_mark = 1;
     if (r && (flags & SUBSCRIPTION_SWSERVICE) != 0) {
