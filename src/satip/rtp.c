@@ -378,6 +378,11 @@ satip_rtp_thread(void *aux)
   tvhdebug(LS_SATIPS, "RTP streaming to %s:%d open", peername,
            tcp ? ntohs(IP_PORT(rtp->peer)) : rtp->port);
 
+  if (!sq) {
+    tvherror(LS_SATIPS, "RTP sq NULL error!");
+    return NULL;
+  }
+
   pthread_mutex_lock(&sq->sq_mutex);
   while (rtp->sq && !fatal) {
     sm = TAILQ_FIRST(&sq->sq_queue);
