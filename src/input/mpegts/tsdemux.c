@@ -264,6 +264,9 @@ ts_recv_raw(mpegts_service_t *t, uint64_t tspos, const uint8_t *tsb, int len)
 {
   int pid, parent = 0;
 
+  if (!t)
+    return;
+
   pthread_mutex_lock(&t->s_stream_mutex);
   service_set_streaming_status_flags((service_t*)t, TSS_MUX_PACKETS);
   if (!idnode_set_empty(&t->s_slaves)) {
