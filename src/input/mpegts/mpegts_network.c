@@ -31,6 +31,22 @@ static bouquet_t * mpegts_network_bouquet_get (mpegts_network_t *, int);
  * Class definition
  * ***************************************************************************/
 
+static void
+mpegts_network_class_notify_enabled ( void *obj, const char *lang )
+{
+  mpegts_network_t *mn = (mpegts_network_t*)obj;
+  mpegts_mux_instance_t *mmi;
+  mpegts_mux_t *mm;
+  if (!mn->mn_enabled) {
+    LIST_FOREACH(mm, &mn->mn_muxes, mm_network_link) {
+      mmi = mm->mm_active;
+      if (!mmi) continue;
+      assert(mm == mmi->mmi_mux);
+      mm->mm_stop(mm, 1, SM_CODE_ABORTED);
+    }
+  }
+}
+
 static htsmsg_t *
 mpegts_network_class_save
   ( idnode_t *in, char *filename, size_t fsize )
@@ -169,6 +185,14 @@ const idclass_t mpegts_network_class =
   .ic_save       = mpegts_network_class_save,
   .ic_get_title  = mpegts_network_class_get_title,
   .ic_properties = (const property_t[]){
+    {
+      .type     = PT_BOOL,
+      .id       = "enabled",
+      .name     = N_("Enabled"),
+      .desc     = N_("Enable/Disable network."),
+      .off      = offsetof(mpegts_network_t, mn_enabled),
+      .notify   = mpegts_network_class_notify_enabled,
+    },
     {
       .type     = PT_STR,
       .id       = "networkname",
@@ -538,6 +562,7 @@ mpegts_network_create0
   mtimer_arm_rel(&mn->mn_scan_timer, mpegts_network_scan_timer_cb, mn, 0);
 
   /* Defaults */
+  mn->mn_enabled = 1;
   mn->mn_satpos = INT_MAX;
   mn->mn_skipinitscan = 1;
   mn->mn_autodiscovery = MN_DISCOVERY_NEW;
@@ -757,6 +782,7 @@ mpegts_network_find_active_service
   mpegts_mux_t *mm;
   mpegts_service_t *s;
 
+  if (!mn->mn_enabled) return NULL;
   LIST_FOREACH(mm, &mn->mn_muxes, mm_network_link) {
     if (mm->mm_enabled != MM_ENABLE) continue;
     s = mpegts_mux_find_service(mm, sid);

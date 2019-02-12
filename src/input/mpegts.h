@@ -367,6 +367,7 @@ struct mpegts_network
   /*
    * Configuration
    */
+  int      mn_enabled;
   uint16_t mn_nid;
   uint16_t mn_satip_source;
   int      mn_autodiscovery;
@@ -750,7 +751,7 @@ struct mpegts_input
   void (*mi_stopping_mux)   (mpegts_input_t*,mpegts_mux_instance_t*);
   void (*mi_stopped_mux)    (mpegts_input_t*,mpegts_mux_instance_t*);
   int  (*mi_has_subscription) (mpegts_input_t*, mpegts_mux_t *mm);
-  void (*mi_tuning_error)   (mpegts_input_t*, mpegts_mux_t *);
+  void (*mi_error)          (mpegts_input_t*, mpegts_mux_t *, int tss_flags);
   void (*mi_empty_status)   (mpegts_input_t*, tvh_input_stream_t *);
   idnode_set_t *(*mi_network_list) (mpegts_input_t*);
 };

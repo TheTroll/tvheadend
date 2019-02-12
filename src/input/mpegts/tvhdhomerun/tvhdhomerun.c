@@ -30,6 +30,8 @@
 #include <arpa/inet.h>
 #include <openssl/sha.h>
 
+#include "config.h"
+
 #ifdef HDHOMERUN_TAG_DEVICE_AUTH_BIN
 #define hdhomerun_discover_find_devices_custom \
            hdhomerun_discover_find_devices_custom_v2
@@ -382,6 +384,20 @@ static void tvhdhomerun_device_create(struct hdhomerun_discover_device_t *dInfo)
   htsmsg_destroy(conf);
 }
 
+static uint32_t
+tvhdhomerun_ip( void )
+{
+  if (*config.hdhomerun_ip == 0) return 0;
+
+  uint32_t ip = 0;
+  if (inet_pton(AF_INET, config.hdhomerun_ip, &ip))
+    ip = ntohl(ip);
+  else
+    tvherror(LS_TVHDHOMERUN, "Could not parse IP address %s", config.hdhomerun_ip);
+
+  return ip;
+}
+
 static void *
 tvhdhomerun_device_discovery_thread( void *aux )
 {
@@ -391,7 +407,7 @@ tvhdhomerun_device_discovery_thread( void *aux )
   while (tvheadend_is_running()) {
 
     numDevices =
-      hdhomerun_discover_find_devices_custom(0,
+      hdhomerun_discover_find_devices_custom(tvhdhomerun_ip(),
                                              HDHOMERUN_DEVICE_TYPE_TUNER,
                                              HDHOMERUN_DEVICE_ID_WILDCARD,
                                              result_list,
