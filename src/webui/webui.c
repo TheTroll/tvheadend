@@ -1033,6 +1033,7 @@ http_stream_service(http_connection_t *hc, service_t *service, int weight)
   void *tcp_id;
   int res = HTTP_STATUS_SERVICE;
   int flags, eflags = 0;
+  const char* pro_string;
 
   if(http_access_verify(hc, ACCESS_ADVANCED_STREAMING))
     return HTTP_STATUS_UNAUTHORIZED;
@@ -1048,9 +1049,19 @@ http_stream_service(http_connection_t *hc, service_t *service, int weight)
   flags = SUBSCRIPTION_MPEGTS | eflags;
   if ((eflags & SUBSCRIPTION_NODESCR) == 0)
     flags |= SUBSCRIPTION_PACKET;
+
+  pro_string = http_arg_get(&hc->hc_req_args, "profile");
+
+  // Only pass or fullpass for UHD channels
+  if (service_is_uhdtv(service) && pro_string && strcmp(pro_string, "pass") && strcmp(pro_string, "fullpass"))
+  {
+    tvhwarn(LS_WEBUI, "Forcing pass profile for UHD channel");
+    pro_string = "pass";
+  }
+
   if(!(pro = profile_find_by_list(hc->hc_access->aa_profiles,
-                                  http_arg_get(&hc->hc_req_args, "profile"),
-                                  "service", flags)))
+                                  pro_string,
+                                  "pass", flags)))
     return HTTP_STATUS_NOT_ALLOWED;
 
   if((tcp_id = http_stream_preop(hc)) == NULL)
@@ -1187,13 +1198,31 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
   int res = HTTP_STATUS_SERVICE;
   idnode_list_mapping_t* ilm;
   service_t* ch_first_service;
+  const char* pro_string;
 
   if (http_access_verify_channel(hc, ACCESS_STREAMING, ch))
     return HTTP_STATUS_UNAUTHORIZED;
 
+  pro_string = http_arg_get(&hc->hc_req_args, "profile");
+
+  // Only pass or fullpass for UHD channels
+  if (ch)
+  {
+    service_t *service = NULL;
+    LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
+      service = (service_t *)ilm->ilm_in1;
+      if (service_is_uhdtv(service) && pro_string && strcmp(pro_string, "pass") && strcmp(pro_string, "fullpass"))
+      {
+        tvhwarn(LS_WEBUI, "Forcing pass profile for UHD channel");
+        pro_string = "pass";
+        break;
+      }
+    }
+  }
+
   if(!(pro = profile_find_by_list(hc->hc_access->aa_profiles,
-                                  http_arg_get(&hc->hc_req_args, "profile"),
-                                  "channel",
+                                  pro_string,
+                                  "pass",
                                   SUBSCRIPTION_PACKET | SUBSCRIPTION_MPEGTS)))
     return HTTP_STATUS_NOT_ALLOWED;
 

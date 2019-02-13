@@ -2547,6 +2547,20 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
   }
 #endif
 
+  // Only pass or fullpass for UHD channels
+  if (ch)
+  {
+    service_t *service = NULL;
+    LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
+      service = (service_t *)ilm->ilm_in1;
+      if (service_is_uhdtv(service) && profile_id && strcmp(profile_id, "htsp"))
+      {
+        tvhwarn(LS_HTSP, "Forcing htsp profile for UHD channel");
+        profile_id = "htsp";
+      }
+    }
+  }
+
   pro = profile_find_by_list(htsp->htsp_granted_access->aa_profiles, profile_id,
                              "htsp", SUBSCRIPTION_PACKET | SUBSCRIPTION_HTSP);
   if (!pro)
