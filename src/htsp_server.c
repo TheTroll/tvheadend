@@ -2547,15 +2547,15 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
   }
 #endif
 
-  // Only pass or fullpass for UHD channels
+  // Only pass or fullpass for SD and UHD channels
   if (ch)
   {
     service_t *service = NULL;
     LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
       service = (service_t *)ilm->ilm_in1;
-      if (service_is_uhdtv(service) && profile_id && strcmp(profile_id, "htsp"))
+      if ((service_is_sdtv(service) || service_is_uhdtv(service) ) && profile_id && strcmp(profile_id, "htsp"))
       {
-        tvhwarn(LS_HTSP, "Forcing htsp profile for UHD channel");
+        tvhwarn(LS_HTSP, "Forcing htsp profile for SD/UHD channel");
         profile_id = "htsp";
       }
     }
