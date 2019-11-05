@@ -372,9 +372,11 @@ descrambler_service_start ( service_t *t )
         count++;
       }
 
+#if 0
     /* Do not run descrambler on FTA channels */
     if (count == 0)
       return;
+#endif
 
   } else {
 

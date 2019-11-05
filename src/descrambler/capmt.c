@@ -2448,7 +2448,7 @@ capmt_service_start(caclient_t *cac, service_t *s)
   th_descrambler_t *td;
   mpegts_service_t *t = (mpegts_service_t*)s;
   elementary_stream_t *st;
-  int tuner = -1, i, change = 0;
+  int tuner = -1, i;
   char buf[512];
   caid_t *c, sca;
   
@@ -2525,15 +2525,13 @@ capmt_service_start(caclient_t *cac, service_t *s)
       if (t->s_dvb_forcecaid && t->s_dvb_forcecaid != c->caid)
         continue;
       capmt_caid_add(ct, t, st->es_pid, c);
-      change = 1;
     }
   }
 
-  if (!change && t->s_dvb_forcecaid) {
+  if (t->s_dvb_forcecaid) {
     memset(&sca, 0, sizeof(sca));
     sca.caid = t->s_dvb_forcecaid;
     capmt_caid_add(ct, t, 8191, &sca);
-    change = 1;
   }
 
   td = (th_descrambler_t *)ct;
@@ -2564,8 +2562,7 @@ fin:
   pthread_mutex_unlock(&t->s_stream_mutex);
   pthread_mutex_unlock(&capmt->capmt_mutex);
 
-  if (change)
-    capmt_notify_server(capmt, NULL, 0);
+  capmt_notify_server(capmt, NULL, 0);
 }
 
 
