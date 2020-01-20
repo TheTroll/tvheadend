@@ -2547,13 +2547,28 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
   }
 #endif
 
-  // Only pass or fullpass for SD and UHD channels
-  if (ch)
+  ilm = LIST_FIRST(&ch->ch_services);
+  if (ilm)
   {
-    service_t *service = NULL;
-    LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
-      service = (service_t *)ilm->ilm_in1;
-      if ((service_is_sdtv(service) || service_is_uhdtv(service) ) && profile_id && strcmp(profile_id, "htsp"))
+    service_t* ch_first_service = (service_t* )ilm->ilm_in1;
+    if (ch_first_service)
+    {
+      if (htsp->htsp_granted_access && htsp->htsp_granted_access->aa_muxes_limit_streaming)
+      {
+        source_info_t si;
+        int count;
+        ch_first_service->s_setsourceinfo(ch_first_service, &si);
+        count = subscription_get_user_count_on_other_muxes(htsp->htsp_username, si.si_mux_uuid, 0);
+        if (count >= htsp->htsp_granted_access->aa_muxes_limit_streaming)
+        {
+          tvherror(LS_HTSP, "user [%s] is already using %d muxes for streaming while the max is %d", htsp->htsp_username?:"no-user", count, htsp->htsp_granted_access->aa_muxes_limit_streaming);
+          free(hs);
+          return htsp_error(htsp, "Stream setup error, reach max allowed muxes for streaming");
+        }
+        service_source_info_free(&si);
+      }
+      // Only pass or fullpass for SD and UHD channels
+      if ((service_is_sdtv(ch_first_service) || service_is_uhdtv(ch_first_service) ) && profile_id && strcmp(profile_id, "htsp"))
       {
         tvhwarn(LS_HTSP, "Forcing htsp profile for SD/UHD channel");
         profile_id = "htsp";
@@ -2570,28 +2585,6 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
     return htsp_error(htsp, "Stream setup error");
   }
 
-  if (htsp->htsp_granted_access && htsp->htsp_granted_access->aa_muxes_limit_streaming)
-  {
-    ilm = LIST_FIRST(&ch->ch_services);
-    if (ilm)
-    {
-      service_t* ch_first_service = (service_t* )ilm->ilm_in1;
-      if (ch_first_service)
-      {
-        source_info_t si;
-        int count;
-        ch_first_service->s_setsourceinfo(ch_first_service, &si);
-        count = subscription_get_user_count_on_other_muxes(htsp->htsp_username, si.si_mux_uuid, 0);
-        if (count >= htsp->htsp_granted_access->aa_muxes_limit_streaming)
-        {
-          tvherror(LS_HTSP, "user [%s] is already using %d muxes for streaming while the max is %d", htsp->htsp_username?:"no-user", count, htsp->htsp_granted_access->aa_muxes_limit_streaming);
-          free(hs);
-          return htsp_error(htsp, "Stream setup error, reach max allowed muxes for streaming");
-        }
-        service_source_info_free(&si);
-      }
-    }
-  }
 
   profile_chain_init(&hs->hs_prch, pro, ch);
   if (profile_chain_work(&hs->hs_prch, &hs->hs_input, timeshiftPeriod, 0)) {

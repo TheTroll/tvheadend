@@ -1205,27 +1205,6 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
 
   pro_string = http_arg_get(&hc->hc_req_args, "profile");
 
-  // Only pass or fullpass for SD/UHD channels
-  if (ch)
-  {
-    service_t *service = NULL;
-    LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
-      service = (service_t *)ilm->ilm_in1;
-      if ((service_is_sdtv(service) || service_is_uhdtv(service)) && pro_string && strcmp(pro_string, "pass") && strcmp(pro_string, "fullpass"))
-      {
-        tvhwarn(LS_WEBUI, "Forcing pass profile for SD/UHD channel");
-        pro_string = "pass";
-        break;
-      }
-    }
-  }
-
-  if(!(pro = profile_find_by_list(hc->hc_access->aa_profiles,
-                                  pro_string,
-                                  "pass",
-                                  SUBSCRIPTION_PACKET | SUBSCRIPTION_MPEGTS)))
-    return HTTP_STATUS_NOT_ALLOWED;
-
   if((tcp_id = http_stream_preop(hc)) == NULL)
     return HTTP_STATUS_NOT_ALLOWED;
 
@@ -1234,13 +1213,13 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
   else
     qsize = 1500000;
 
-  if (hc->hc_access && hc->hc_access->aa_muxes_limit_streaming)
+  ilm = LIST_FIRST(&ch->ch_services);
+  if (ilm)
   {
-    ilm = LIST_FIRST(&ch->ch_services);
-    if (ilm)
+    ch_first_service = (service_t* )ilm->ilm_in1;
+    if (ch_first_service)
     {
-      ch_first_service = (service_t* )ilm->ilm_in1;
-      if (ch_first_service)
+      if (hc->hc_access && hc->hc_access->aa_muxes_limit_streaming)
       {
         source_info_t si;
         int count;
@@ -1255,8 +1234,20 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
         }
         service_source_info_free(&si);
       }
+      if ((service_is_sdtv(ch_first_service) || service_is_uhdtv(ch_first_service)) && pro_string && strcmp(pro_string, "pass") && strcmp(pro_string, "fullpass"))
+      {
+        tvhwarn(LS_WEBUI, "Forcing pass profile for SD/UHD channel");
+        pro_string = "pass";
+      }
     }
   }
+
+  if(!(pro = profile_find_by_list(hc->hc_access->aa_profiles,
+                                  pro_string,
+                                  "pass",
+                                  SUBSCRIPTION_PACKET | SUBSCRIPTION_MPEGTS)))
+    return HTTP_STATUS_NOT_ALLOWED;
+
 
   hints = muxer_hints_create(http_arg_get(&hc->hc_args, "User-Agent"));
 
