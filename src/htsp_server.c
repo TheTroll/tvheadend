@@ -2567,10 +2567,11 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
         }
         service_source_info_free(&si);
       }
-      // Only pass or fullpass for SD and UHD channels
-      if ((service_is_sdtv(ch_first_service) || service_is_uhdtv(ch_first_service) ) && profile_id && strcmp(profile_id, "htsp"))
+
+      // Only pass or fullpass for UHD channels
+      if ((service_is_uhdtv(ch_first_service) ) && profile_id && strcmp(profile_id, "htsp"))
       {
-        tvhwarn(LS_HTSP, "Forcing htsp profile for SD/UHD channel");
+        tvhwarn(LS_HTSP, "Forcing htsp profile for UHD channel");
         profile_id = "htsp";
       }
     }

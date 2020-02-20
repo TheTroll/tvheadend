@@ -1052,10 +1052,10 @@ http_stream_service(http_connection_t *hc, service_t *service, int weight)
 
   pro_string = http_arg_get(&hc->hc_req_args, "profile");
 
-  // Only pass or fullpass for SD/UHD channels
-  if ((service_is_sdtv(service) || service_is_uhdtv(service)) && pro_string && strcmp(pro_string, "pass") && strcmp(pro_string, "fullpass"))
+  // Only pass or fullpass for UHD channels
+  if ((service_is_uhdtv(service)) && pro_string && strcmp(pro_string, "pass") && strcmp(pro_string, "pass-hd") && strcmp(pro_string, "fullpass"))
   {
-    tvhwarn(LS_WEBUI, "Forcing pass profile for SD/UHD channel");
+    tvhwarn(LS_WEBUI, "Forcing pass profile for UHD channel");
     pro_string = "pass";
   }
 
@@ -1234,9 +1234,9 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
         }
         service_source_info_free(&si);
       }
-      if ((service_is_sdtv(ch_first_service) || service_is_uhdtv(ch_first_service)) && pro_string && strcmp(pro_string, "pass") && strcmp(pro_string, "fullpass"))
+      if (service_is_uhdtv(ch_first_service) && pro_string && strcmp(pro_string, "pass") && strcmp(pro_string, "pass-hd") && strcmp(pro_string, "fullpass"))
       {
-        tvhwarn(LS_WEBUI, "Forcing pass profile for SD/UHD channel");
+        tvhwarn(LS_WEBUI, "Forcing pass profile for UHD channel");
         pro_string = "pass";
       }
     }

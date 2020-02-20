@@ -163,6 +163,7 @@ service_type_auto_list ( void *o, const char *lang )
     { N_("Radio"),             ST_RADIO },
     { N_("SD TV"),             ST_SDTV  },
     { N_("HD TV"),             ST_HDTV  },
+    { N_("HD+ TV"),            ST_HDTVPLUS  },
     { N_("UHD TV"),            ST_UHDTV }
   };
   return strtab2htsmsg(tab, 1, lang);
@@ -421,7 +422,8 @@ service_find_instance
         if (pro == NULL ||
             pro->pro_svfilter == PROFILE_SVF_NONE ||
             (pro->pro_svfilter == PROFILE_SVF_SD && service_is_sdtv(s)) ||
-            (pro->pro_svfilter == PROFILE_SVF_HD && service_is_hdtv(s)) ||
+            (pro->pro_svfilter == PROFILE_SVF_HD && service_is_hdtv(s, 0)) ||
+            (pro->pro_svfilter == PROFILE_SVF_HDPLUS && service_is_hdtv(s, 1)) ||
             (pro->pro_svfilter == PROFILE_SVF_UHD && service_is_uhdtv(s))) {
           r1 = s->s_enlist(s, ti, sil, flags, weight);
           if (r1 && r == 0)
@@ -438,7 +440,7 @@ service_find_instance
          pro->pro_svfilter == PROFILE_SVF_SD)) {
       LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
         s = (service_t *)ilm->ilm_in1;
-        if (s->s_is_enabled(s, flags) && service_is_hdtv(s)) {
+        if (s->s_is_enabled(s, flags) && service_is_hdtv(s, 0)) {
           r1 = s->s_enlist(s, ti, sil, flags, weight);
           if (r1 && r == 0)
             r = r1;
@@ -839,14 +841,14 @@ service_is_sdtv(service_t *t)
 }
 
 int
-service_is_hdtv(service_t *t)
+service_is_hdtv(service_t *t, char plus)
 {
   char s_type;
   if(t->s_type_user == ST_UNSET)
     s_type = t->s_servicetype;
   else
     s_type = t->s_type_user;
-  if (s_type == ST_HDTV)
+  if ((plus && (s_type == ST_HDTVPLUS)) || (!plus && (s_type == ST_HDTV)))
     return 1;
   else if (s_type == ST_NONE) {
     elementary_stream_t *st;
@@ -927,12 +929,13 @@ const char *
 service_servicetype_txt ( service_t *s )
 {
   static const char *types[] = {
-    "HDTV", "SDTV", "Radio", "UHDTV", "Other"
+    "HDTV", "HDTVPLUS", "SDTV", "Radio", "UHDTV", "Other"
   };
-  if (service_is_hdtv(s))  return types[0];
-  if (service_is_sdtv(s))  return types[1];
-  if (service_is_radio(s)) return types[2];
-  if (service_is_uhdtv(s)) return types[3];
+  if (service_is_hdtv(s, 0))  return types[0];
+  if (service_is_hdtv(s, 1))  return types[1];
+  if (service_is_sdtv(s))  return types[2];
+  if (service_is_radio(s)) return types[3];
+  if (service_is_uhdtv(s)) return types[4];
   return types[4];
 }
 
