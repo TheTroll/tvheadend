@@ -431,6 +431,20 @@ service_find_instance
         }
       }
     }
+    /* Use HD is no HD+ is found */
+    if (r == 0) {
+      LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
+        s = (service_t *)ilm->ilm_in1;
+        if (s->s_is_enabled(s, flags)) {
+          if (pro->pro_svfilter == PROFILE_SVF_HDPLUS && service_is_hdtv(s, 0)) {
+            r1 = s->s_enlist(s, ti, sil, flags, weight);
+              r = r1;
+              break;
+          }
+        }
+      }
+    }
+
     /* find a valid instance, no error and "user" idle */
     TAILQ_FOREACH(si, sil, si_link)
       if (si->si_weight < SUBSCRIPTION_PRIO_MIN && si->si_error == 0) break;
