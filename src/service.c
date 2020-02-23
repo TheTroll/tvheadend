@@ -382,7 +382,7 @@ service_find_instance
   idnode_list_mapping_t *ilm;
   service_instance_t *si, *next;
   profile_t *pro = prch ? prch->prch_pro : NULL;
-  int r, r1;
+  int r, r1, found;
 
   lock_assert(&global_lock);
 
@@ -416,6 +416,7 @@ service_find_instance
       *error = SM_CODE_SVC_NOT_ENABLED;
       return NULL;
     }
+    found = 0;
     LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
       s = (service_t *)ilm->ilm_in1;
       if (s->s_is_enabled(s, flags)) {
@@ -426,13 +427,15 @@ service_find_instance
             (pro->pro_svfilter == PROFILE_SVF_HDPLUS && service_is_hdtv(s, 1)) ||
             (pro->pro_svfilter == PROFILE_SVF_UHD && service_is_uhdtv(s))) {
           r1 = s->s_enlist(s, ti, sil, flags, weight);
+          if (!r1)
+		found = 1;
           if (r1 && r == 0)
             r = r1;
         }
       }
     }
     /* Use HD is no HD+ is found */
-    if (r == 0) {
+    if (pro->pro_svfilter == PROFILE_SVF_HDPLUS && !found) {
       LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
         s = (service_t *)ilm->ilm_in1;
         if (s->s_is_enabled(s, flags)) {
