@@ -1219,20 +1219,17 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
     ch_first_service = (service_t* )ilm->ilm_in1;
     if (ch_first_service)
     {
-      if (hc->hc_access && hc->hc_access->aa_muxes_limit_streaming)
+      if (hc->hc_access && hc->hc_access->aa_max_streaming_sessions)
       {
-        source_info_t si;
         int count;
-        ch_first_service->s_setsourceinfo(ch_first_service, &si);
-        count = subscription_get_user_count_on_other_muxes(hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:NULL), si.si_mux_uuid, 0);
-        if (count >= hc->hc_access->aa_muxes_limit_streaming)
+        count = subscription_get_user_count(hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:NULL), 0);
+        if (count >= hc->hc_access->aa_max_streaming_sessions)
         {
-          tvherror(LS_WEBUI, "user [%s] is already using %d muxes for streaming while the max is %d",
-             hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:"no-user"), count, hc->hc_access->aa_muxes_limit_streaming);
+          tvherror(LS_WEBUI, "user [%s] has already %d streaming(s) while the max is %d",
+             hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:"no-user"), count, hc->hc_access->aa_max_streaming_sessions);
           http_stream_postop(tcp_id);
           return HTTP_STATUS_UNAUTHORIZED;;
         }
-        service_source_info_free(&si);
       }
       if (service_is_uhdtv(ch_first_service) && pro_string && strcmp(pro_string, "pass") && strcmp(pro_string, "pass-hd") && strcmp(pro_string, "fullpass"))
       {

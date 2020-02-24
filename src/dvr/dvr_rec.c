@@ -113,7 +113,7 @@ dvr_rec_subscribe(dvr_entry_t *de)
     }
   }
 
-  if (aa->aa_muxes_limit_dvr)
+  if (aa->aa_max_dvr_sessions)
   {
     ilm = LIST_FIRST(&de->de_channel->ch_services);
     if (ilm)
@@ -121,17 +121,14 @@ dvr_rec_subscribe(dvr_entry_t *de)
       service_t* ch_first_service = (service_t* )ilm->ilm_in1;
       if (ch_first_service)
       {
-        source_info_t si;
         int count;
-        ch_first_service->s_setsourceinfo(ch_first_service, &si);
-        count = subscription_get_user_count_on_other_muxes(de->de_creator, si.si_mux_uuid, 1);
-        if (count >= aa->aa_muxes_limit_dvr)
+        count = subscription_get_user_count(de->de_creator, 1);
+        if (count >= aa->aa_max_dvr_sessions)
         {
-          tvherror(LS_DVR, "user [%s] is already using %d muxes for recording while the max is %d", de->de_creator?:"no-user", count, aa->aa_muxes_limit_dvr);
+          tvherror(LS_DVR, "user [%s] has already %d streaming(s) while the max is %d", de->de_creator?:"no-user", count, aa->aa_max_dvr_sessions);
           access_destroy(aa);
           return -EINVAL;
         }
-        service_source_info_free(&si);
       }
     }
   }

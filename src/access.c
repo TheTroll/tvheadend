@@ -432,8 +432,8 @@ access_dump_a(access_t *a)
     a->aa_conn_limit,
     a->aa_conn_limit_streaming,
     a->aa_conn_limit_dvr,
-    a->aa_muxes_limit_streaming,
-    a->aa_muxes_limit_dvr,
+    a->aa_max_streaming_sessions,
+    a->aa_max_dvr_sessions,
     a->aa_uilevel,
     a->aa_match ? ", matched" : "");
 
@@ -538,11 +538,11 @@ access_update(access_t *a, access_entry_t *ae)
     }
   }
 
-  if (a->aa_muxes_limit_streaming < ae->ae_muxes_limit_streaming)
-    a->aa_muxes_limit_streaming = ae->ae_muxes_limit_streaming;
+  if (a->aa_max_streaming_sessions < ae->ae_max_streaming_sessions)
+    a->aa_max_streaming_sessions = ae->ae_max_streaming_sessions;
 
-  if (a->aa_muxes_limit_dvr < ae->ae_muxes_limit_dvr)
-    a->aa_muxes_limit_dvr = ae->ae_muxes_limit_dvr;
+  if (a->aa_max_dvr_sessions < ae->ae_max_dvr_sessions)
+    a->aa_max_dvr_sessions = ae->ae_max_dvr_sessions;
 
   if (ae->ae_change_uilevel) {
     a->aa_uilevel = ae->ae_uilevel;
@@ -1806,20 +1806,20 @@ const idclass_t access_entry_class = {
     },
     {
       .type     = PT_U32,
-      .id       = "muxes_limit_streaming",
-      .name     = N_("Limit muxes for streaming"),
-      .desc     = N_("The number of streaming muxes this user can "
+      .id       = "max_streaming_sessions",
+      .name     = N_("Max streaming sessions"),
+      .desc     = N_("The number of streaming sessions this user can "
                      "simulteanously use on the server."),
-      .off      = offsetof(access_entry_t, ae_muxes_limit_streaming),
+      .off      = offsetof(access_entry_t, ae_max_streaming_sessions),
       .opts     = PO_EXPERT
     },
     {
       .type     = PT_U32,
-      .id       = "muxes_limit_dvr",
-      .name     = N_("Limit muxes for DVR"),
-      .desc     = N_("The number of DVR muxes this user can "
+      .id       = "max_dvr_sessions",
+      .name     = N_("Max DVR sessions"),
+      .desc     = N_("The number of DVR sessions this user can "
                      "simulteanously use on the server."),
-      .off      = offsetof(access_entry_t, ae_muxes_limit_dvr),
+      .off      = offsetof(access_entry_t, ae_max_dvr_sessions),
       .opts     = PO_EXPERT
     },
     {

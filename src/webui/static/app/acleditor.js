@@ -7,14 +7,14 @@ tvheadend.acleditor = function(panel, index)
     var list = 'enabled,username,password,prefix,change,' +
                'lang,webui,uilevel,uilevel_nochange,admin,' +
                'streaming,profile,conn_limit_type,conn_limit,' +
-               'muxes_limit_streaming,muxes_limit_dvr,' +
+               'max_streaming_sessions,max_dvr_sessions,' +
                'dvr,dvr_config,channel_min,channel_max,' +
                'channel_tag_exclude,channel_tag,comment';
 
     var list2 = 'enabled,username,password,prefix,change,' +
                 'lang,webui,themeui,langui,uilevel,uilevel_nochange,admin,' +
                 'streaming,profile,conn_limit_type,conn_limit,' +
-                'muxes_limit_streaming,muxes_limit_dvr,' +
+                'max_streaming_sessions,max_dvr_sessions,' +
                 'dvr,htsp_anonymize,dvr_config,' +
                 'channel_min,channel_max,channel_tag_exclude,' +
                 'channel_tag,comment';
@@ -37,8 +37,8 @@ tvheadend.acleditor = function(panel, index)
             admin:          { width: 100 },
             conn_limit_type:{ width: 160 },
             conn_limit:     { width: 160 },
-            muxes_limit_streaming:{ width: 160 },
-            muxes_limit_dvr:{ width: 160 },
+            max_streaming_sessions:{ width: 160 },
+            max_dvr_sessions:{ width: 160 },
             channel_min:    { width: 160 },
             channel_max:    { width: 160 }
         },

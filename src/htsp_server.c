@@ -2553,19 +2553,16 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
     service_t* ch_first_service = (service_t* )ilm->ilm_in1;
     if (ch_first_service)
     {
-      if (htsp->htsp_granted_access && htsp->htsp_granted_access->aa_muxes_limit_streaming)
+      if (htsp->htsp_granted_access && htsp->htsp_granted_access->aa_max_streaming_sessions)
       {
-        source_info_t si;
         int count;
-        ch_first_service->s_setsourceinfo(ch_first_service, &si);
-        count = subscription_get_user_count_on_other_muxes(htsp->htsp_username, si.si_mux_uuid, 0);
-        if (count >= htsp->htsp_granted_access->aa_muxes_limit_streaming)
+        count = subscription_get_user_count(htsp->htsp_username, 0);
+        if (count >= htsp->htsp_granted_access->aa_max_streaming_sessions)
         {
-          tvherror(LS_HTSP, "user [%s] is already using %d muxes for streaming while the max is %d", htsp->htsp_username?:"no-user", count, htsp->htsp_granted_access->aa_muxes_limit_streaming);
+          tvherror(LS_HTSP, "user [%s] has already %d streaming(s) while the max is %d", htsp->htsp_username?:"no-user", count, htsp->htsp_granted_access->aa_max_streaming_sessions);
           free(hs);
-          return htsp_error(htsp, "Stream setup error, reach max allowed muxes for streaming");
+          return htsp_error(htsp, "Stream setup error, reach max allowed sessions for streaming");
         }
-        service_source_info_free(&si);
       }
 
       // Only pass or fullpass for UHD channels

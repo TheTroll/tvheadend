@@ -245,6 +245,6 @@ static inline int subscriptions_active(void)
 struct htsmsg;
 struct htsmsg *subscription_create_msg(th_subscription_t *s, const char *lang);
 
-int subscription_get_user_count_on_other_muxes(char *username, tvh_uuid_t mux_uuid, int is_dvr);
+int subscription_get_user_count(char *username, int is_dvr);
 
 #endif /* SUBSCRIPTIONS_H */
