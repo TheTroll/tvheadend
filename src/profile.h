@@ -125,6 +125,12 @@ typedef struct profile {
   int pro_swservice;
   int pro_svfilter;
 
+  int pro_svignore_none;
+  int pro_svignore_sd;
+  int pro_svignore_hd;
+  int pro_svignore_hdplus;
+  int pro_svignore_uhd;
+
   void (*pro_free)(struct profile *pro);
   void (*pro_conf_changed)(struct profile *pro);
 
