@@ -2564,13 +2564,6 @@ htsp_method_subscribe(htsp_connection_t *htsp, htsmsg_t *in)
           return htsp_error(htsp, "Stream setup error, reach max allowed sessions for streaming");
         }
       }
-
-      // Only pass or fullpass for UHD channels
-      if ((service_is_uhdtv(ch_first_service) ) && profile_id && strcmp(profile_id, "htsp"))
-      {
-        tvhwarn(LS_HTSP, "Forcing htsp profile for UHD channel");
-        profile_id = "htsp";
-      }
     }
   }
 
