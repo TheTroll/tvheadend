@@ -113,13 +113,15 @@ dvr_rec_subscribe(dvr_entry_t *de)
     }
   }
 
-  if (aa->aa_max_dvr_sessions)
+  pro = de->de_config->dvr_profile;
+
+  ilm = LIST_FIRST(&de->de_channel->ch_services);
+  if (ilm)
   {
-    ilm = LIST_FIRST(&de->de_channel->ch_services);
-    if (ilm)
+    service_t* ch_first_service = (service_t* )ilm->ilm_in1;
+    if (ch_first_service)
     {
-      service_t* ch_first_service = (service_t* )ilm->ilm_in1;
-      if (ch_first_service)
+      if (aa->aa_max_dvr_sessions)
       {
         int count;
         count = subscription_get_user_count(de->de_creator, 1);
@@ -130,6 +132,12 @@ dvr_rec_subscribe(dvr_entry_t *de)
           return -EINVAL;
         }
       }
+      // Only pass profile for audio only channel
+      if (service_is_radio(ch_first_service))
+      {
+        tvhwarn(LS_WEBUI, "Forcing pass profile for audio only channels");
+        pro = profile_find_by_name("pass", "pass");
+      }
     }
   }
 
@@ -139,8 +147,6 @@ dvr_rec_subscribe(dvr_entry_t *de)
     tvherror(LS_DVR, "the directory '%s' is not accessible", de->de_config->dvr_storage);
     return -EIO;
   }
-
-  pro = de->de_config->dvr_profile;
 
   prch = malloc(sizeof(*prch));
   profile_chain_init(prch, pro, de->de_channel);

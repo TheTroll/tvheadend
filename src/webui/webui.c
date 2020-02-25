@@ -1052,6 +1052,13 @@ http_stream_service(http_connection_t *hc, service_t *service, int weight)
 
   pro_string = http_arg_get(&hc->hc_req_args, "profile");
 
+  // Only pass profile for audio only channel
+  if ((service_is_radio(service)) && pro_string && strcmp(pro_string, "pass") && strcmp(pro_string, "pass-hd") && strcmp(pro_string, "fullpass"))
+  {
+    tvhwarn(LS_WEBUI, "Forcing pass profile for audio only channels");
+    pro_string = "pass";
+  }
+
   if(!(pro = profile_find_by_list(hc->hc_access->aa_profiles,
                                   pro_string,
                                   "pass", flags)))
@@ -1223,6 +1230,13 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
           http_stream_postop(tcp_id);
           return HTTP_STATUS_UNAUTHORIZED;;
         }
+      }
+
+      // Only pass profile for audio only channel
+      if ((service_is_radio(ch_first_service)) && pro_string && strcmp(pro_string, "pass") && strcmp(pro_string, "pass-hd") && strcmp(pro_string, "fullpass"))
+      {
+        tvhwarn(LS_WEBUI, "Forcing pass profile for audio only channels");
+        pro_string = "pass";
       }
     }
   }
