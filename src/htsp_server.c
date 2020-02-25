@@ -3245,7 +3245,7 @@ htsp_server_status ( void *opaque, htsmsg_t *m )
   htsmsg_add_str(m, "type", "HTSP");
   if (htsp->htsp_username) {
     aa = htsp->htsp_granted_access;
-    if (!strcmp(htsp->htsp_username, aa->aa_username ?: ""))
+    if (!strcmp(htsp->htsp_username, (aa && aa->aa_username) ?aa->aa_username: ""))
       snprintf(buf, sizeof(buf), "%s", htsp->htsp_username);
     else
       snprintf(buf, sizeof(buf), "[%s]", htsp->htsp_username);
