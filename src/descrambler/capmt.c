@@ -484,6 +484,8 @@ capmt_pid_flush_adapter(capmt_t *capmt, int adapter)
   capmt_opaque_t *o;
   int pid, i;
 
+  if (!capmt || adapter < 0 || adapter >= MAX_CA)
+    return;
   tvhtrace(LS_CAPMT, "%s: pid flush for adapter %d", capmt_name(capmt), adapter);
   ca = &capmt->capmt_adapters[adapter];
   tuner = capmt->capmt_adapters[adapter].ca_tuner;
