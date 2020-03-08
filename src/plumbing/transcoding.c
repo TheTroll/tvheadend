@@ -1389,13 +1389,6 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
     }
   }
 
-  // When using mpeg2_qsv, skip scaling and deinterlacing!
-  if ( (ictx->height <= 576) && (!strcmp(icodec->name, "mpeg2_qsv") || !strcmp(icodec->name, "h264_qsv")) )
-  {
-    frame_to_encode = vs->vid_dec_frame;
-    goto skip_vpp;
-  }
-
   // VDPAU really outputs AV_PIX_FMT_YUV420P
   if (vdpau->initialized)
     pixfmt = AV_PIX_FMT_YUV420P;
@@ -1518,7 +1511,6 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 
   frame_to_encode = vs->vid_enc_frame;
 
-skip_vpp:
   got_output = 0;
   ret = avcodec_encode_video2(octx, &packet2, frame_to_encode, &got_output);
   if (ret < 0) {
@@ -1903,7 +1895,8 @@ transcoder_init_video(transcoder_t *t, streaming_start_component_t *ssc)
   if (tp->tp_vcodec[0] == '\0')
     return 0;
 
-  else if (!strcmp(tp->tp_vcodec, "copy"))
+  // Don't transcode SD and UHD
+  else if (!strcmp(tp->tp_vcodec, "copy") || (ssc->es_height <= 576) || (ssc->es_height >= 1100))
     return transcoder_init_stream(t, ssc);
 
   else if (!(icodec = transcoder_get_decoder(t, ssc->es_type)))

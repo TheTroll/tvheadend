@@ -1995,7 +1995,8 @@ channel_has_correct_service_filter(const channel_t *ch, int svf)
   LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
     service = (const service_t*)ilm->ilm_in1;
     if ((svf == PROFILE_SVF_SD && service_is_sdtv(service)) ||
-        (svf == PROFILE_SVF_HD && service_is_hdtv(service)) ||
+        (svf == PROFILE_SVF_HD && service_is_hdtv(service, 0)) ||
+        (svf == PROFILE_SVF_HDPLUS && service_is_hdtv(service, 1)) ||
         (svf == PROFILE_SVF_UHD && service_is_uhdtv(service))) {
       return 1;
     }

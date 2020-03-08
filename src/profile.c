@@ -271,9 +271,43 @@ profile_class_svfilter_list ( void *o, const char *lang )
     { N_("None"),                       PROFILE_SVF_NONE },
     { N_("SD: standard definition"),    PROFILE_SVF_SD },
     { N_("HD: high definition"),        PROFILE_SVF_HD },
+    { N_("HD+: high+ definition"),      PROFILE_SVF_HDPLUS },
     { N_("UHD: ultra high definition"), PROFILE_SVF_UHD },
   };
   return strtab2htsmsg(tab, 1, lang);
+}
+
+static idnode_slist_t profile_class_svignore_slist[] = {
+  { .id = "none", .name = N_("None"), .off = offsetof(profile_t, pro_svignore_none) },
+  { .id = "sd", .name = N_("SD: standard definition"), .off = offsetof(profile_t, pro_svignore_sd) },
+  { .id = "hd", .name = N_("HD: high definition"), .off = offsetof(profile_t, pro_svignore_hd) },
+  { .id = "hdplus", .name = N_("HD+: high+ definition"), .off = offsetof(profile_t, pro_svignore_hdplus) },
+  { .id = "uhd", .name = N_("UHD: ultra high definition"), .off = offsetof(profile_t, pro_svignore_uhd) },
+  {}
+};
+
+static htsmsg_t *
+profile_class_svignore_enum ( void *obj, const char *lang )
+{
+  return idnode_slist_enum(obj, profile_class_svignore_slist, lang);
+}
+
+static const void *
+profile_class_svignore_get ( void *obj )
+{
+  return idnode_slist_get(obj, profile_class_svignore_slist);
+}
+
+static char *
+profile_class_svignore_rend ( void *obj, const char *lang )
+{
+  return idnode_slist_rend(obj, profile_class_svignore_slist, lang);
+}
+
+static int
+profile_class_svignore_set ( void *obj, const void *p )
+{
+  return idnode_slist_set(obj, profile_class_svignore_slist, p);
 }
 
 CLASS_DOC(profile)
@@ -435,6 +469,19 @@ const idclass_t profile_class =
       .off      = offsetof(profile_t, pro_svfilter),
       .opts     = PO_SORTKEY | PO_ADVANCED | PO_DOC_NLIST,
       .def.i    = PROFILE_SVF_NONE,
+      .group    = 1
+    },
+    {
+      .type     = PT_STR,
+      .islist   = 1,
+      .id       = "svignore",
+      .name     = N_("Ignore service video types"),
+      .desc     = N_("The selected video type will be ignored."),
+      .list     = profile_class_svignore_enum,
+      .set      = profile_class_svignore_set,
+      .get      = profile_class_svignore_get,
+      .rend     = profile_class_svignore_rend,
+      .opts     = PO_SORTKEY | PO_ADVANCED | PO_DOC_NLIST,
       .group    = 1
     },
     { }

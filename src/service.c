@@ -41,6 +41,7 @@ static void service_class_delete(struct idnode *self);
 static htsmsg_t *service_class_save(struct idnode *self, char *filename, size_t fsize);
 static void service_class_load(struct idnode *self, htsmsg_t *conf);
 static int service_make_nicename0(service_t *t, char *buf, size_t len, int adapter);
+static int service_is_allowed(service_t *t, profile_t *pro);
 
 struct service_queue service_all;
 struct service_queue service_raw_all;
@@ -148,6 +149,7 @@ service_type_auto_list ( void *o, const char *lang )
     { N_("Radio"),             ST_RADIO },
     { N_("SD TV"),             ST_SDTV  },
     { N_("HD TV"),             ST_HDTV  },
+    { N_("HD+ TV"),            ST_HDTVPLUS  },
     { N_("UHD TV"),            ST_UHDTV }
   };
   return strtab2htsmsg(tab, 1, lang);
@@ -387,8 +389,7 @@ service_find_instance
   }
 
   /* Fix hd prio mode */
-  r++;
-
+#if 1
   TAILQ_FOREACH(si, sil, si_link) {
     si->si_mark = 1;
     if (r && (flags & SUBSCRIPTION_SWSERVICE) != 0) {
@@ -397,6 +398,7 @@ service_find_instance
           next->si_error = MAX(next->si_error, si->si_error);
     }
   }
+#endif
 
   r = 0;
   if (ch) {
@@ -406,11 +408,12 @@ service_find_instance
     }
     LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
       s = (service_t *)ilm->ilm_in1;
-      if (s->s_is_enabled(s, flags)) {
+      if (s->s_is_enabled(s, flags) && service_is_allowed(s, pro)) {
         if (pro == NULL ||
             pro->pro_svfilter == PROFILE_SVF_NONE ||
             (pro->pro_svfilter == PROFILE_SVF_SD && service_is_sdtv(s)) ||
-            (pro->pro_svfilter == PROFILE_SVF_HD && service_is_hdtv(s)) ||
+            (pro->pro_svfilter == PROFILE_SVF_HD && service_is_hdtv(s, 0)) ||
+            (pro->pro_svfilter == PROFILE_SVF_HDPLUS && service_is_hdtv(s, 1)) ||
             (pro->pro_svfilter == PROFILE_SVF_UHD && service_is_uhdtv(s))) {
           r1 = s->s_enlist(s, ti, sil, flags, weight);
           if (r1 && r == 0)
@@ -418,16 +421,17 @@ service_find_instance
         }
       }
     }
+
     /* find a valid instance, no error and "user" idle */
     TAILQ_FOREACH(si, sil, si_link)
       if (si->si_weight < SUBSCRIPTION_PRIO_MIN && si->si_error == 0) break;
-    /* UHD->HD fallback and SD->HD fallback */
+    /* UHD->HD fallback and HD+->HD fallback */
     if (si == NULL && pro &&
         (pro->pro_svfilter == PROFILE_SVF_UHD ||
-         pro->pro_svfilter == PROFILE_SVF_SD)) {
+         pro->pro_svfilter == PROFILE_SVF_HDPLUS)) {
       LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
         s = (service_t *)ilm->ilm_in1;
-        if (s->s_is_enabled(s, flags) && service_is_hdtv(s)) {
+        if (s->s_is_enabled(s, flags) && service_is_hdtv(s, 0) && service_is_allowed(s, pro)) {
           r1 = s->s_enlist(s, ti, sil, flags, weight);
           if (r1 && r == 0)
             r = r1;
@@ -441,7 +445,7 @@ service_find_instance
     if (si == NULL) {
       LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
         s = (service_t *)ilm->ilm_in1;
-        if (s->s_is_enabled(s, flags)) {
+        if (s->s_is_enabled(s, flags) && service_is_allowed(s, pro)) {
           r1 = s->s_enlist(s, ti, sil, flags, weight);
           if (r1 && r == 0)
             r = r1;
@@ -453,12 +457,13 @@ service_find_instance
         r = 0;
         break;
       }
+  } else if (service_is_allowed(s, pro)) {
+    r = s->s_enlist(s, ti, sil, flags, weight);
   } else {
     if (!s->s_is_enabled(s, flags)) {
       *error = SM_CODE_SVC_NOT_ENABLED;
       return NULL;
     }
-    r = s->s_enlist(s, ti, sil, flags, weight);
   }
 
   /* Clean */
@@ -812,6 +817,21 @@ service_data_timeout(void *aux)
                    sec2mono(t->s_timeout));
 }
 
+static int
+service_is_allowed(service_t *t, profile_t *pro)
+{
+  if (service_is_sdtv(t) && pro->pro_svignore_sd)
+    return 0;
+  if (service_is_hdtv(t, 0) && pro->pro_svignore_hd)
+    return 0;
+  if (service_is_hdtv(t, 1) && pro->pro_svignore_hdplus)
+    return 0;
+  if (service_is_uhdtv(t) && pro->pro_svignore_uhd)
+    return 0;
+
+  return 1;
+}
+
 int
 service_is_sdtv(const service_t *t)
 {
@@ -832,14 +852,14 @@ service_is_sdtv(const service_t *t)
 }
 
 int
-service_is_hdtv(const service_t *t)
+service_is_hdtv(const service_t *t, char plus)
 {
   char s_type;
   if(t->s_type_user == ST_UNSET)
     s_type = t->s_servicetype;
   else
     s_type = t->s_type_user;
-  if (s_type == ST_HDTV)
+  if ((plus && (s_type == ST_HDTVPLUS)) || (!plus && (s_type == ST_HDTV)))
     return 1;
   else if (s_type == ST_NONE) {
     elementary_stream_t *st;
@@ -920,12 +940,13 @@ const char *
 service_servicetype_txt ( service_t *s )
 {
   static const char *types[] = {
-    "HDTV", "SDTV", "Radio", "UHDTV", "Other"
+    "HDTV", "HDTVPLUS", "SDTV", "Radio", "UHDTV", "Other"
   };
-  if (service_is_hdtv(s))  return types[0];
-  if (service_is_sdtv(s))  return types[1];
-  if (service_is_radio(s)) return types[2];
-  if (service_is_uhdtv(s)) return types[3];
+  if (service_is_hdtv(s, 0))  return types[0];
+  if (service_is_hdtv(s, 1))  return types[1];
+  if (service_is_sdtv(s))  return types[2];
+  if (service_is_radio(s)) return types[3];
+  if (service_is_uhdtv(s)) return types[4];
   return types[4];
 }
 

@@ -1123,6 +1123,7 @@ http_stream_service(http_connection_t *hc, service_t *service, int weight)
   void *tcp_id;
   int res = HTTP_STATUS_SERVICE;
   int flags, eflags = 0;
+  const char* pro_string;
 
   if(http_access_verify(hc, ACCESS_ADVANCED_STREAMING))
     return http_noaccess_code(hc);
@@ -1138,9 +1139,19 @@ http_stream_service(http_connection_t *hc, service_t *service, int weight)
   flags = SUBSCRIPTION_MPEGTS | eflags;
   if ((eflags & SUBSCRIPTION_NODESCR) == 0)
     flags |= SUBSCRIPTION_PACKET;
+
+  pro_string = http_arg_get(&hc->hc_req_args, "profile");
+
+  // Only pass profile for audio only channel
+  if ((service_is_radio(service)) && pro_string && strcmp(pro_string, "pass") && strcmp(pro_string, "pass-hd") && strcmp(pro_string, "fullpass"))
+  {
+    tvhwarn(LS_WEBUI, "Forcing pass profile for audio only channels");
+    pro_string = "pass";
+  }
+
   if(!(pro = profile_find_by_list(hc->hc_access->aa_profiles,
-                                  http_arg_get(&hc->hc_req_args, "profile"),
-                                  "service", flags)))
+                                  pro_string,
+                                  "pass", flags)))
     return HTTP_STATUS_NOT_ALLOWED;
 
   if((tcp_id = http_stream_preop(hc)) == NULL)
@@ -1277,15 +1288,12 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
   int res = HTTP_STATUS_SERVICE;
   idnode_list_mapping_t* ilm;
   service_t* ch_first_service;
+  const char* pro_string;
 
   if (http_access_verify_channel(hc, ACCESS_STREAMING, ch))
     return http_noaccess_code(hc);
 
-  if(!(pro = profile_find_by_list(hc->hc_access->aa_profiles,
-                                  http_arg_get(&hc->hc_req_args, "profile"),
-                                  "channel",
-                                  SUBSCRIPTION_PACKET | SUBSCRIPTION_MPEGTS)))
-    return HTTP_STATUS_NOT_ALLOWED;
+  pro_string = http_arg_get(&hc->hc_req_args, "profile");
 
   if((tcp_id = http_stream_preop(hc)) == NULL)
     return HTTP_STATUS_NOT_ALLOWED;
@@ -1295,29 +1303,40 @@ http_stream_channel(http_connection_t *hc, channel_t *ch, int weight)
   else
     qsize = 1500000;
 
-  if (hc->hc_access && hc->hc_access->aa_muxes_limit_streaming)
+  ilm = LIST_FIRST(&ch->ch_services);
+  if (ilm)
   {
-    ilm = LIST_FIRST(&ch->ch_services);
-    if (ilm)
+    ch_first_service = (service_t* )ilm->ilm_in1;
+    if (ch_first_service)
     {
-      ch_first_service = (service_t* )ilm->ilm_in1;
-      if (ch_first_service)
+      if (hc->hc_access && hc->hc_access->aa_max_streaming_sessions)
       {
-        source_info_t si;
         int count;
-        ch_first_service->s_setsourceinfo(ch_first_service, &si);
-        count = subscription_get_user_count_on_other_muxes(hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:NULL), si.si_mux_uuid, 0);
-        if (count >= hc->hc_access->aa_muxes_limit_streaming)
+        count = subscription_get_user_count(hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:NULL), 0);
+        if (count >= hc->hc_access->aa_max_streaming_sessions)
         {
-          tvherror(LS_WEBUI, "user [%s] is already using %d muxes for streaming while the max is %d",
-             hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:"no-user"), count, hc->hc_access->aa_muxes_limit_streaming);
+          tvherror(LS_WEBUI, "user [%s] has already %d streaming(s) while the max is %d",
+             hc->hc_username?:(hc->hc_access?hc->hc_access->aa_username:"no-user"), count, hc->hc_access->aa_max_streaming_sessions);
           http_stream_postop(tcp_id);
           return HTTP_STATUS_UNAUTHORIZED;;
         }
-        service_source_info_free(&si);
+      }
+
+      // Only pass profile for audio only channel
+      if ((service_is_radio(ch_first_service)) && pro_string && strcmp(pro_string, "pass") && strcmp(pro_string, "pass-hd") && strcmp(pro_string, "fullpass"))
+      {
+        tvhwarn(LS_WEBUI, "Forcing pass profile for audio only channels");
+        pro_string = "pass";
       }
     }
   }
+
+  if(!(pro = profile_find_by_list(hc->hc_access->aa_profiles,
+                                  pro_string,
+                                  "pass",
+                                  SUBSCRIPTION_PACKET | SUBSCRIPTION_MPEGTS)))
+    return HTTP_STATUS_NOT_ALLOWED;
+
 
   hints = muxer_hints_create(http_arg_get(&hc->hc_args, "User-Agent"));
 

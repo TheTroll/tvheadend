@@ -433,7 +433,7 @@ ignore:
             ca->use = 1;
         } else {
           LIST_FOREACH(ca, &st->es_caids, link)
-            if (ca->filter & ESFM_USED)
+            if ((ca->filter & ESFM_USED) && !(ca->filter & ESFM_IGNORE))
               ca->use = 1;
         }
       }

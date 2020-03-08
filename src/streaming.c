@@ -409,6 +409,9 @@ streaming_pad_deliver(streaming_pad_t *sp, streaming_message_t *sm)
 {
   streaming_target_t *st, *next, *run = NULL;
 
+  if (!sp || !sm)
+    return;
+
   for (st = LIST_FIRST(&sp->sp_targets); st; st = next) {
     next = LIST_NEXT(st, st_link);
     assert(next != st);

@@ -408,7 +408,7 @@ forbid:
                "%s: Can not descramble service \"%s\", access denied (seqno: %d "
                "Req delay: %"PRId64" ms) from %s",
                cc->cc_name, t->s_dvb_svcname, seq, delay, ct->td_nicename);
-      descrambler_change_keystate((th_descrambler_t *)ct, DS_FORBIDDEN, 1);
+      descrambler_change_keystate((th_descrambler_t *)ct, DS_IDLE, 1);
       ct->ecm_state = ECM_RESET;
       /* this pid is not valid, force full scan */
       if (t->s_dvb_prefcapid == ct->cs_capid &&

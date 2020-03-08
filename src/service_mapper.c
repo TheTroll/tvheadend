@@ -300,7 +300,7 @@ service_mapper_process
       if (service_is_uhdtv(s)) {
         channel_tag_map(channel_tag_find_by_name("TV channels", 1), chn, chn);
         channel_tag_map(channel_tag_find_by_name("UHDTV", 1), chn, chn);
-      } else if (service_is_hdtv(s)) {
+      } else if (service_is_hdtv(s, 0) || service_is_hdtv(s, 1)) {
         channel_tag_map(channel_tag_find_by_name("TV channels", 1), chn, chn);
         channel_tag_map(channel_tag_find_by_name("HDTV", 1), chn, chn);
       } else if (service_is_sdtv(s)) {

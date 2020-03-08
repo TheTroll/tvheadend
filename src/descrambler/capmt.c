@@ -469,6 +469,8 @@ capmt_pid_flush_adapter(capmt_t *capmt, int adapter)
   capmt_opaque_t *o;
   int pid, i;
 
+  if (!capmt || adapter < 0 || adapter >= MAX_CA)
+    return;
   tvhtrace(LS_CAPMT, "%s: pid flush for adapter %d", capmt_name(capmt), adapter);
   ca = &capmt->capmt_adapters[adapter];
   tuner = capmt->capmt_adapters[adapter].ca_tuner;
@@ -2037,7 +2039,7 @@ capmt_table_input(void *opaque, int pid, const uint8_t *data, int len, int emm)
           if ((data[i + 2] & f->mask[i]) != f->filter[i])
             break;
         }
-        if (i >= DMX_FILTER_SIZE && i + 2 <= len) {
+        if (i >= DMX_FILTER_SIZE || i + 2 == len) {
           tvhtrace(LS_CAPMT, "filter match pid %d len %d emm %d", pid, len, emm);
           capmt_filter_data(capmt,
                             o->adapter, demux_index,
@@ -2433,7 +2435,7 @@ capmt_service_start(caclient_t *cac, service_t *s)
   th_descrambler_t *td;
   mpegts_service_t *t = (mpegts_service_t*)s;
   elementary_stream_t *st;
-  int tuner = -1, i, change = 0;
+  int tuner = -1, i;
   char buf[512];
   caid_t *c, sca;
   
@@ -2509,15 +2511,13 @@ capmt_service_start(caclient_t *cac, service_t *s)
       if (t->s_dvb_forcecaid && t->s_dvb_forcecaid != c->caid)
         continue;
       capmt_caid_add(ct, t, st->es_pid, c);
-      change = 1;
     }
   }
 
-  if (!change && t->s_dvb_forcecaid) {
+  if (t->s_dvb_forcecaid) {
     memset(&sca, 0, sizeof(sca));
     sca.caid = t->s_dvb_forcecaid;
     capmt_caid_add(ct, t, 8191, &sca);
-    change = 1;
   }
 
   td = (th_descrambler_t *)ct;
@@ -2549,8 +2549,7 @@ fin:
   tvh_mutex_unlock(&t->s_stream_mutex);
   tvh_mutex_unlock(&capmt->capmt_mutex);
 
-  if (change)
-    capmt_notify_server(capmt, NULL, 0);
+  capmt_notify_server(capmt, NULL, 0);
 }
 
 
