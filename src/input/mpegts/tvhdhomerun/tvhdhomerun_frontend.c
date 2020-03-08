@@ -171,13 +171,9 @@ tvhdhomerun_frontend_input_thread ( void *aux )
 
   /* the poll set includes the sockfd and the pipe for IPC */
   efd = tvhpoll_create(2);
-  memset(ev, 0, sizeof(ev));
-  ev[0].events = TVHPOLL_IN;
-  ev[0].fd     = sockfd;
-  ev[0].ptr    = hfe;
-  ev[1].events = TVHPOLL_IN;
-  ev[1].fd     = hfe->hf_input_thread_pipe.rd;
-  ev[1].ptr    = &hfe->hf_input_thread_pipe;
+  tvhpoll_event(ev+0, sockfd, TVHPOLL_IN, hfe);
+  tvhpoll_event(ev+1, hfe->hf_input_thread_pipe.rd, TVHPOLL_IN,
+                &hfe->hf_input_thread_pipe);
 
   r = tvhpoll_add(efd, ev, 2);
   if(r < 0)
@@ -268,17 +264,19 @@ tvhdhomerun_frontend_monitor_cb( void *aux )
       hfe->hf_locked = 1;
 
       /* Get CableCARD variables */
-      dvb_mux_t *lm = (dvb_mux_t *)mm;
-      struct hdhomerun_tuner_vstatus_t tuner_vstatus;
-      char *tuner_vstatus_str;
-      tvh_mutex_lock(&hfe->hf_hdhomerun_device_mutex);
-      res = hdhomerun_device_get_tuner_vstatus(hfe->hf_hdhomerun_tuner,
-        &tuner_vstatus_str, &tuner_vstatus);
-      tvh_mutex_unlock(&hfe->hf_hdhomerun_device_mutex);
-      if (res < 1)
-        tvhwarn(LS_TVHDHOMERUN, "tuner_vstatus (%d)", res);
-      lm->lm_tuning.u.dmc_fe_cablecard.name = strdup(tuner_vstatus.name);
-      sscanf(strstr(tuner_status.channel, ":"), ":%u", &lm->lm_tuning.dmc_fe_freq);
+      if (hfe->hf_type == DVB_TYPE_CABLECARD) {
+        dvb_mux_t *lm = (dvb_mux_t *)mm;
+        struct hdhomerun_tuner_vstatus_t tuner_vstatus;
+        char *tuner_vstatus_str;
+        tvh_mutex_lock(&hfe->hf_hdhomerun_device_mutex);
+        res = hdhomerun_device_get_tuner_vstatus(hfe->hf_hdhomerun_tuner,
+                                                 &tuner_vstatus_str, &tuner_vstatus);
+        tvh_mutex_unlock(&hfe->hf_hdhomerun_device_mutex);
+        if (res < 1)
+          tvhwarn(LS_TVHDHOMERUN, "tuner_vstatus (%d)", res);
+        lm->lm_tuning.u.dmc_fe_cablecard.name = strdup(tuner_vstatus.name);
+        sscanf(strstr(tuner_status.channel, ":"), ":%u", &lm->lm_tuning.dmc_fe_freq);
+      }
 
       /* start input thread */
       tvh_pipe(O_NONBLOCK, &hfe->hf_input_thread_pipe);

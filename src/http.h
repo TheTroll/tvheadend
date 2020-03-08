@@ -92,6 +92,10 @@ typedef struct http_arg {
 #define HTTP_AUTH_DIGEST            1
 #define HTTP_AUTH_PLAIN_DIGEST      2
 
+#define HTTP_AUTH_ALGO_MD5          0
+#define HTTP_AUTH_ALGO_SHA256       1
+#define HTTP_AUTH_ALGO_SHA512_256   2
+
 typedef enum http_state {
   HTTP_CON_WAIT_REQUEST,
   HTTP_CON_READ_HEADER,

@@ -18,6 +18,7 @@
  */
 
 #include <signal.h>
+#include <fcntl.h>
 
 #include "iptv_private.h"
 #include "tvhpoll.h"
@@ -38,6 +39,7 @@ typedef struct iptv_thread_pool {
   pthread_t thread;
   iptv_input_t *input;
   tvhpoll_t *poll;
+  th_pipe_t pipe;
   uint32_t streams;
 } iptv_thread_pool_t;
 
@@ -46,7 +48,7 @@ int iptv_tpool_count = 0;
 iptv_thread_pool_t *iptv_tpool_last = NULL;
 gtimer_t iptv_tpool_manage_timer;
 
-static void iptv_input_thread_manage(int count, int force);
+static void iptv_input_thread_manage_cb(void *aux);
 
 static inline int iptv_tpool_safe_count(void)
 {
@@ -457,7 +459,7 @@ iptv_input_stop_mux ( mpegts_input_t *mi, mpegts_mux_instance_t *mmi )
   tvh_mutex_unlock(&iptv_lock);
 
   if (u32 == 0)
-    iptv_input_thread_manage(iptv_tpool_safe_count(), 0);
+    gtimer_arm_rel(&iptv_tpool_manage_timer, iptv_input_thread_manage_cb, NULL, 0);
 }
 
 static void
@@ -536,6 +538,10 @@ iptv_input_thread ( void *aux )
     } else if ( nfds == 0 ) {
       continue;
     }
+
+    if (ev.ptr == &pool->pipe)
+      break;
+
     im = ev.ptr;
     r  = 0;
 
@@ -1224,6 +1230,8 @@ iptv_input_thread_manage(int count, int force)
     pool = calloc(1, sizeof(*pool));
     pool->poll = tvhpoll_create(10);
     pool->input = iptv_create_input(pool);
+    tvh_pipe(O_NONBLOCK, &pool->pipe);
+    tvhpoll_add1(pool->poll, pool->pipe.rd, TVHPOLL_IN, &pool->pipe);
     tvh_thread_create(&pool->thread, NULL, iptv_input_thread, pool, "iptv");
     TAILQ_INSERT_TAIL(&iptv_tpool, pool, link);
     iptv_tpool_count++;
@@ -1231,11 +1239,12 @@ iptv_input_thread_manage(int count, int force)
   while (iptv_tpool_count > count) {
     TAILQ_FOREACH(pool, &iptv_tpool, link)
       if (pool->streams == 0 || force) {
-        tvh_thread_kill(pool->thread, SIGTERM);
+        tvh_write(pool->pipe.wr, "q", 1);
         pthread_join(pool->thread, NULL);
         TAILQ_REMOVE(&iptv_tpool, pool, link);
         mpegts_input_stop_all((mpegts_input_t*)pool->input);
         mpegts_input_delete((mpegts_input_t *)pool->input, 0);
+        tvhpoll_rem1(pool->poll, pool->pipe.rd);
         tvhpoll_destroy(pool->poll);
         free(pool);
         iptv_tpool_count--;
@@ -1244,6 +1253,12 @@ iptv_input_thread_manage(int count, int force)
     if (pool == NULL)
       break;
   }
+}
+
+static void
+iptv_input_thread_manage_cb(void *aux)
+{
+  iptv_input_thread_manage(iptv_tpool_safe_count(), 0);
 }
 
 void iptv_init ( void )

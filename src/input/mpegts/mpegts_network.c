@@ -438,7 +438,7 @@ mpegts_network_config_save
 
 static mpegts_mux_t *
 mpegts_network_create_mux
-  ( mpegts_network_t *mn, void *origin, uint16_t sid, uint16_t tsid,
+  ( mpegts_network_t *mn, void *origin, uint32_t sid, uint32_t tsid,
     void *aux, int force )
 {
   return NULL;
@@ -558,6 +558,7 @@ mpegts_network_create0
 
   /* Initialise scanning */
   TAILQ_INIT(&mn->mn_scan_pend);
+  TAILQ_INIT(&mn->mn_scan_ipend);
   TAILQ_INIT(&mn->mn_scan_active);
   mtimer_arm_rel(&mn->mn_scan_timer, mpegts_network_scan_timer_cb, mn, 0);
 
@@ -761,7 +762,7 @@ mpegts_network_build
 
 mpegts_mux_t *
 mpegts_network_find_mux
-  ( mpegts_network_t *mn, uint16_t onid, uint16_t tsid, int check )
+  ( mpegts_network_t *mn, uint32_t onid, uint32_t tsid, int check )
 {
   mpegts_mux_t *mm;
 

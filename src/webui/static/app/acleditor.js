@@ -17,7 +17,7 @@ tvheadend.acleditor = function(panel, index)
                 'max_streaming_sessions,max_dvr_sessions,' +
                 'dvr,htsp_anonymize,dvr_config,' +
                 'channel_min,channel_max,channel_tag_exclude,' +
-                'channel_tag,comment';
+                'channel_tag,xmltv_output_format,htsp_output_format,comment';
 
     tvheadend.idnode_grid(panel, {
         id: 'access_entry',

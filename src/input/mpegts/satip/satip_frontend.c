@@ -962,6 +962,7 @@ satip_frontend_decode_rtcp( satip_frontend_t *lfe, const char *name,
                             mpegts_mux_instance_t *mmi,
                             uint8_t *rtcp, size_t len )
 {
+  const satip_device_t *device = lfe->sf_device;
   signal_state_t status;
   uint16_t l, sl;
   char *s;
@@ -1027,15 +1028,20 @@ satip_frontend_decode_rtcp( satip_frontend_t *lfe, const char *name,
         s = (char *)rtcp + 16;
         tvhdebug(LS_SATIP, "Status string: '%s'", s);
         status = SIGNAL_NONE;
-        if (strncmp(s, "ver=0.9;tuner=", 14) == 0 ||
-            strncmp(s, "ver=1.2;tuner=", 14) == 0) {
-          n = http_tokenize(s + 14, argv, 4, ',');
+        if (strncmp(s, "ver=1.2;src=1;tuner=", 20) == 0) {
+          /* broken FritzBox 6490/6590 */
+          n = http_tokenize(s + 20, argv, ARRAY_SIZE(argv), ',');
+          goto __ver12;
+        } else if (strncmp(s, "ver=0.9;tuner=", 14) == 0 ||
+                   strncmp(s, "ver=1.2;tuner=", 14) == 0) {
+          n = http_tokenize(s + 14, argv, ARRAY_SIZE(argv), ',');
+__ver12:
           if (n < 4)
             goto fail;
-//          if (atoi(argv[0]) != lfe->sf_number)
-//            goto fail;
+          if (atoi(argv[0]) != lfe->sf_number && device->sd_sig_tunerno)
+            goto fail;
           mmi->tii_stats.signal =
-            atoi(argv[1]) * 0xffff / lfe->sf_device->sd_sig_scale;
+            atoi(argv[1]) * 0xffff / device->sd_sig_scale;
           mmi->tii_stats.signal_scale =
             SIGNAL_STATUS_SCALE_RELATIVE;
           if (atoi(argv[2]) > 0)
@@ -1054,13 +1060,13 @@ satip_frontend_decode_rtcp( satip_frontend_t *lfe, const char *name,
           if ((s = strstr(s + 8, ";tuner=")) == NULL)
             goto fail;
           s += 7;
-          n = http_tokenize(s, argv, 4, ',');
+          n = http_tokenize(s, argv, ARRAY_SIZE(argv), ',');
           if (n < 4)
             goto fail;
-//          if (atoi(argv[0]) != lfe->sf_number)
-//            goto fail;
+          if (atoi(argv[0]) != lfe->sf_number && device->sd_sig_tunerno)
+            goto fail;
           mmi->tii_stats.signal =
-            atoi(argv[1]) * 0xffff / lfe->sf_device->sd_sig_scale;
+            atoi(argv[1]) * 0xffff / device->sd_sig_scale;
           mmi->tii_stats.signal_scale =
             SIGNAL_STATUS_SCALE_RELATIVE;
           if (atoi(argv[2]) > 0)
@@ -1073,10 +1079,10 @@ satip_frontend_decode_rtcp( satip_frontend_t *lfe, const char *name,
           n = http_tokenize(s + 14, argv, 4, ',');
           if (n < 4)
             goto fail;
-//          if (atoi(argv[0]) != lfe->sf_number)
-//            goto fail;
+          if (atoi(argv[0]) != lfe->sf_number && device->sd_sig_tunerno)
+            goto fail;
           mmi->tii_stats.signal =
-            atoi(argv[1]) * 0xffff / lfe->sf_device->sd_sig_scale;
+            atoi(argv[1]) * 0xffff / device->sd_sig_scale;
           mmi->tii_stats.signal_scale =
             SIGNAL_STATUS_SCALE_RELATIVE;
           if (atoi(argv[2]) > 0)
@@ -1572,14 +1578,14 @@ satip_frontend_input_thread ( void *aux )
   satip_frontend_t *lfe = aux, *lfe_master;
   satip_tune_req_t *tr = NULL;
   mpegts_mux_instance_t *mmi;
-  http_client_t *rtsp;
+  http_client_t *rtsp = NULL;
   udp_connection_t *rtp = NULL, *rtcp = NULL;
   dvb_mux_t *lm;
   char buf[256];
   struct iovec *iovec;
   uint8_t b[2048], session[32];
   sbuf_t *sb;
-  int nfds, i, r, tc, rtp_port, start = 0;
+  int nfds, i, r, tc, rtp_port, start = 0, poll_reg = 0;
   size_t c;
   tvhpoll_event_t ev[3];
   tvhpoll_t *efd;
@@ -1598,7 +1604,6 @@ satip_frontend_input_thread ( void *aux )
 
   /* Setup poll */
   efd = tvhpoll_create(4);
-  rtsp = NULL;
 
   /* Setup buffers */
   sbuf_init(sb = &lfe->sf_sbuf);
@@ -1829,33 +1834,36 @@ new_tune:
   }
 
   /* Setup poll */
-  memset(ev, 0, sizeof(ev));
   nfds = 0;
   if ((rtsp_flags & SATIP_SETUP_TCP) == 0) {
-    ev[nfds].events = TVHPOLL_IN;
-    ev[nfds].fd     = rtp->fd;
-    ev[nfds].ptr    = rtp;
-    nfds++;
-    ev[nfds].events = TVHPOLL_IN;
-    ev[nfds].fd     = rtcp->fd;
-    ev[nfds].ptr    = rtcp;
-    nfds++;
+    tvhpoll_event(&ev[nfds++], rtp->fd, TVHPOLL_IN, rtp);
+    tvhpoll_event(&ev[nfds++], rtcp->fd, TVHPOLL_IN, rtcp);
   } else {
     rtsp->hc_io_size           = 128 * 1024;
     rtsp->hc_rtp_data_received = satip_frontend_rtp_data_received;
   }
-  if (i) {
-    ev[nfds].events = TVHPOLL_IN;
-    ev[nfds].fd     = rtsp->hc_fd;
-    ev[nfds].ptr    = rtsp;
-    nfds++;
-  }
+  if (i)
+    tvhpoll_event(&ev[nfds++], rtsp->hc_fd, TVHPOLL_IN, rtsp);
   tvhpoll_add(efd, ev, nfds);
   rtsp->hc_efd = efd;
+  poll_reg = 1;
 
   position = lfe_master->sf_position;
   if (lfe->sf_device->sd_pilot_on)
     rtsp_flags |= SATIP_SETUP_PILOT_ON;
+  switch (lfe->sf_device->sd_default_rolloff) {
+  case SATIP_DEFAULT_ROLLOFF_20:
+    rtsp_flags |= SATIP_SETUP_ROLLOFF_25;
+    break;
+  case SATIP_DEFAULT_ROLLOFF_25:
+    rtsp_flags |= SATIP_SETUP_ROLLOFF_25;
+    break;
+  case SATIP_DEFAULT_ROLLOFF_35:
+    rtsp_flags |= SATIP_SETUP_ROLLOFF_35;
+    break;
+  default:
+    break;
+  }
   if (lfe->sf_device->sd_pids21)
     rtsp_flags |= SATIP_SETUP_PIDS21;
   if (lfe->sf_specinv == 0)
@@ -2109,14 +2117,15 @@ new_tune:
   udp_multirecv_free(&um);
   lfe->sf_curmux = NULL;
 
-  memset(ev, 0, sizeof(ev));
+  assert(poll_reg);
   nfds = 0;
   if ((rtsp_flags & SATIP_SETUP_TCP) == 0) {
-    ev[nfds++].fd = rtp->fd;
-    ev[nfds++].fd = rtcp->fd;
+    tvhpoll_event1(&ev[nfds++], rtp->fd);
+    tvhpoll_event1(&ev[nfds++], rtcp->fd);
   }
-  ev[nfds++].fd = lfe->sf_dvr_pipe.rd;
+  tvhpoll_event1(&ev[nfds++], lfe->sf_dvr_pipe.rd);
   tvhpoll_rem(efd, ev, nfds);
+  poll_reg = 0;
 
   if (exit_flag) {
     satip_frontend_shutdown(lfe, buf, rtsp, tr, efd);
@@ -2126,6 +2135,16 @@ new_tune:
   }
 
 done:
+  if (poll_reg) {
+    nfds = 0;
+    if ((rtsp_flags & SATIP_SETUP_TCP) == 0) {
+      tvhpoll_event1(&ev[nfds++], rtp->fd);
+      tvhpoll_event1(&ev[nfds++], rtcp->fd);
+    }
+    tvhpoll_event1(&ev[nfds++], lfe->sf_dvr_pipe.rd);
+    tvhpoll_rem(efd, ev, nfds);
+    poll_reg = 0;
+  }
   udp_close(rtcp);
   udp_close(rtp);
   rtcp = rtp = NULL;

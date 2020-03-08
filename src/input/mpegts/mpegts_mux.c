@@ -94,7 +94,8 @@ mpegts_mux_scan_active
   int t;
 
   /* Setup scan */
-  if (mm->mm_scan_state == MM_SCAN_STATE_PEND) {
+  if (mm->mm_scan_state == MM_SCAN_STATE_PEND ||
+      mm->mm_scan_state == MM_SCAN_STATE_IPEND) {
     mpegts_network_scan_mux_active(mm);
 
     /* Get timeout */
@@ -391,9 +392,10 @@ mpegts_mux_class_get_name ( void *ptr )
 
 static struct strtab
 scan_state_tab[] = {
-  { N_("IDLE"),   MM_SCAN_STATE_IDLE },
-  { N_("PEND"),   MM_SCAN_STATE_PEND },
-  { N_("ACTIVE"), MM_SCAN_STATE_ACTIVE },
+  { N_("IDLE"),        MM_SCAN_STATE_IDLE },
+  { N_("PEND"),        MM_SCAN_STATE_PEND },
+  { N_("IDLE PEND"),   MM_SCAN_STATE_IPEND },
+  { N_("ACTIVE"),      MM_SCAN_STATE_ACTIVE },
 };
 
 static struct strtab
@@ -416,7 +418,9 @@ mpegts_mux_class_scan_state_set ( void *o, const void *p )
     return 0;
   
   /* Start */
-  if (state == MM_SCAN_STATE_PEND || state == MM_SCAN_STATE_ACTIVE) {
+  if (state == MM_SCAN_STATE_PEND ||
+      state == MM_SCAN_STATE_IPEND ||
+      state == MM_SCAN_STATE_ACTIVE) {
 
     /* Start (only if required) */
     mpegts_network_scan_queue_add(mm, SUBSCRIPTION_PRIO_SCAN_USER,
@@ -586,7 +590,7 @@ const idclass_t mpegts_mux_class =
       .opts     = PO_RDONLY | PO_HIDDEN | PO_EXPERT,
     },
     {
-      .type     = PT_U16,
+      .type     = PT_U32,
       .id       = "onid",
       .name     = N_("Original network ID"),
       .desc     = N_("The provider's network ID."),
@@ -594,7 +598,7 @@ const idclass_t mpegts_mux_class =
       .off      = offsetof(mpegts_mux_t, mm_onid),
     },
     {
-      .type     = PT_U16,
+      .type     = PT_U32,
       .id       = "tsid",
       .name     = N_("Transport stream ID"),
       .desc     = N_("The transport stream ID of the mux within the "
@@ -1128,10 +1132,10 @@ mpegts_mux_scan_done ( mpegts_mux_t *mm, const char *buf, int res )
   if (res < 0) {
     /* is threshold 3 missing tables enough? */
     if (incomplete > 0 && total > incomplete && incomplete <= 3) {
-      tvhinfo(LS_MPEGTS, "%s - scan complete (partial - %d/%d tables)", buf, total, incomplete);
+      tvhinfo(LS_MPEGTS, "%s - scan complete (partial - %d/%d tables)", buf, incomplete, total);
       mpegts_network_scan_mux_partial(mm);
     } else {
-      tvhwarn(LS_MPEGTS, "%s - scan timed out (%d/%d tables)", buf, total, incomplete);
+      tvhwarn(LS_MPEGTS, "%s - scan timed out (%d/%d tables)", buf, incomplete, total);
       mpegts_network_scan_mux_fail(mm);
     }
   } else if (res) {
@@ -1204,7 +1208,7 @@ again:
 mpegts_mux_t *
 mpegts_mux_create0
   ( mpegts_mux_t *mm, const idclass_t *class, const char *uuid,
-    mpegts_network_t *mn, uint16_t onid, uint16_t tsid, htsmsg_t *conf )
+    mpegts_network_t *mn, uint32_t onid, uint32_t tsid, htsmsg_t *conf )
 {
   if (idnode_insert(&mm->mm_id, uuid, class, 0)) {
     if (uuid)
@@ -1322,7 +1326,7 @@ mpegts_mux_set_network_name ( mpegts_mux_t *mm, const char *name )
 }
 
 int
-mpegts_mux_set_onid ( mpegts_mux_t *mm, uint16_t onid )
+mpegts_mux_set_onid ( mpegts_mux_t *mm, uint32_t onid )
 {
   if (onid == mm->mm_onid)
     return 0;
@@ -1333,7 +1337,7 @@ mpegts_mux_set_onid ( mpegts_mux_t *mm, uint16_t onid )
 }
 
 int
-mpegts_mux_set_tsid ( mpegts_mux_t *mm, uint16_t tsid, int force )
+mpegts_mux_set_tsid ( mpegts_mux_t *mm, uint32_t tsid, int force )
 {
   if (tsid == mm->mm_tsid)
     return 0;

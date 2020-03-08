@@ -26,6 +26,8 @@
 #include "htsmsg_json.h"
 #include "compat.h"
 
+#include "openssl/opensslv.h"
+
 #if ENABLE_ANDROID
 #include <sys/socket.h>
 #endif
@@ -224,7 +226,7 @@ static const char *cachemonths[12] = {
 typedef struct http_nonce {
   RB_ENTRY(http_nonce) link;
   mtimer_t expire;
-  char nonce[16*2+1];
+  char nonce[64];
 } http_nonce_t;
 
 static RB_HEAD(, http_nonce) http_nonces;
@@ -244,29 +246,46 @@ http_nonce_timeout(void *aux)
 }
 
 static char *
-http_get_nonce(void)
+http_get_digest_hash(int algo, const char *msg)
+{
+  switch (algo) {
+  case HTTP_AUTH_ALGO_MD5:
+    return md5sum(msg, 1);
+  case HTTP_AUTH_ALGO_SHA256:
+    return sha256sum(msg, 1);
+  default:
+    return sha512sum256(msg, 1);
+  }
+}
+
+static int
+http_get_nonce(http_connection_t *hc)
 {
   struct http_nonce *n = calloc(1, sizeof(*n));
   char stamp[33], *m;
   int64_t mono;
+  static int64_t xor;
 
   while (1) {
     mono = getmonoclock();
     mono ^= 0xa1687211885fcd30LL;
-    snprintf(stamp, sizeof(stamp), "%"PRId64, mono);
-    m = md5sum(stamp, 1);
-    strlcpy(n->nonce, m, sizeof(stamp));
+    xor ^= 0xf6e398624aa55013LL;
+    snprintf(stamp, sizeof(stamp), "A!*Fz32%"PRId64"%"PRId64, mono, xor);
+    m = sha256sum_base64(stamp);
+    if (m == NULL) return -1;
+    strlcpy(n->nonce, m, sizeof(n->nonce));
     tvh_mutex_lock(&global_lock);
     if (RB_INSERT_SORTED(&http_nonces, n, link, http_nonce_cmp)) {
       tvh_mutex_unlock(&global_lock);
       free(m);
-      continue; /* get unique md5 */
+      continue; /* get unique hash */
     }
     mtimer_arm_rel(&n->expire, http_nonce_timeout, n, sec2mono(30));
     tvh_mutex_unlock(&global_lock);
     break;
   }
-  return m;
+  hc->hc_nonce = m;
+  return 0;
 }
 
 static int
@@ -289,12 +308,12 @@ http_nonce_exists(const char *nonce)
 }
 
 static char *
-http_get_opaque(const char *realm, const char *nonce)
+http_get_opaque(http_connection_t *hc, const char *realm)
 {
-  char *a = alloca(strlen(realm) + strlen(nonce) + 1);
+  char *a = alloca(strlen(realm) + strlen(hc->hc_nonce) + 1);
   strcpy(a, realm);
-  strcat(a, nonce);
-  return md5sum(a, 1);
+  strcat(a, hc->hc_nonce);
+  return sha256sum_base64(a);
 }
 
 /**
@@ -305,6 +324,21 @@ http_alive(http_connection_t *hc)
 {
   if (hc->hc_nonce)
     http_nonce_exists(hc->hc_nonce); /* update timer */
+}
+
+/**
+ *
+ */
+static void
+http_auth_header
+  (htsbuf_queue_t *hdrs, const char *realm, const char *algo,
+   const char *nonce, const char *opaque)
+{
+  htsbuf_qprintf(hdrs, "WWW-Authenticate: Digest realm=\"%s\", qop=auth", realm);
+  if (algo)
+    htsbuf_qprintf(hdrs, ", algorithm=%s", algo);
+  htsbuf_qprintf(hdrs, ", nonce=\"%s\"", nonce);
+  htsbuf_qprintf(hdrs, ", opaque=\"%s\"\r\n", opaque);
 }
 
 /**
@@ -370,23 +404,27 @@ http_send_header(http_connection_t *hc, int rc, const char *content,
     const char *realm = tvh_str_default(config.realm, "tvheadend");
     if (config.http_auth == HTTP_AUTH_DIGEST ||
         config.http_auth == HTTP_AUTH_PLAIN_DIGEST) {
-      if (hc->hc_nonce == NULL)
-        hc->hc_nonce = http_get_nonce();
-      char *opaque = http_get_opaque(realm, hc->hc_nonce);
-      htsbuf_append_str(&hdrs, "WWW-Authenticate: Digest realm=\"");
-      htsbuf_append_str(&hdrs, realm);
-      htsbuf_append_str(&hdrs, "\", qop=\"auth\", nonce=\"");
-      htsbuf_append_str(&hdrs, hc->hc_nonce);
-      htsbuf_append_str(&hdrs, "\", opaque=\"");
-      htsbuf_append_str(&hdrs, opaque);
-      htsbuf_append_str(&hdrs, "\"\r\n");
+      char *opaque;
+      if (hc->hc_nonce == NULL && http_get_nonce(hc)) goto __noauth;
+      opaque = http_get_opaque(hc, realm);
+      if (opaque == NULL) goto __noauth;
+      if (config.http_auth_algo != HTTP_AUTH_ALGO_MD5)
+        http_auth_header(&hdrs, realm,
+                         config.http_auth_algo == HTTP_AUTH_ALGO_SHA256 ?
+                           "SHA-256" :
+#if OPENSSL_VERSION_NUMBER >= 0x1010101fL
+                             "SHA-512-256",
+#else
+                             "SHA-256",
+#endif
+                           hc->hc_nonce, opaque);
+      http_auth_header(&hdrs, realm, NULL, hc->hc_nonce, opaque);
       free(opaque);
     } else {
-      htsbuf_append_str(&hdrs, "WWW-Authenticate: Basic realm=\"");
-      htsbuf_append_str(&hdrs, realm);
-      htsbuf_append_str(&hdrs, "\"\r\n");
+      htsbuf_qprintf(&hdrs, "WWW-Authenticate: Basic realm=\"%s\"\r\n", realm);
     }
   }
+__noauth:
 
   if (hc->hc_version != RTSP_VERSION_1_0)
     htsbuf_qprintf(&hdrs, "Connection: %s\r\n",
@@ -971,6 +1009,7 @@ struct http_verify_structure {
   char *d_ha1;
   char *d_all;
   char *d_response;
+  int algo;
   http_connection_t *hc;
 };
 
@@ -985,10 +1024,10 @@ http_verify_callback(void *aux, const char *passwd)
 
    if (v->d_ha1) {
      snprintf(ha1, sizeof(ha1), "%s:%s", v->d_ha1, passwd);
-     m = md5sum(ha1, 1);
+     m = http_get_digest_hash(v->algo, ha1);
      snprintf(all, sizeof(all), "%s:%s", m, v->d_all);
      free(m);
-     m = md5sum(all, 1);
+     m = http_get_digest_hash(v->algo, all);
      res = strcmp(m, v->d_response) == 0;
      free(m);
      return res;
@@ -1013,15 +1052,26 @@ http_verify_prepare(http_connection_t *hc, struct http_verify_structure *v)
     char *response = http_get_header_value(hc->hc_authhdr, "response");
     char *qop = http_get_header_value(hc->hc_authhdr, "qop");
     char *uri = http_get_header_value(hc->hc_authhdr, "uri");
+    char *algo1 = http_get_header_value(hc->hc_authhdr, "algorithm");
     char *realm = NULL, *nonce_count = NULL, *cnonce = NULL, *m = NULL;
     char all[1024];
     int res = -1;
+
+    if (algo1 == NULL || strcasecmp(algo1, "MD5") == 0) {
+      v->algo = HTTP_AUTH_ALGO_MD5;
+    } else if (strcasecmp(algo1, "SHA-256") == 0) {
+      v->algo = HTTP_AUTH_ALGO_SHA256;
+    } else if (strcasecmp(algo1, "SHA-512-256") == 0) {
+      v->algo = HTTP_AUTH_ALGO_SHA512_256;
+    } else {
+      goto end;
+    }
 
     if (qop == NULL || uri == NULL)
       goto end;
      
     if (strcasecmp(qop, "auth-int") == 0) {
-      m = md5sum(hc->hc_post_data ?: "", 1);
+      m = http_get_digest_hash(v->algo, hc->hc_post_data ?: "");
       snprintf(all, sizeof(all), "%s:%s:%s", method, uri, m);
       free(m);
       m = NULL;
@@ -1031,7 +1081,7 @@ http_verify_prepare(http_connection_t *hc, struct http_verify_structure *v)
       goto end;
     }
 
-    m = md5sum(all, 1);
+    m = http_get_digest_hash(v->algo, all);
     if (tvh_str_default(qop, NULL) == NULL) {
       snprintf(all, sizeof(all), "%s:%s", hc->hc_nonce, m);
       goto set;
@@ -1182,7 +1232,12 @@ http_exec(http_connection_t *hc, http_path_t *hp, char *remain)
 {
   int err;
 
-  if (http_access_verify(hc, hp->hp_accessmask)) {
+  /* this is a special case when client probably requires authentication */
+  if ((hp->hp_accessmask & ACCESS_NO_EMPTY_ARGS) != 0 && TAILQ_EMPTY(&hc->hc_req_args)) {
+    err = http_noaccess_code(hc);
+    goto destroy;
+  }
+  if (http_access_verify(hc, hp->hp_accessmask & ~ACCESS_INTERNAL)) {
     if ((hp->hp_flags & HTTP_PATH_NO_VERIFICATION) == 0) {
       err = http_noaccess_code(hc);
       goto destroy;

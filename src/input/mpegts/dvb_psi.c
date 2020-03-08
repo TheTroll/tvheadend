@@ -106,18 +106,14 @@ extract_4byte(const uint8_t *ptr)
 static inline uint16_t
 extract_tsid(const uint8_t *ptr)
 {
-  uint16_t r = (ptr[0] << 8) | ptr[1];
-  if (r == MPEGTS_TSID_NONE) r = 55555;
-  return r;
+  return (ptr[0] << 8) | ptr[1];
 }
 
 
 static inline uint16_t
 extract_onid(const uint8_t *ptr)
 {
-  uint16_t r = (ptr[0] << 8) | ptr[1];
-  if (r == MPEGTS_ONID_NONE) r = 55555;
-  return r;
+  return (ptr[0] << 8) | ptr[1];
 }
 
 
@@ -757,13 +753,17 @@ dvb_freesat_completed
             bs->fallback = fs;
           continue;
         }
+        /* already assigned? skip it */
+        if (!TAILQ_SAFE_ENTRY(fs, region_link))
+          continue;
         LIST_FOREACH(fr, &bi->fregions, link)
           if (fr->regionid == fs->regionid)
             break;
-        if (!fr)
+        if (!fr) {
           tvhtrace(mt->mt_subsys, "%s: cannot find freesat region id %u", mt->mt_name, fs->regionid);
-        else
-          TAILQ_INSERT_TAIL(&fr->services, fs, region_link);
+          continue;
+        }
+        TAILQ_INSERT_TAIL(&fr->services, fs, region_link);
       }
   }
 
