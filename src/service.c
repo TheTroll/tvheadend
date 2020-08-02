@@ -417,6 +417,7 @@ service_find_instance
       *error = SM_CODE_SVC_NOT_ENABLED;
       return NULL;
     }
+#if 0
     LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
       s = (service_t *)ilm->ilm_in1;
       if (s->s_is_enabled(s, flags) && service_is_allowed(s, pro)) {
@@ -435,7 +436,8 @@ service_find_instance
 
     /* find a valid instance, no error and "user" idle */
     TAILQ_FOREACH(si, sil, si_link)
-      if (si->si_weight < SUBSCRIPTION_PRIO_MIN && si->si_error == 0) break;
+      if (si->si_weight < SUBSCRIPTION_PRIO_MIN && si->si_error == 0)
+        break;
     /* UHD->HD fallback and HD+->HD fallback */
     if (si == NULL && pro &&
         (pro->pro_svfilter == PROFILE_SVF_UHD ||
@@ -452,6 +454,7 @@ service_find_instance
       TAILQ_FOREACH(si, sil, si_link)
         if (si->si_weight < SUBSCRIPTION_PRIO_MIN && si->si_error == 0) break;
     }
+#endif
     /* fallback, enlist all instances */
     if (si == NULL) {
       LIST_FOREACH(ilm, &ch->ch_services, ilm_in2_link) {
@@ -515,25 +518,59 @@ service_find_instance
       if (si == NULL || next->si_prio > si->si_prio)
         si = next;*/
 
+#if 0
   /* Idle */
   if (!si) {
+    tvhtrace(LS_SERVICE, "DECISION: Will use a service in IDLE mode");
     TAILQ_FOREACH_REVERSE(si, sil, service_instance_list, si_link)
       if (si->si_weight <= 0 && si->si_error == 0)
         break;
   }
+#endif
 
   /* Bump the one with lowest weight or bigger priority */
   if (!si) {
+    tvhtrace(LS_SERVICE, "DECISION: Will choose based on priority");
+
+    TAILQ_FOREACH(si, sil, si_link) {
+      const char *name = ch ? channel_get_name(ch, NULL) : NULL;
+      if (!name && s) name = s->s_nicename;
+      tvhtrace(LS_SERVICE, "Check Profile force: %d: %s si %p %s weight %d prio %d error %d",
+             si->si_instance, name, si, si->si_source, si->si_weight, si->si_prio,
+             si->si_error);
+      if (si->si_error) continue;
+       /* Increase priority when profile requests it */
+        if ( (pro->pro_svfilter == PROFILE_SVF_SD && service_is_sdtv(si->si_s)) ||
+             (pro->pro_svfilter == PROFILE_SVF_HD && service_is_hdtv(si->si_s, 0)) ||
+             (pro->pro_svfilter == PROFILE_SVF_HDPLUS && service_is_hdtv(si->si_s, 1)) ||
+             (pro->pro_svfilter == PROFILE_SVF_UHD && service_is_uhdtv(si->si_s))) {
+          tvhtrace(LS_SERVICE, "DECISION: increase priority of prio channel quality (%d, %d, %d, %d, %d)",
+				pro->pro_svfilter, service_is_sdtv(si->si_s), service_is_hdtv(si->si_s, 0), service_is_hdtv(si->si_s, 1), service_is_uhdtv(si->si_s));
+          si->si_prio *= 10;
+        }
+    }
+
     next = NULL;
     TAILQ_FOREACH(si, sil, si_link) {
+      const char *name = ch ? channel_get_name(ch, NULL) : NULL;
+      if (!name && s) name = s->s_nicename;
+      tvhtrace(LS_SERVICE, "Checking: %d: %s si %p %s weight %d prio %d error %d",
+             si->si_instance, name, si, si->si_source, si->si_weight, si->si_prio,
+             si->si_error);
       if (si->si_error) continue;
       if (next == NULL) {
         if (si->si_weight < weight)
+        {
+	  tvhtrace(LS_SERVICE, "NEW best");
           next = si;
+        }
       } else {
         if ((si->si_weight < next->si_weight) ||
             (si->si_weight == next->si_weight && si->si_prio > next->si_prio))
+        {
+	  tvhtrace(LS_SERVICE, "NEW best");
           next = si;
+        }
       }
     }
     si = next;
@@ -866,7 +903,10 @@ service_is_hdtv(service_t *t, char plus)
   else
     s_type = t->s_type_user;
   if ((plus && (s_type == ST_HDTVPLUS)) || (!plus && (s_type == ST_HDTV)))
+  {
+    tvhtrace(LS_SERVICE, "This is an HDTV channel s_type=%d, s_type_user=%d", s_type, t->s_type_user);
     return 1;
+  }
   else if (s_type == ST_NONE) {
     elementary_stream_t *st;
     TAILQ_FOREACH(st, &t->s_components.set_all, es_link)
@@ -874,6 +914,7 @@ service_is_hdtv(service_t *t, char plus)
           st->es_height >= 720 && st->es_height <= 1080)
         return 1;
   }
+  tvhtrace(LS_SERVICE, "Not an HD channel");
   return 0;
 }
 
