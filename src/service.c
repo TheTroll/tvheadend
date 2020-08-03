@@ -540,14 +540,13 @@ service_find_instance
       tvhtrace(LS_SERVICE, "Check Profile force: %d: %s si %p %s weight %d prio %d error %d",
              si->si_instance, name, si, si->si_source, si->si_weight, si->si_prio,
              si->si_error);
-      if (si->si_error) continue;
-       /* Increase priority when profile requests it */
-      if ( (pro->pro_svfilter == PROFILE_SVF_SD && service_is_sdtv(si->si_s)) ||
+      /* Increase priority when profile requests it */
+      if ( pro && si && si->si_s && ((pro->pro_svfilter == PROFILE_SVF_SD && service_is_sdtv(si->si_s)) ||
              (pro->pro_svfilter == PROFILE_SVF_HD && service_is_hdtv(si->si_s, 0)) ||
              (pro->pro_svfilter == PROFILE_SVF_HDPLUS && service_is_hdtv(si->si_s, 1)) ||
-             (pro->pro_svfilter == PROFILE_SVF_UHD && service_is_uhdtv(si->si_s)))
+             (pro->pro_svfilter == PROFILE_SVF_UHD && service_is_uhdtv(si->si_s))))
         si->si_prio *= 20;
-      if ( (pro->pro_svfilter == PROFILE_SVF_HDPLUS || pro->pro_svfilter == PROFILE_SVF_UHD) && service_is_hdtv(si->si_s, 0))
+      if ( pro && si && si->si_s && ((pro->pro_svfilter == PROFILE_SVF_HDPLUS || pro->pro_svfilter == PROFILE_SVF_UHD) && service_is_hdtv(si->si_s, 0)))
         si->si_prio *= 10;
     }
 
