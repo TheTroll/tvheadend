@@ -560,13 +560,11 @@ service_find_instance
       if (si->si_error) continue;
       if (next == NULL) {
         if (si->si_weight < weight)
-        {
-	  tvhtrace(LS_SERVICE, "NEW best");
           next = si;
-        }
       } else {
-        if ((si->si_weight < next->si_weight) ||
-            (si->si_weight == next->si_weight && si->si_prio > next->si_prio))
+        if (	(si->si_prio > next->si_prio)
+	||   (	(si->si_prio  == next->si_prio) && (si->si_weight < next->si_weight) )
+	)
         {
 	  tvhtrace(LS_SERVICE, "NEW best");
           next = si;
