@@ -48,7 +48,7 @@ endif
 ifneq ($(CFLAGS_NO_WERROR),yes)
 CFLAGS  += -Werror
 endif
-CFLAGS  += -Wall -Wwrite-strings -Wno-deprecated-declarations -Wno-stringop-truncation
+CFLAGS  += -Wall -Wwrite-strings -Wno-deprecated-declarations -Wno-stringop-truncation -Wno-error=stringop-overflow= -Wl,--allow-multiple-definition
 CFLAGS  += -Wmissing-prototypes
 CFLAGS  += -fms-extensions -funsigned-char -fno-strict-aliasing
 CFLAGS  += -D_FILE_OFFSET_BITS=64
@@ -93,7 +93,8 @@ FFMPEG_LIBS := \
     libavformat \
     libavcodec \
     libavutil \
-    libpostproc
+    libpostproc \
+    libva-drm
 
 # FFMPEG_STATIC
 ifeq ($(CONFIG_FFMPEG_STATIC),yes)
@@ -503,11 +504,9 @@ DEPS-LIBAV = \
 	src/tvhlog.c
 SRCS-LIBAV = \
 	src/libav.c \
-	src/muxer/muxer_libav.c \
-	src/plumbing/transcoding.c \
-	src/plumbing/vdpau.c
+       src/muxer/muxer_libav.c \
+       src/plumbing/transcoding.c
 
-LDFLAGS += -lX11 -lvdpau
 ifeq ($(CONFIG_IPTV),yes)
 SRCS-LIBAV += src/input/mpegts/iptv/iptv_libav.c
 endif
