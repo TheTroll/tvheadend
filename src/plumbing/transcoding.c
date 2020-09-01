@@ -33,7 +33,6 @@
 #include "parsers/bitstream.h"
 #include "parsers/parser_avc.h"
 
-#define ENABLE_VDPAU 0
 #define ENABLE_QSVDEC_H264 1
 #define ENABLE_QSVDEC_MPEG2 0
 
@@ -105,7 +104,6 @@ typedef struct video_stream {
   int                        vid_first_encoded;
   th_pkt_t                  *vid_first_pkt;
 
-  VDPAU			     vdpau;
 } video_stream_t;
 
 
@@ -1055,24 +1053,6 @@ send_video_packet(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt,
 /**
  *
  */
-static int vdpau_get_buffer(AVCodecContext *s, AVFrame *frame, int flags)
-{
-    VDPAU *vdpau = s->opaque;
-
-    return vdpau->hwaccel_get_buffer(s, frame, flags);
-}
-
-/**
- *
- */
-static enum AVPixelFormat vdpau_get_format(AVCodecContext *s, const enum AVPixelFormat *pix_fmts)
-{
-    return AV_PIX_FMT_VDPAU;
-}
-
-/**
- *
- */
 static void
 transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 {
@@ -1086,7 +1066,6 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
   video_stream_t *vs = (video_stream_t*)ts;
   streaming_message_t *sm;
   th_pkt_t *pkt2;
-  VDPAU *vdpau;
   enum AVPixelFormat pixfmt;
   AVFrame *frame_to_encode;
   AVFrame *deint_input_frame;
@@ -1108,29 +1087,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 
   got_ref = 0;
 
-  ictx->opaque =  (void*) &vs->vdpau;
-  vdpau = ictx->opaque;
-
   if (!avcodec_is_open(ictx)) {
-    // Try to open VPDAU
-    if (ENABLE_VDPAU && icodec->id == AV_CODEC_ID_H264)
-    {
-      int ret;
-
-      tvhinfo(LS_TRANSCODE, "Trying to use VDPAU...");
-
-      ret = vdpau_init(ictx);
-      if (ret >= 0)
-      {
-        ictx->get_format = vdpau_get_format;
-        ictx->get_buffer2 = vdpau_get_buffer;
-
-        tvhinfo(LS_TRANSCODE, "VPAU initialized successfully");
-      }
-      else
-        tvherror(LS_TRANSCODE, "VPAU init error %d, using software decoding", ret);
-    }
-
     if (icodec->id == AV_CODEC_ID_H264) {
       if (ts->ts_input_gh) {
         ictx->extradata_size = pktbuf_len(ts->ts_input_gh);
@@ -1190,15 +1147,6 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
 
   if (!got_picture)
     goto cleanup;
-
-  if (vdpau->initialized)
-  {
-    ret = vs->vdpau.hwaccel_retrieve_data(ictx, vs->vid_dec_frame);
-    if (ret < 0) {
-      tvherror(LS_TRANSCODE, "Unable to retrieve HW decoded frame)");
-      goto cleanup;
-    }
-  }
 
   got_ref = 1;
 
@@ -1389,11 +1337,7 @@ transcoder_stream_video(transcoder_t *t, transcoder_stream_t *ts, th_pkt_t *pkt)
     }
   }
 
-  // VDPAU really outputs AV_PIX_FMT_YUV420P
-  if (vdpau->initialized)
-    pixfmt = AV_PIX_FMT_YUV420P;
-  else
-    pixfmt = ictx->pix_fmt;
+  pixfmt = ictx->pix_fmt;
 
   // we need AV_PIX_FMT_YUV420P
   if (pixfmt != AV_PIX_FMT_YUV420P)
@@ -1812,16 +1756,6 @@ static void
 transcoder_destroy_video(transcoder_t *t, transcoder_stream_t *ts)
 {
   video_stream_t *vs = (video_stream_t*)ts;
-
-  if (vs->vid_ictx)
-  {
-    VDPAU *vdpau = vs->vid_ictx->opaque;
-    if (vdpau && vdpau->initialized)
-    {
-      vs->vdpau.hwaccel_uninit(vs->vid_ictx);
-      vdpau->initialized = 0;
-    }
-  }
 
   if(vs->vid_ictx) {
     av_freep(&vs->vid_ictx->extradata);

@@ -47,17 +47,6 @@ typedef struct transcoder_prop {
   char     tp_src_vcodec[128];
 } transcoder_props_t;
 
-/* VDPAU */
-int vdpau_init(AVCodecContext *s);
-typedef struct VDPAU {
-    /* hwaccel context */
-    int initialized;
-    void  *hwaccel_ctx;
-    void (*hwaccel_uninit)(AVCodecContext *s);
-    int  (*hwaccel_get_buffer)(AVCodecContext *s, AVFrame *frame, int flags);
-    int  (*hwaccel_retrieve_data)(AVCodecContext *s, AVFrame *frame);
-} VDPAU ;
-
 extern uint32_t transcoding_enabled;
 
 streaming_target_t *transcoder_create (streaming_target_t *output);
