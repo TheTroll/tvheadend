@@ -1,0 +1,11 @@
+--- libavcodec/h264_refs.c	2020-09-01 15:01:59.299217269 +0200
++++ ../ffmpeg-4.1.5.orig/libavcodec/h264_refs.c	2020-09-01 14:50:49.251320412 +0200
+@@ -643,7 +643,7 @@
+                 if (mmco[i].opcode != MMCO_SHORT2LONG ||
+                     !h->long_ref[mmco[i].long_arg]    ||
+                     h->long_ref[mmco[i].long_arg]->frame_num != frame_num) {
+-                    av_log(h->avctx, h->short_ref_count ? AV_LOG_ERROR : AV_LOG_DEBUG, "mmco: unref short failure\n");
++//                    av_log(h->avctx, h->short_ref_count ? AV_LOG_ERROR : AV_LOG_DEBUG, "mmco: unref short failure\n");
+                     err = AVERROR_INVALIDDATA;
+                 }
+                 continue;
