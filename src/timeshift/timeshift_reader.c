@@ -81,10 +81,10 @@ static ssize_t _read_buf ( timeshift_file_t *tsf, int fd, void *buf, size_t size
   if (tsf && tsf->ram) {
     if (tsf->roff == tsf->woff) return 0;
     if (tsf->roff + size > tsf->woff) return -1;
-    pthread_mutex_lock(&tsf->ram_lock);
+    tvh_mutex_lock(&tsf->ram_lock);
     memcpy(buf, tsf->ram + tsf->roff, size);
     tsf->roff += size;
-    pthread_mutex_unlock(&tsf->ram_lock);
+    tvh_mutex_unlock(&tsf->ram_lock);
     return size;
   } else {
     ret = 0;
@@ -541,9 +541,7 @@ void *timeshift_reader ( void *p )
   tvhpoll_event_t ev = { 0 };
 
   pd = tvhpoll_create(1);
-  ev.fd     = ts->rd_pipe.rd;
-  ev.events = TVHPOLL_IN;
-  tvhpoll_add(pd, &ev, 1);
+  tvhpoll_add1(pd, ts->rd_pipe.rd, TVHPOLL_IN, NULL);
 
   /* Output */
   while (run) {
@@ -564,7 +562,7 @@ void *timeshift_reader ( void *p )
     mono_now  = getfastmonoclock();
 
     /* Control */
-    pthread_mutex_lock(&ts->state_mutex);
+    tvh_mutex_lock(&ts->state_mutex);
     if (nfds == 1) {
       if (_read_msg(NULL, ts->rd_pipe.rd, &ctrl) > 0) {
 
@@ -774,7 +772,7 @@ void *timeshift_reader ( void *p )
         timeshift_status(ts, last_time);
         mono_last_status = mono_now;
       }
-      pthread_mutex_unlock(&ts->state_mutex);
+      tvh_mutex_unlock(&ts->state_mutex);
       continue;
     }
 
@@ -809,7 +807,7 @@ void *timeshift_reader ( void *p )
 
       /* Find packet */
       if (_timeshift_read(ts, seek, &sm, &wait) == -1) {
-        pthread_mutex_unlock(&ts->state_mutex);
+        tvh_mutex_unlock(&ts->state_mutex);
         break;
       }
     }
@@ -881,7 +879,7 @@ void *timeshift_reader ( void *p )
 
         /* Flush timeshift buffer to live */
         if (_timeshift_flush_to_live(ts, seek, &wait) == -1) {
-          pthread_mutex_unlock(&ts->state_mutex);
+          tvh_mutex_unlock(&ts->state_mutex);
           break;
         }
 
@@ -916,7 +914,7 @@ void *timeshift_reader ( void *p )
 
     }
 
-    pthread_mutex_unlock(&ts->state_mutex);
+    tvh_mutex_unlock(&ts->state_mutex);
   }
 
   /* Cleanup */

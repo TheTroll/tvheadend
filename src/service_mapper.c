@@ -16,14 +16,7 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <assert.h>
 #include <ctype.h>
-#include <pthread.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
 
 #include "tvheadend.h"
 #include "channels.h"
@@ -99,10 +92,10 @@ service_mapper_start ( const service_mapper_conf_t *conf, htsmsg_t *uuids )
     tvhtrace(LS_SERVICE_MAPPER, "  enabled");
 
     /* Get service info */
-    pthread_mutex_lock(&s->s_stream_mutex);
+    tvh_mutex_lock(&s->s_stream_mutex);
     e  = service_is_encrypted(s);
     tr = service_is_tv(s) || service_is_radio(s);
-    pthread_mutex_unlock(&s->s_stream_mutex);
+    tvh_mutex_unlock(&s->s_stream_mutex);
 
     /* Skip non-TV / Radio */
     if (!tr) continue;
@@ -237,9 +230,9 @@ service_mapper_process
       // 4HD\0   len=3,  HD at pos 1 (3-2)
       // 4\0     len=1
       if (name[len-2] == 'H' && name[len-1] == 'D') {
-        /* Ends in HD but does it end in UHD? */
+        /* Ends in HD but does it end in UHD/FHD? */
         tidy_name = tvh_strdupa(name);
-        if (len > 3 && name[len-3] == 'U')
+        if (len > 3 && (name[len-3] == 'U' || name[len-3] == 'F'))
           tidy_name[len-3] = 0;
         else
           tidy_name[len-2] = 0;
@@ -307,7 +300,13 @@ service_mapper_process
       if (service_is_uhdtv(s)) {
         channel_tag_map(channel_tag_find_by_name("TV channels", 1), chn, chn);
         channel_tag_map(channel_tag_find_by_name("UHDTV", 1), chn, chn);
-      } else if (service_is_hdtv(s, 0) || service_is_hdtv(s, 1)) {
+      } else if (service_is_hdtv(s, 1)) {
+        channel_tag_map(channel_tag_find_by_name("TV channels", 1), chn, chn);
+        channel_tag_map(channel_tag_find_by_name("HDTV+", 1), chn, chn);
+      } else if (service_is_fhdtv(s)) {
+        channel_tag_map(channel_tag_find_by_name("TV channels", 1), chn, chn);
+        channel_tag_map(channel_tag_find_by_name("FHDTV", 1), chn, chn);
+      } else if (service_is_hdtv(s, 0)) {
         channel_tag_map(channel_tag_find_by_name("TV channels", 1), chn, chn);
         channel_tag_map(channel_tag_find_by_name("HDTV", 1), chn, chn);
       } else if (service_is_sdtv(s)) {
@@ -363,16 +362,17 @@ service_mapper_thread ( void *aux )
   service_mapper_item_t *smi;
   profile_chain_t prch;
   th_subscription_t *sub;
-  int run, working = 0;
+  int run, working = 0, r;
   streaming_queue_t *sq;
   streaming_message_t *sm;
   const char *err = NULL;
+  uint64_t timeout, timeout_other;
 
-  profile_chain_init(&prch, NULL, NULL);
+  profile_chain_init(&prch, NULL, NULL, 1);
   prch.prch_st = &prch.prch_sq.sq_st;
   sq = &prch.prch_sq;
 
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
 
   while (tvheadend_is_running()) {
     
@@ -415,50 +415,77 @@ service_mapper_thread ( void *aux )
     service_ref(s);
     service_mapper_stat.active = s;
     api_service_mapper_notify();
-    pthread_mutex_unlock(&global_lock);
+    tvh_mutex_unlock(&global_lock);
 
     /* Wait */
     run = 1;
-    pthread_mutex_lock(&sq->sq_mutex);
+    timeout = mclk() + sec2mono(30);
+    timeout_other = mclk() + sec2mono(5);
     while(tvheadend_is_running() && run) {
 
+      if (timeout < mclk()) {
+        run = 0;
+        err = streaming_code2txt(SM_CODE_DATA_TIMEOUT);
+        break;
+      }
+
+      if (timeout_other < mclk()) {
+        tvh_mutex_lock(&global_lock);
+        r = service_is_other(s);
+        tvh_mutex_unlock(&global_lock);
+        if (r) {
+          run = 0;
+          err = streaming_code2txt(SM_CODE_OTHER_SERVICE);
+          break;
+        }
+      }
+
       /* Wait for message */
+      tvh_mutex_lock(&sq->sq_mutex);
       while((sm = TAILQ_FIRST(&sq->sq_queue)) == NULL) {
         tvh_cond_wait(&sq->sq_cond, &sq->sq_mutex);
         if (!tvheadend_is_running())
           break;
       }
+      if (sm)
+        streaming_queue_remove(sq, sm);
+      tvh_mutex_unlock(&sq->sq_mutex);
       if (!tvheadend_is_running())
         break;
 
-      streaming_queue_remove(sq, sm);
-      pthread_mutex_unlock(&sq->sq_mutex);
-
-      if(sm->sm_type == SMT_PACKET) {
+      switch (sm->sm_type) {
+      case SMT_GRACE:
+        timeout += sec2mono(sm->sm_code);
+        timeout_other = sec2mono(sm->sm_code);
+        break;
+      case SMT_PACKET:
         run = 0;
         err = NULL;
-      } else if (sm->sm_type == SMT_SERVICE_STATUS) {
-        int status = sm->sm_code;
-
-        if(status & TSS_ERRORS) {
+        break;
+      case SMT_SERVICE_STATUS:
+        if(sm->sm_code & TSS_ERRORS) {
           run = 0;
-          err = service_tss2text(status);
+          err = service_tss2text(sm->sm_code);
         }
-      } else if (sm->sm_type == SMT_NOSTART) {
+        break;
+      case SMT_NOSTART:
         run = 0;
         err = streaming_code2txt(sm->sm_code);
+        break;
+      default:
+        break;
       }
 
       streaming_msg_free(sm);
-      pthread_mutex_lock(&sq->sq_mutex);
     }
     if (!tvheadend_is_running())
       break;
 
+    tvh_mutex_lock(&sq->sq_mutex);
     streaming_queue_clear(&sq->sq_queue);
-    pthread_mutex_unlock(&sq->sq_mutex);
+    tvh_mutex_unlock(&sq->sq_mutex);
  
-    pthread_mutex_lock(&global_lock);
+    tvh_mutex_lock(&global_lock);
     subscription_unsubscribe(sub, UNSUBSCRIBE_FINAL);
 
     if(err) {
@@ -472,7 +499,7 @@ service_mapper_thread ( void *aux )
     api_service_mapper_notify();
   }
 
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
   profile_chain_close(&prch);
   return NULL;
 }
@@ -658,8 +685,8 @@ void service_mapper_init ( void )
 
   TAILQ_INIT(&service_mapper_queue);
   idclass_register(&service_mapper_conf_class);
-  tvh_cond_init(&service_mapper_cond);
-  tvhthread_create(&service_mapper_tid, NULL, service_mapper_thread, NULL, "svcmap");
+  tvh_cond_init(&service_mapper_cond, 1);
+  tvh_thread_create(&service_mapper_tid, NULL, service_mapper_thread, NULL, "svcmap");
 
   /* Defaults */
   memset(&service_mapper_conf, 0, sizeof(service_mapper_conf));

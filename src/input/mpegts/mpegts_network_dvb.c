@@ -533,7 +533,7 @@ dvb_network_check_orbital_pos ( int satpos1, int satpos2 )
 
 dvb_mux_t *
 dvb_network_find_mux
-  ( dvb_network_t *ln, dvb_mux_conf_t *dmc, uint16_t onid, uint16_t tsid, int check, int approx_match )
+  ( dvb_network_t *ln, dvb_mux_conf_t *dmc, uint32_t onid, uint32_t tsid, int check, int approx_match )
 {
   int deltaf, deltar;
   mpegts_mux_t *mm, *mm_alt = NULL;
@@ -676,7 +676,7 @@ dvb_network_mux_class
 
 static mpegts_mux_t *
 dvb_network_create_mux
-  ( mpegts_network_t *mn, void *origin, uint16_t onid, uint16_t tsid,
+  ( mpegts_network_t *mn, void *origin, uint32_t onid, uint32_t tsid,
     void *p, int force )
 {
   int save = 0, satpos;
@@ -705,13 +705,7 @@ dvb_network_create_mux
   ln = (dvb_network_t*)mn;
   mm = dvb_network_find_mux(ln, dmc, onid, tsid, 0, 0);
   if (!mm && (ln->mn_autodiscovery != MN_DISCOVERY_DISABLE || force)) {
-    cls = dvb_network_mux_class((mpegts_network_t *)ln);
-    save |= cls == &dvb_mux_dvbt_class && dmc->dmc_fe_type == DVB_TYPE_T;
-    save |= cls == &dvb_mux_dvbc_class && dmc->dmc_fe_type == DVB_TYPE_C;
-    save |= cls == &dvb_mux_dvbs_class && dmc->dmc_fe_type == DVB_TYPE_S;
-    save |= cls == &dvb_mux_atsc_t_class && dmc->dmc_fe_type == DVB_TYPE_ATSC_T;
-    save |= cls == &dvb_mux_atsc_c_class && dmc->dmc_fe_type == DVB_TYPE_ATSC_C;
-    save |= cls == &dvb_mux_dtmb_class && dmc->dmc_fe_type == DVB_TYPE_DTMB;
+    save |= dvb_fe_type_by_network_class(ln->mn_id.in_class) == dmc->dmc_fe_type;
     if (save && dmc->dmc_fe_type == DVB_TYPE_S) {
       satpos = dvb_network_get_orbital_pos(mn);
       /* do not allow to mix satellite positions */
@@ -918,7 +912,7 @@ dvb_network_create0
     HTSMSG_FOREACH(f, c) {
       if (!(e = htsmsg_get_map_by_field(f)))  continue;
       if (!(e = htsmsg_get_map(e, "config"))) continue;
-      lm = dvb_mux_create1(ln, f->hmf_name, e);
+      lm = dvb_mux_create1(ln, htsmsg_field_name(f), e);
       mpegts_mux_post_create((mpegts_mux_t *)lm);
     }
     htsmsg_destroy(c);
@@ -995,7 +989,7 @@ void dvb_network_init ( void )
       if (strcmp(s, "dvb_network_atsc") == 0)
         s = "dvb_network_atsc_t";
       if(!strcmp(dvb_network_classes[i]->ic_class, s)) {
-        dvb_network_create0(f->hmf_name, dvb_network_classes[i], e);
+        dvb_network_create0(htsmsg_field_name(f), dvb_network_classes[i], e);
         break;
       }
     }
@@ -1007,13 +1001,13 @@ void dvb_network_done ( void )
 {
   int i;
 
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   /* Unregister class builders */
   for (i = 0; i < ARRAY_SIZE(dvb_network_classes); i++) {
     mpegts_network_unregister_builder(dvb_network_classes[i]);
     mpegts_network_class_delete(dvb_network_classes[i], 0);
   }
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
 
   dvb_charset_done();
   scanfile_done();

@@ -1188,7 +1188,7 @@ parse_enigma2(bouquet_t *bq, char *data)
                                            uint32_t tsid, uint32_t onid,
                                            uint32_t hash);
   char *argv[11], *p, *tagname = NULL, *name;
-  long lv, stype, sid, tsid, onid, hash;
+  uint32_t lv, stype, sid, tsid, onid, hash;
   uint32_t seen = 0;
   int n, ver = 2;
 
@@ -1208,11 +1208,11 @@ service:
         if (strtol(argv[0], NULL, 0) != 1) goto next;  /* item type */
         lv = strtol(argv[1], NULL, 16);                /* service flags? */
         if (lv != 0 && lv != 0x64) goto next;
-        stype = strtol(argv[2], NULL, 16);             /* DVB service type */
-        sid   = strtol(argv[3], NULL, 16);             /* DVB service ID */
-        tsid  = strtol(argv[4], NULL, 16);
-        onid  = strtol(argv[5], NULL, 16);
-        hash  = strtol(argv[6], NULL, 16);
+        stype = strtoul(argv[2], NULL, 16);             /* DVB service type */
+        sid   = strtoul(argv[3], NULL, 16);             /* DVB service ID */
+        tsid  = strtoul(argv[4], NULL, 16);
+        onid  = strtoul(argv[5], NULL, 16);
+        hash  = strtoul(argv[6], NULL, 16);
         name  = n > 10 ? argv[10] : NULL;
         if (lv == 0) {
           service_t *s = mpegts_service_find_e2(stype, sid, tsid, onid, hash);
@@ -1266,7 +1266,7 @@ bouquet_init(void)
   if ((c = hts_settings_load("bouquet")) != NULL) {
     HTSMSG_FOREACH(f, c) {
       if (!(m = htsmsg_field_get_map(f))) continue;
-      bq = bouquet_create(f->hmf_name, m, NULL, NULL);
+      bq = bouquet_create(htsmsg_field_name(f), m, NULL, NULL);
       if (bq)
         bq->bq_saveflag = 0;
     }
@@ -1296,7 +1296,7 @@ bouquet_service_resolve(void)
         if ((e = htsmsg_field_get_map(f)) == NULL) continue;
         lcn = htsmsg_get_s64_or_default(e, "lcn", 0);
         tag = htsmsg_get_str(e, "tag");
-        s = service_find_by_uuid(f->hmf_name);
+        s = service_find_by_uuid(htsmsg_field_name(f));
         if (s)
           bouquet_add_service(bq, s, lcn, tag);
       }
@@ -1312,8 +1312,8 @@ bouquet_done(void)
 {
   bouquet_t *bq;
 
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   while ((bq = RB_FIRST(&bouquets)) != NULL)
     bouquet_destroy(bq);
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
 }

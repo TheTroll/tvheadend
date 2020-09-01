@@ -81,13 +81,13 @@ skip_cc:
 
   for(off = 0; off < t->s_masters.is_count; off++) {
     m = (mpegts_service_t *)t->s_masters.is_array[off];
-    pthread_mutex_lock(&m->s_stream_mutex);
+    tvh_mutex_lock(&m->s_stream_mutex);
     if(streaming_pad_probe_type(&m->s_streaming_pad, SMT_MPEGTS)) {
       pid = (tsb[1] & 0x1f) << 8 | tsb[2];
       if (mpegts_pid_rexists(m->s_slaves_pids, pid))
         ts_remux(m, tsb, len, errors);
     }
-    pthread_mutex_unlock(&m->s_stream_mutex);
+    tvh_mutex_unlock(&m->s_stream_mutex);
     /* mark service live even without real subscribers */
     service_set_streaming_status_flags((service_t*)t, TSS_PACKETS);
     t->s_streaming_live |= TSS_LIVE;
@@ -132,13 +132,13 @@ skip_cc:
 
   for(off = 0; off < t->s_masters.is_count; off++) {
     m = (mpegts_service_t *)t->s_masters.is_array[off];
-    pthread_mutex_lock(&m->s_stream_mutex);
+    tvh_mutex_lock(&m->s_stream_mutex);
     if(streaming_pad_probe_type(&m->s_streaming_pad, SMT_MPEGTS)) {
       pid = (tsb[1] & 0x1f) << 8 | tsb[2];
       if (mpegts_pid_rexists(t->s_slaves_pids, pid))
         ts_skip(m, tsb, len);
     }
-    pthread_mutex_unlock(&m->s_stream_mutex);
+    tvh_mutex_unlock(&m->s_stream_mutex);
   }
 }
 
@@ -163,11 +163,11 @@ ts_recv_packet1
          tsb[0], tsb[1], tsb[2], tsb[3], tsb[4], tsb[5]);
 #endif
 
-  pthread_mutex_lock(&t->s_stream_mutex);
+  tvh_mutex_lock(&t->s_stream_mutex);
 
   /* Service inactive - ignore */
   if(t->s_status != SERVICE_RUNNING) {
-    pthread_mutex_unlock(&t->s_stream_mutex);
+    tvh_mutex_unlock(&t->s_stream_mutex);
     return 0;
   }
 
@@ -183,7 +183,7 @@ ts_recv_packet1
   st = elementary_stream_find(&t->s_components, pid);
 
   if((st == NULL) && (pid != t->s_components.set_pcr_pid) && !table) {
-    pthread_mutex_unlock(&t->s_stream_mutex);
+    tvh_mutex_unlock(&t->s_stream_mutex);
     return 0;
   }
 
@@ -202,7 +202,7 @@ ts_recv_packet1
     /* scrambled stream */
     r = descrambler_descramble((service_t *)t, st, tsb, len);
     if(r > 0) {
-      pthread_mutex_unlock(&t->s_stream_mutex);
+      tvh_mutex_unlock(&t->s_stream_mutex);
       return 1;
     }
 
@@ -217,7 +217,7 @@ ts_recv_packet1
   } else {
     ts_recv_packet0(t, st, tsb, len);
   }
-  pthread_mutex_unlock(&t->s_stream_mutex);
+  tvh_mutex_unlock(&t->s_stream_mutex);
   return 1;
 }
 
@@ -264,10 +264,7 @@ ts_recv_raw(mpegts_service_t *t, uint64_t tspos, const uint8_t *tsb, int len)
 {
   int pid, parent = 0;
 
-  if (!t)
-    return;
-
-  pthread_mutex_lock(&t->s_stream_mutex);
+  tvh_mutex_lock(&t->s_stream_mutex);
   service_set_streaming_status_flags((service_t*)t, TSS_MUX_PACKETS);
   if (!idnode_set_empty(&t->s_slaves)) {
     /* If PID is owned by a slave service, let parent service to
@@ -287,7 +284,7 @@ ts_recv_raw(mpegts_service_t *t, uint64_t tspos, const uint8_t *tsb, int len)
       t->s_streaming_live |= TSS_LIVE;
     }
   }
-  pthread_mutex_unlock(&t->s_stream_mutex);
+  tvh_mutex_unlock(&t->s_stream_mutex);
 }
 
 /**

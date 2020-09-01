@@ -23,14 +23,11 @@ struct mpegts_service;
 struct elementary_stream;
 
 #include <stdint.h>
-#include <pthread.h>
 #include "build.h"
+#if ENABLE_DVBCSA
 #include <dvbcsa/dvbcsa.h>
-#include <semaphore.h>
-#include <fcntl.h>
-struct mpegts_service;
-
-#define MAX_CSA_CLUSTERS 16
+#endif
+#include "tvhlog.h"
 
 typedef struct tvhcsa
 {
@@ -47,19 +44,11 @@ typedef struct tvhcsa
               ( struct tvhcsa *csa, struct mpegts_service *s );
 
   int      csa_cluster_size;
-  uint32_t cluster_rptr;
-  uint32_t cluster_wptr;
-  struct {
-    int      csa_fill;
-    int      clear_fill;
-    uint8_t *csa_tsbcluster;
-    uint8_t *clear_tsbcluster;
-    uint8_t ready;
-  } cluster[MAX_CSA_CLUSTERS];
+  uint8_t *csa_tsbcluster;
+  int      csa_fill;
+  int      csa_fill_size;
 
-  int crypted_pid[64];
-  int crypted_pid_count;
-
+#if ENABLE_DVBCSA
   struct dvbcsa_bs_batch_s *csa_tsbbatch_even;
   struct dvbcsa_bs_batch_s *csa_tsbbatch_odd;
   int csa_fill_even;
@@ -67,47 +56,32 @@ typedef struct tvhcsa
 
   struct dvbcsa_bs_key_s *csa_key_even;
   struct dvbcsa_bs_key_s *csa_key_odd;
-
-  // Use for ncserver only
-  struct mpegts_service *service;
-
-  #define NC_MAX_PIDS		16
-  struct {
-    int key_crc_status; // 0 unchecked, 1 crc is good, 2 crc is bad
-    int init_done;
-
-    char server_ip[16];
-    int server_port;
-
-    int socket_fd;
-    int nb_pids;
-    int pid[NC_MAX_PIDS];
-
-    uint8_t key_status;
-    char even[8];
-    char odd[8];
-    uint8_t even_available;
-    uint8_t odd_available;
-    uint8_t first_even_set;
-    uint8_t first_odd_set;
-
-    pthread_t flush_task_id;
-    uint8_t flush_task_running;
-    sem_t flush_sem;
-
-    pthread_mutex_t key_mutex;
- } nc;
-
+#endif
   void *csa_priv;
+  tvhlog_limit_t tvhcsa_loglimit;
 
 } tvhcsa_t;
 
-int  tvhcsa_set_type( tvhcsa_t *csa, int type );
+#if ENABLE_TVHCSA
+
+int  tvhcsa_set_type( tvhcsa_t *csa, struct mpegts_service *s, int type );
 
 void tvhcsa_set_key_even( tvhcsa_t *csa, const uint8_t *even );
 void tvhcsa_set_key_odd ( tvhcsa_t *csa, const uint8_t *odd );
 
-void tvhcsa_init    ( tvhcsa_t *csa , struct mpegts_service *service );
-void tvhcsa_destroy ( tvhcsa_t *csa , struct mpegts_service *service );
+void tvhcsa_init    ( tvhcsa_t *csa );
+void tvhcsa_destroy ( tvhcsa_t *csa );
+
+#else
+
+static inline int tvhcsa_set_type( tvhcsa_t *csa, struct mpegts_service *s, int type ) { return -1; }
+
+static inline void tvhcsa_set_key_even( tvhcsa_t *csa, const uint8_t *even ) { };
+static inline void tvhcsa_set_key_odd ( tvhcsa_t *csa, const uint8_t *odd ) { };
+
+static inline void tvhcsa_init ( tvhcsa_t *csa ) { };
+static inline void tvhcsa_destroy ( tvhcsa_t *csa ) { };
+
+#endif
 
 #endif /* __TVH_CSA_H__ */

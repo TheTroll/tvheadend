@@ -41,7 +41,11 @@
 
 struct tvhpoll
 {
-  pthread_mutex_t lock;
+  tvh_mutex_t lock;
+#if ENABLE_TRACE
+  int trace_subsys;
+  int trace_type;
+#endif
   uint8_t *events;
   uint32_t events_off;
   uint32_t nevents;
@@ -142,7 +146,7 @@ tvhpoll_create ( size_t n )
   fd = -1;
 #endif
   tvhpoll_t *tp = calloc(1, sizeof(tvhpoll_t));
-  pthread_mutex_init(&tp->lock, NULL);
+  tvh_mutex_init(&tp->lock, NULL);
   tp->fd = fd;
   tvhpoll_alloc(tp, n);
   return tp;
@@ -157,8 +161,17 @@ void tvhpoll_destroy ( tvhpoll_t *tp )
   close(tp->fd);
 #endif
   free(tp->events);
-  pthread_mutex_destroy(&tp->lock);
+  tvh_mutex_destroy(&tp->lock);
   free(tp);
+}
+
+void tvhpoll_set_trace ( tvhpoll_t *tp, int subsys, int type )
+{
+#if ENABLE_TRACE
+  assert(type == 0 || type == 1);
+  tp->trace_subsys = subsys;
+  tp->trace_type = type;
+#endif
 }
 
 static int tvhpoll_add0
@@ -179,11 +192,25 @@ static int tvhpoll_add0
     if (events & TVHPOLL_ERR) ev.events |= EPOLLERR;
     if (events & TVHPOLL_HUP) ev.events |= EPOLLHUP;
     if (oevents) {
-      if (epoll_ctl(tp->fd, EPOLL_CTL_MOD, fd, &ev))
+#if ENABLE_TRACE
+      if (tp->trace_type == 1)
+        tvhtrace(tp->trace_subsys, "epoll mod: fd=%d events=%x oevents=%x ptr=%p",
+                                   fd, events, oevents, evs[i].ptr);
+#endif
+      if (epoll_ctl(tp->fd, EPOLL_CTL_MOD, fd, &ev)) {
+        tvherror(LS_TVHPOLL, "epoll mod failed [%s]", strerror(errno));
         break;
+      }
     } else {
-      if (epoll_ctl(tp->fd, EPOLL_CTL_ADD, fd, &ev))
+#if ENABLE_TRACE
+      if (tp->trace_type == 1)
+        tvhtrace(tp->trace_subsys, "epoll add: fd=%d events=%x ptr=%p",
+                                   fd, events, evs[i].ptr);
+#endif
+      if (epoll_ctl(tp->fd, EPOLL_CTL_ADD, fd, &ev)) {
+        tvherror(LS_TVHPOLL, "epoll add failed [%s]", strerror(errno));
         break;
+      }
     }
     tvhpoll_set_events(tp, fd, events);
   }
@@ -193,16 +220,16 @@ static int tvhpoll_add0
   struct kevent *ev = alloca(EV_SIZE * num * 2);
   for (i = j = 0; i < num; i++) {
     const int fd = evs[i].fd;
-    const void *ptr = evs[i].ptr;
+    void *ptr = evs[i].ptr;
     const uint32_t events = evs[i].events;
     const uint32_t oevents = tvhpoll_get_events(tp, fd);
     if (events == oevents) continue;
     tvhpoll_set_events(tp, fd, events);
-    if ((events & (TVHPOLL_OUT|TVHPOLL_IN)) == (TVHPOLL_OUT|TVHPOLL_IN)) {
-      EV_SET(ev+j, fd, EVFILT_READ|EVFILT_WRITE, EV_ADD, 0, 0, ptr);
-      j++;
-      continue;
-    }
+    /* Unlike poll, the kevent is not a bitmask (on FreeBSD,
+     * EVILT_READ=-1, EVFILT_WRITE=-2). That means if you OR them
+     * together then you only actually register READ, not WRITE. So,
+     * register them separately here.
+     */
     if (events & TVHPOLL_OUT) {
       EV_SET(ev+j, fd, EVFILT_WRITE, EV_ADD, 0, 0, ptr);
       j++;
@@ -229,9 +256,9 @@ int tvhpoll_add
 {
   int r;
 
-  pthread_mutex_lock(&tp->lock);
+  tvh_mutex_lock(&tp->lock);
   r = tvhpoll_add0(tp, evs, num);
-  pthread_mutex_unlock(&tp->lock);
+  tvh_mutex_unlock(&tp->lock);
   return r;
 }
 
@@ -254,8 +281,15 @@ static int tvhpoll_rem0
   for (i = 0; i < num; i++) {
     const int fd = evs[i].fd;
     if (tvhpoll_get_events(tp, fd)) {
-      if (epoll_ctl(tp->fd, EPOLL_CTL_DEL, fd, NULL))
+#if ENABLE_TRACE
+      if (tp->trace_type == 1)
+        tvhtrace(tp->trace_subsys, "epoll rem: fd=%d events=%x",
+                                   fd, tvhpoll_get_events(tp, fd));
+#endif
+      if (epoll_ctl(tp->fd, EPOLL_CTL_DEL, fd, NULL)) {
+        tvherror(LS_TVHPOLL, "epoll del failed [%s]", strerror(errno));
         break;
+      }
       tvhpoll_set_events(tp, fd, 0);
     }
   }
@@ -286,9 +320,9 @@ int tvhpoll_rem
 {
   int r;
 
-  pthread_mutex_lock(&tp->lock);
+  tvh_mutex_lock(&tp->lock);
   r = tvhpoll_rem0(tp, evs, num);
-  pthread_mutex_unlock(&tp->lock);
+  tvh_mutex_unlock(&tp->lock);
   return r;
 }
 
@@ -305,7 +339,7 @@ int tvhpoll_set
 {
   tvhpoll_event_t *lev, *ev;
   int i, j, k, r;
-  pthread_mutex_lock(&tp->lock);
+  tvh_mutex_lock(&tp->lock);
   lev = alloca(tp->nevents * sizeof(*lev));
   for (i = k = 0; i < tp->nevents; i++)
     if (tp->events[i]) {
@@ -323,7 +357,7 @@ int tvhpoll_set
   r = tvhpoll_rem0(tp, lev, k);
   if (r == 0)
     r = tvhpoll_add0(tp, evs, num);
-  pthread_mutex_unlock(&tp->lock);
+  tvh_mutex_unlock(&tp->lock);
   return r;
 }
 
@@ -345,6 +379,10 @@ int tvhpoll_wait
     evs[i].events = events2;
     evs[i].fd  = -1;
     evs[i].ptr = tp->ev[i].data.ptr;
+#if ENABLE_TRACE
+    if (tp->trace_type == 1)
+      tvhtrace(tp->trace_subsys, "epoll wait: events=%x ptr=%p", events2, tp->ev[i].data.ptr);
+#endif
   }
 #elif ENABLE_KQUEUE
   struct timespec tm, *to = NULL;

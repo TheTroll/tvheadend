@@ -368,6 +368,9 @@ void dvb_table_parse_init
   ( mpegts_psi_table_t *mt, const char *name, int subsys, int pid,
     uint8_t table, uint8_t mask, void *opaque );
 
+void dvb_table_parse_reinit_input ( mpegts_psi_table_t *mt );
+void dvb_table_parse_reinit_output ( mpegts_psi_table_t *mt );
+
 void dvb_table_parse_done ( mpegts_psi_table_t *mt);
 
 void dvb_table_parse
@@ -633,6 +636,7 @@ typedef struct dvb_mux_conf
   int32_t                     dmc_fe_stream_id;
   dvb_fe_pls_mode_t           dmc_fe_pls_mode;
   uint32_t                    dmc_fe_pls_code;
+  uint32_t                    dmc_fe_data_slice;
   union {
     dvb_qpsk_config_t         dmc_fe_qpsk;
     dvb_qam_config_t          dmc_fe_qam;
@@ -693,7 +697,7 @@ int dvb_mux_conf_str ( dvb_mux_conf_t *conf, char *buf, size_t bufsize );
 
 const char *dvb_sat_position_to_str( int position, char *buf, size_t buflen );
 
-const int dvb_sat_position_from_str( const char *buf );
+int dvb_sat_position_from_str( const char *buf );
 
 static inline int dvb_modulation_is_none_or_auto ( int modulation )
 {
@@ -701,6 +705,8 @@ static inline int dvb_modulation_is_none_or_auto ( int modulation )
          modulation == DVB_MOD_AUTO ||
          modulation == DVB_MOD_QAM_AUTO;
 }
+
+uint32_t dvb_sat_pls( dvb_mux_conf_t *dmc );
 
 #endif /* ENABLE_MPEGTS_DVB */
 

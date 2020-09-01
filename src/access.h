@@ -60,7 +60,10 @@ typedef struct passwd_entry {
   char *pw_password;
   char *pw_password2;
 
+  char *pw_auth;
+
   int   pw_enabled;
+  int   pw_auth_enabled;
   int   pw_wizard;
 
   char *pw_comment;
@@ -89,6 +92,17 @@ enum {
   ACCESS_CONN_LIMIT_TYPE_ALL = 0,
   ACCESS_CONN_LIMIT_TYPE_STREAMING,
   ACCESS_CONN_LIMIT_TYPE_DVR,
+};
+
+enum {
+  ACCESS_XMLTV_OUTPUT_FORMAT_ALL = 0,
+  ACCESS_XMLTV_OUTPUT_FORMAT_BASIC,
+  ACCESS_XMLTV_OUTPUT_FORMAT_BASIC_NO_HASH,
+};
+
+enum {
+  ACCESS_HTSP_OUTPUT_FORMAT_ALL = 0,
+  ACCESS_HTSP_OUTPUT_FORMAT_BASIC,
 };
 
 typedef struct access_entry {
@@ -124,6 +138,12 @@ typedef struct access_entry {
 
   uint32_t ae_max_streaming_sessions;
   uint32_t ae_max_dvr_sessions;
+
+  int ae_xmltv_output_format;
+  int ae_change_xmltv_output_format;
+
+  int ae_htsp_output_format;
+  int ae_change_htsp_output_format;
 
   int ae_dvr;
   int ae_htsp_dvr;
@@ -167,6 +187,7 @@ typedef struct access {
   htsmsg_t *aa_dvrcfgs;
   uint64_t *aa_chrange;
   int       aa_chrange_count;
+  htsmsg_t *aa_chtags_exclude;
   htsmsg_t *aa_chtags;
   int       aa_match;
   uint32_t  aa_conn_limit;
@@ -176,9 +197,12 @@ typedef struct access {
   uint32_t  aa_conn_dvr;
   uint32_t  aa_max_streaming_sessions;
   uint32_t  aa_max_dvr_sessions;
+  uint32_t  aa_xmltv_output_format;
+  uint32_t  aa_htsp_output_format;
   int       aa_uilevel;
   int       aa_uilevel_nochange;
   char     *aa_theme;
+  char     *aa_auth;
 } access_t;
 
 TAILQ_HEAD(access_ticket_queue, access_ticket);
@@ -208,6 +232,7 @@ typedef struct access_ticket {
 #define ACCESS_FAILED_RECORDER    (1<<9)
 #define ACCESS_HTSP_ANONYMIZE     (1<<10)
 #define ACCESS_ADMIN              (1<<11)
+#define ACCESS_NO_EMPTY_ARGS      (1<<29)
 #define ACCESS_OR                 (1<<30)
 
 #define ACCESS_FULL \
@@ -216,6 +241,9 @@ typedef struct access_ticket {
    ACCESS_RECORDER | ACCESS_HTSP_RECORDER | \
    ACCESS_ALL_RECORDER | ACCESS_ALL_RW_RECORDER | \
    ACCESS_FAILED_RECORDER | ACCESS_ADMIN)
+
+#define ACCESS_INTERNAL \
+  (ACCESS_NO_EMPTY_ARGS)
 
 /**
  * Create a new ticket for the requested resource and generate a id for it
@@ -262,10 +290,10 @@ access_get_theme(access_t *a);
  *
  * Return 0 if access is granted, -1 otherwise
  */
-static inline int access_verify2(access_t *a, uint32_t mask)
-  { return (mask & ACCESS_OR) ?
+static inline int access_verify2(const access_t *a, uint32_t mask)
+  { return a ? ((mask & ACCESS_OR) ?
       ((a->aa_rights & mask) ? 0 : -1) :
-      ((a->aa_rights & mask) == mask ? 0 : -1); }
+      ((a->aa_rights & mask) == mask ? 0 : -1)) : -1; }
 
 int access_verify_list(htsmsg_t *list, const char *item);
 
@@ -288,6 +316,12 @@ access_get_by_username(const char *username);
  */
 access_t *
 access_get_by_addr(struct sockaddr_storage *src);
+
+/**
+ *
+ */
+access_t *
+access_get_by_auth(struct sockaddr_storage *src, const char *id);
 
 /**
  *

@@ -29,10 +29,13 @@
 #include "muxer/muxer_libav.h"
 #endif
 
+/* Newer platforms such as FreeBSD 11.1 support fdatasync so only alias on older systems */
+#ifndef CONFIG_FDATASYNC
 #if defined(PLATFORM_DARWIN)
 #define fdatasync(fd)       fcntl(fd, F_FULLFSYNC)
 #elif defined(PLATFORM_FREEBSD)
 #define fdatasync(fd)       fsync(fd)
+#endif
 #endif
 
 /**
@@ -49,7 +52,7 @@ static struct strtab container_audio_mime[] = {
   { "audio/mpeg",               MC_MPEG2AUDIO },
   { "audio/ac3",                MC_AC3 },
   { "audio/aac",                MC_AAC },
-  { "audio/mp4",                MC_MP4A },
+  { "audio/aac",                MC_MP4A },
   { "audio/ogg",                MC_VORBIS },
   { "audio/mp4",                MC_AVMP4 },
   { "application/octet-stream", MC_PASS },

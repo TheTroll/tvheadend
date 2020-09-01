@@ -61,7 +61,7 @@ struct iptv_input
 
 int  iptv_input_fd_started ( iptv_input_t *mi, iptv_mux_t *im );
 void iptv_input_close_fds ( iptv_input_t *mi, iptv_mux_t *im );
-void iptv_input_mux_started ( iptv_input_t *mi, iptv_mux_t *im );
+void iptv_input_mux_started ( iptv_input_t *mi, iptv_mux_t *im, int reset );
 int  iptv_input_recv_packets ( iptv_mux_t *im, ssize_t len );
 void iptv_input_recv_flush ( iptv_mux_t *im );
 void iptv_input_pause_handler ( iptv_input_t *mi, iptv_mux_t *im, int pause );
@@ -131,7 +131,7 @@ struct iptv_mux
   char                 *mm_iptv_epgid;
 
   int                   mm_iptv_respawn;
-  time_t                mm_iptv_respawn_last;
+  int64_t               mm_iptv_respawn_last;
   int                   mm_iptv_kill;
   int                   mm_iptv_kill_timeout;
   char                 *mm_iptv_env;
@@ -181,7 +181,7 @@ extern const idclass_t iptv_mux_class;
 
 extern iptv_network_t *iptv_network;
 
-extern pthread_mutex_t iptv_lock;
+extern tvh_mutex_t iptv_lock;
 
 int iptv_url_set ( char **url, char **sane_url, const char *str, int allow_file, int allow_pipe );
 

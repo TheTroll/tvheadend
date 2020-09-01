@@ -17,7 +17,7 @@ tvheadend.acleditor = function(panel, index)
                 'max_streaming_sessions,max_dvr_sessions,' +
                 'dvr,htsp_anonymize,dvr_config,' +
                 'channel_min,channel_max,channel_tag_exclude,' +
-                'channel_tag,comment';
+                'channel_tag,xmltv_output_format,htsp_output_format,comment';
 
     tvheadend.idnode_grid(panel, {
         id: 'access_entry',
@@ -67,7 +67,7 @@ tvheadend.acleditor = function(panel, index)
 
 tvheadend.passwdeditor = function(panel, index)
 {
-    var list = 'enabled,username,password,comment';
+    var list = 'enabled,username,password,auth,authcode,comment';
 
     tvheadend.idnode_grid(panel, {
         url: 'api/passwd/entry',
@@ -77,7 +77,9 @@ tvheadend.passwdeditor = function(panel, index)
         columns: {
             enabled:  { width: 120 },
             username: { width: 250 },
-            password: { width: 250 }
+            password: { width: 250 },
+            auth:     { width: 250 },
+            authcode: { width: 250 }
         },
         tabIndex: index,
         edit: {

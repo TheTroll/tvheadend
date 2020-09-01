@@ -29,6 +29,11 @@
 
 #define SATIP_BUF_SIZE    (4000*188)
 
+#define SATIP_DEFAULT_ROLLOFF_AUTO	0
+#define SATIP_DEFAULT_ROLLOFF_35	1
+#define SATIP_DEFAULT_ROLLOFF_25	2
+#define SATIP_DEFAULT_ROLLOFF_20	3
+
 typedef struct satip_device_info satip_device_info_t;
 typedef struct satip_device      satip_device_t;
 typedef struct satip_tune_req    satip_tune_req_t;
@@ -88,16 +93,18 @@ struct satip_device
   int                        sd_pids_deladd;
   int                        sd_fe;
   int                        sd_sig_scale;
+  int                        sd_sig_tunerno;
   char                      *sd_tunercfg;
   int                        sd_pids21;
   int                        sd_pilot_on;
+  int                        sd_default_rolloff;
   int                        sd_no_univ_lnb;
   int                        sd_can_weight;
   int                        sd_dbus_allow;
   int                        sd_skip_ts;
   int                        sd_disable_workarounds;
   int                        sd_wake_ref;
-  pthread_mutex_t            sd_tune_mutex;
+  tvh_mutex_t            sd_tune_mutex;
   TAILQ_HEAD(,satip_frontend)sd_serialize_queue;
 };
 
@@ -156,7 +163,7 @@ struct satip_frontend
    */
   pthread_t                  sf_dvr_thread;
   th_pipe_t                  sf_dvr_pipe;
-  pthread_mutex_t            sf_dvr_lock;
+  tvh_mutex_t            sf_dvr_lock;
   int                        sf_thread;
   int                        sf_running;
   int                        sf_tables;
@@ -172,7 +179,8 @@ struct satip_frontend
   const char *               sf_display_name;
   uint32_t                   sf_seq;
   dvb_mux_t                 *sf_curmux;
-  time_t                     sf_last_data_tstamp;
+  int64_t                    sf_last_data_tstamp;
+  int64_t                    sf_last_activity_tstamp;
   int                        sf_netlimit;
   int                        sf_netgroup;
   int                        sf_netposhash;
@@ -281,13 +289,16 @@ satip_satconf_t *satip_satconf_get_position
  * RTSP part
  */
 
-#define SATIP_SETUP_TCP      (1<<0)
-#define SATIP_SETUP_PLAY     (1<<1)
-#define SATIP_SETUP_PILOT_ON (1<<2)
-#define SATIP_SETUP_PIDS21   (1<<3)
-#define SATIP_SETUP_FE       (1<<4)
-#define SATIP_SETUP_SPECINV0 (1<<5)
-#define SATIP_SETUP_SPECINV1 (1<<6)
+#define SATIP_SETUP_TCP        (1<<0)
+#define SATIP_SETUP_PLAY       (1<<1)
+#define SATIP_SETUP_PILOT_ON   (1<<2)
+#define SATIP_SETUP_ROLLOFF_20 (1<<3)
+#define SATIP_SETUP_ROLLOFF_25 (1<<4)
+#define SATIP_SETUP_ROLLOFF_35 (1<<5)
+#define SATIP_SETUP_PIDS21     (1<<6)
+#define SATIP_SETUP_FE         (1<<7)
+#define SATIP_SETUP_SPECINV0   (1<<8)
+#define SATIP_SETUP_SPECINV1   (1<<9)
 
 int
 satip_rtsp_setup( http_client_t *hc,

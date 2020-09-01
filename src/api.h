@@ -38,7 +38,7 @@ typedef int (*api_callback_t)
 typedef struct api_hook
 {
   const char         *ah_subsystem;
-  int                 ah_access;
+  uint32_t            ah_access;
   api_callback_t      ah_callback;
   void               *ah_opaque;
 } api_hook_t;
@@ -82,6 +82,12 @@ void api_language_init      ( void );
 void api_satip_server_init  ( void );
 void api_timeshift_init     ( void );
 void api_wizard_init        ( void );
+
+#if ENABLE_LIBAV
+void api_codec_init         ( void );
+#else
+static inline void api_codec_init(void) {};
+#endif
 
 /*
  * IDnode

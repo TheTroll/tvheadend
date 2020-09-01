@@ -19,11 +19,20 @@ Format | Description                               | Example value
 `%d`   | Program description                       |  News and stories…
 `%S`   | Start time stamp of recording, UNIX epoch |  1224421200
 `%E`   | Stop time stamp of recording, UNIX epoch  |  1224426600
+`%U`   | Unique ID of recording                    |  3cf44328eda87a428ba9a8b14876ab80
 `%Z`   | Comment                                   |  A string
 
 *Example usage*
 
-To use special characters (e.g. spaces), either put the string in quotes or
-escape the individual characters.
+To use special characters (e.g. spaces), either put the string in double quotes
+or escape the individual characters:
 
 ```/usr/bin/lcd_show "%f"```
+
+The command is executed as-is, without a shell. To redirect command output or
+chain commands, wrap the command in a shell, e.g.
+
+```
+sh -c "df -P -h /recordings >/config/.markers/recording-pre-process"
+sh -c "df -P -h /recordings | tee /config/.markers/recording-pre-process"
+```

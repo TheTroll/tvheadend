@@ -31,11 +31,12 @@ LANGUAGES ?= $(LANGUAGES_ALL)
 # Common compiler flags
 #
 
+# https://wiki.debian.org/Hardening
 CFLAGS  += -g
 ifeq ($(CONFIG_CCDEBUG),yes)
 CFLAGS  += -O0
 else
-CFLAGS  += -O2
+CFLAGS  += -O2 -D_FORTIFY_SOURCE=2
 endif
 ifeq ($(CONFIG_PIE),yes)
 CFLAGS  += -fPIE
@@ -51,6 +52,9 @@ endif
 CFLAGS  += -Wall -Wwrite-strings -Wno-deprecated-declarations -Wno-stringop-truncation -Wno-error=stringop-overflow= -Wl,--allow-multiple-definition
 CFLAGS  += -Wmissing-prototypes
 CFLAGS  += -fms-extensions -funsigned-char -fno-strict-aliasing
+ifeq ($(COMPILER), gcc)
+CFLAGS  += -Wno-stringop-truncation -Wno-stringop-overflow
+endif
 CFLAGS  += -D_FILE_OFFSET_BITS=64
 CFLAGS  += -I${BUILDDIR} -I${ROOTDIR}/src -I${ROOTDIR}
 ifeq ($(CONFIG_ANDROID),yes)
@@ -58,7 +62,10 @@ LDFLAGS += -ldl -lm
 else
 LDFLAGS += -ldl -lpthread -lm
 endif
-LDFLAGS += -pie -Wl,-z,now
+ifeq ($(CONFIG_PIE),yes)
+LDFLAGS += -pie
+endif
+LDFLAGS += -Wl,-z,now
 ifeq ($(CONFIG_LIBICONV),yes)
 LDFLAGS += -liconv
 endif
@@ -77,7 +84,7 @@ endif
 ifeq ($(COMPILER), clang)
 CFLAGS  += -Wno-microsoft -Qunused-arguments -Wno-unused-function
 CFLAGS  += -Wno-unused-value -Wno-tautological-constant-out-of-range-compare
-CFLAGS  += -Wno-parentheses-equality -Wno-incompatible-pointer-types
+CFLAGS  += -Wno-parentheses-equality
 endif
 
 
@@ -92,9 +99,7 @@ FFMPEG_LIBS := \
     libswscale \
     libavformat \
     libavcodec \
-    libavutil \
-    libpostproc \
-    libva-drm
+    libavutil
 
 # FFMPEG_STATIC
 ifeq ($(CONFIG_FFMPEG_STATIC),yes)
@@ -216,6 +221,7 @@ SRCS-1 = \
 	src/proplib.c \
 	src/utils.c \
 	src/wrappers.c \
+	src/tvh_thread.c \
 	src/tvhvfs.c \
 	src/access.c \
 	src/tcp.c \
@@ -362,10 +368,6 @@ SRCS-2 += \
 	src/muxer/muxer_mkv.c \
 	src/muxer/muxer_audioes.c
 
-SRCS-2 += \
-	src/descrambler/tvhcsa.c \
-	src/descrambler/ncclient.c
-
 SRCS += $(SRCS-2)
 I18N-C += $(SRCS-2)
 
@@ -485,6 +487,11 @@ SRCS-INOTIFY = \
 	src/dvr/dvr_inotify.c
 SRCS-${CONFIG_INOTIFY} += $(SRCS-INOTIFY)
 I18N-C += $(SRCS-INOTIFY)
+ifeq ($(CONFIG_INOTIFY), yes)
+ifeq ($(PLATFORM), freebsd)
+LDFLAGS += -linotify
+endif
+endif
 
 # Avahi
 SRCS-AVAHI = \
@@ -498,20 +505,69 @@ SRCS-BONJOUR = \
 SRCS-$(CONFIG_BONJOUR) += $(SRCS-BONJOUR)
 I18N-C += $(SRCS-BONJOUR)
 
+# codecs
+SRCS-CODECS = $(wildcard src/transcoding/codec/*.c)
+SRCS-CODECS += $(wildcard src/transcoding/codec/codecs/*.c)
+ifneq (,$(filter yes,$(CONFIG_LIBX264) $(CONFIG_LIBX265)))
+LIBS-CODECS += libx26x
+endif
+ifeq ($(CONFIG_LIBVPX),yes)
+LIBS-CODECS += libvpx
+endif
+ifeq ($(CONFIG_LIBTHEORA),yes)
+LIBS-CODECS += libtheora
+endif
+ifeq ($(CONFIG_LIBVORBIS),yes)
+LIBS-CODECS += libvorbis
+endif
+ifeq ($(CONFIG_LIBFDKAAC),yes)
+LIBS-CODECS += libfdk_aac
+endif
+ifeq ($(CONFIG_LIBOPUS),yes)
+LIBS-CODECS += libopus
+endif
+ifeq ($(CONFIG_VAAPI),yes)
+LIBS-CODECS += vaapi
+endif
+ifeq ($(CONFIG_NVENC),yes)
+LIBS-CODECS += nvenc
+endif
+ifeq ($(CONFIG_OMX),yes)
+LIBS-CODECS += omx
+endif
+SRCS-CODECS += $(foreach lib,$(LIBS-CODECS),src/transcoding/codec/codecs/libs/$(lib).c)
+
+#hwaccels
+ifeq ($(CONFIG_HWACCELS),yes)
+SRCS-HWACCELS += src/transcoding/transcode/hwaccels/hwaccels.c
+ifeq ($(CONFIG_VAAPI),yes)
+SRCS-HWACCELS += src/transcoding/transcode/hwaccels/vaapi.c
+endif
+endif
+
 # libav
 DEPS-LIBAV = \
 	src/main.c \
 	src/tvhlog.c
 SRCS-LIBAV = \
 	src/libav.c \
-       src/muxer/muxer_libav.c \
-       src/plumbing/transcoding.c
-
+	src/muxer/muxer_libav.c \
+	src/api/api_codec.c
 ifeq ($(CONFIG_IPTV),yes)
 SRCS-LIBAV += src/input/mpegts/iptv/iptv_libav.c
 endif
+SRCS-LIBAV += $(wildcard src/transcoding/*.c)
+SRCS-LIBAV += $(wildcard src/transcoding/transcode/*.c)
+SRCS-LIBAV += $(SRCS-HWACCELS)
+SRCS-LIBAV += $(SRCS-CODECS)
 SRCS-$(CONFIG_LIBAV) += $(SRCS-LIBAV)
 I18N-C += $(SRCS-LIBAV)
+
+# Tvhcsa
+SRCS-TVHCSA = \
+	src/descrambler/tvhcsa.c
+SRCS-${CONFIG_TVHCSA} += $(SRCS-TVHCSA)
+I18N-C += $(SRCS-TVHCSA)
 
 # Cardclient
 SRCS-CARDCLIENT = \
@@ -677,6 +733,7 @@ clean:
 .PHONY: distclean
 distclean: clean
 	rm -rf ${ROOTDIR}/build.*
+	rm -rf ${ROOTDIR}/debian/.debhelper
 	rm -rf ${ROOTDIR}/data/dvb-scan
 	rm -f ${ROOTDIR}/.config.mk
 
@@ -791,10 +848,13 @@ ${BUILDDIR}/libffmpeg_stamp: ${BUILDDIR}/ffmpeg/build/ffmpeg/lib/libavcodec.a
 	@touch $@
 
 ${BUILDDIR}/ffmpeg/build/ffmpeg/lib/libavcodec.a: Makefile.ffmpeg
-ifeq ($(CONFIG_BINTRAY_CACHE),yes)
+ifeq ($(CONFIG_PCLOUD_CACHE),yes)
 	$(MAKE) -f Makefile.ffmpeg libcacheget
+	$(MAKE) -f Makefile.ffmpeg build
+	$(MAKE) -f Makefile.ffmpeg libcacheput
+else
+	$(MAKE) -f Makefile.ffmpeg build
 endif
-	$(MAKE) -f Makefile.ffmpeg
 
 # Static HDHOMERUN library
 
@@ -806,10 +866,13 @@ ${BUILDDIR}/libhdhomerun_stamp: ${BUILDDIR}/hdhomerun/libhdhomerun/libhdhomerun.
 	@touch $@
 
 ${BUILDDIR}/hdhomerun/libhdhomerun/libhdhomerun.a: Makefile.hdhomerun
-ifeq ($(CONFIG_BINTRAY_CACHE),yes)
+ifeq ($(CONFIG_PCLOUD_CACHE),yes)
 	$(MAKE) -f Makefile.hdhomerun libcacheget
+	$(MAKE) -f Makefile.hdhomerun build
+	$(MAKE) -f Makefile.hdhomerun libcacheput
+else
+	$(MAKE) -f Makefile.hdhomerun build
 endif
-	$(MAKE) -f Makefile.hdhomerun
 
 .PHONY: ffmpeg_rebuild
 ffmpeg_rebuild:

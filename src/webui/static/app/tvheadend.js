@@ -277,6 +277,24 @@ tvheadend.getContentTypeIcons = function(rec, style) {
     tvheadend.applyHighResIconPath(tvheadend.uniqueArray(ret_minor)).join("") + '</span>';
 }
 
+tvheadend.renderCustomDate = function(value, meta, record) {
+    if (value) {
+        var dt = new Date(value);
+        return tvheadend.toCustomDate(dt,tvheadend.date_mask);
+    }
+    return "";
+}
+
+tvheadend.renderExtraText = function(value, meta, record) {
+    value = record.data.subtitle;
+    if (!value) {
+        value = record.data.summary;
+        if (!value)
+            value = record.data.description;
+    }
+  return value;
+}
+
 tvheadend.displayCategoryIcon = function(value, meta, record, ri, ci, store) {
   if (value == null)
     return '';
@@ -746,9 +764,13 @@ Ext.Ajax.request({
  */
 tvheadend.niceDate = function(dt) {
     var d = new Date(dt);
-    return '<div class="x-nice-dayofweek">' + d.toLocaleString(tvheadend.toLocaleFormat(), {weekday: 'long'}) + '</div>' +
-           '<div class="x-nice-date">' + d.toLocaleDateString(tvheadend.toLocaleFormat()) + '</div>' +
-           '<div class="x-nice-time">' + d.toLocaleTimeString() + '</div>';
+    if (/([%][MmsSyYdhq]+)/.test(tvheadend.date_mask)){
+           return '<div class=".x-nice-customformat">' + tvheadend.toCustomDate(d, tvheadend.date_mask) + '</div>';
+    }else{
+           return '<div class="x-nice-dayofweek">' + d.toLocaleString(tvheadend.toLocaleFormat(), {weekday: 'long'}) + '</div>' +
+                  '<div class="x-nice-date">' + d.toLocaleDateString(tvheadend.toLocaleFormat(), {day: '2-digit', month: '2-digit', year: 'numeric'}) + '</div>' +
+                  '<div class="x-nice-time">' + d.toLocaleTimeString(tvheadend.toLocaleFormat(), {hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false}) + '</div>';
+    }
 }
 
 /* Date format when time is not needed, e.g., first_aired time is
@@ -790,7 +812,7 @@ tvheadend.niceDateYearMonth = function(dt, refdate) {
       }
     }
     return '<div class="x-nice-dayofweek">' + d.toLocaleString(tvheadend.toLocaleFormat(), {weekday: 'long'}) + '</div>' +
-           '<div class="x-nice-date">' + d.toLocaleDateString(tvheadend.toLocaleFormat()) + '</div>';
+           '<div class="x-nice-date">' + d.toLocaleDateString(tvheadend.toLocaleFormat(), {day: '2-digit', month: '2-digit', year: 'numeric'}) + '</div>';
 }
 
 /*
@@ -798,7 +820,7 @@ tvheadend.niceDateYearMonth = function(dt, refdate) {
  */
 tvheadend.playLink = function(link, title) {
     if (title) title = '?title=' + encodeURIComponent(title);
-    return '<a href="' + link + title + '">' +
+    return '<a href="play/ticket/' + link + title + '">' +
            '<img src="static/icons/control_play.png" class="playlink" title="' +
            _('Play this stream') + '" alt="' + _('Play') + '"/></a>';
 }
@@ -1122,6 +1144,8 @@ function accessUpdate(o) {
             items: []
         });
         tvheadend.profile_tab(stream);
+        if (tvheadend.capabilities.indexOf('libav') !== -1)
+            tvheadend.codec_tab(stream);
         tvheadend.esfilter_tab(stream);
 
         cp.add(stream);
@@ -1141,7 +1165,7 @@ function accessUpdate(o) {
 
         cp.add(tsdvr);
 
-        /* CSA */
+        /* CAs */
         if (tvheadend.capabilities.indexOf('caclient') !== -1)
             tvheadend.caclient(cp, 6);
 
@@ -1337,8 +1361,8 @@ tvheadend.RootTabPanel = Ext.extend(Ext.TabPanel, {
         if (!('time' in panel.extra)) return;
         var d = stime ? new Date(stime) : new Date();
         var el = Ext.get(panel.extra.time.tabEl).child('span.x-tab-strip-extra-comp', true);
-        el.innerHTML = '<b>' + d.toLocaleTimeString() + '</b>';
-        el.qtip = d.toLocaleString(tvheadend.toLocaleFormat());
+        el.innerHTML = '<b>' + d.toLocaleString(tvheadend.toLocaleFormat(), {hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false}); + '</b>';
+        el.qtip = tvheadend.toCustomDate(d, tvheadend.date_mask);
     },
 
     onLoginCmdClicked: function(e) {

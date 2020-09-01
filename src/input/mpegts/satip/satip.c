@@ -66,7 +66,7 @@ satip_device_block( const char *addr, int block )
   satip_frontend_t *lfe;
   int val = block < 0 ? 0 : block;
 
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   TVH_HARDWARE_FOREACH(th) {
     if (!idnode_is_instance(&th->th_id, &satip_device_class))
       continue;
@@ -81,7 +81,7 @@ satip_device_block( const char *addr, int block )
               block < 0 ? "stopped" : (block > 0 ? "allowed" : "disabled"));
     }
   }
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
 }
 
 static char *
@@ -226,6 +226,18 @@ satip_device_class_tunercfg_notify ( void *o, const char *lang )
     satip_device_destroy_later(sd, 100);
 }
 
+static htsmsg_t *
+satip_device_class_default_rolloff_list ( void *o, const char *lang )
+{
+  static const struct strtab tab[] = {
+    { N_("Auto"),  SATIP_DEFAULT_ROLLOFF_AUTO },
+    { N_("0.35"),  SATIP_DEFAULT_ROLLOFF_35 },
+    { N_("0.25"),  SATIP_DEFAULT_ROLLOFF_25 },
+    { N_("0.20"),  SATIP_DEFAULT_ROLLOFF_20 }
+  };
+  return strtab2htsmsg(tab, 1, lang);
+}
+
 CLASS_DOC(satip_client)
 
 const idclass_t satip_device_class =
@@ -261,8 +273,8 @@ const idclass_t satip_device_class =
       .id       = "tcp_mode",
       .name     = N_("RTP/AVP/TCP transport supported"),
       .desc     = N_("The server suports the Interlaved TCP transfer mode "
-                     "(embedded data in the RTSP session). And this option "
-                     "enables this mode in all tuners by default."),
+                     "(embedded data in the RTSP session). Selecting this "
+                     "option enables this mode in all tuners by default."),
       .opts     = PO_ADVANCED,
       .off      = offsetof(satip_device_t, sd_tcp_mode),
     },
@@ -341,6 +353,17 @@ const idclass_t satip_device_class =
       .off      = offsetof(satip_device_t, sd_pilot_on),
     },
     {
+      .type     = PT_INT,
+      .id       = "default_rolloff",
+      .name     = N_("Send rolloff settings for DVB-S2"),
+      .desc     = N_("Enable if the SAT>IP box requires ro= "
+                     "parameter in the SETUP RTSP command for DVB-S2 "
+                     "muxes."),
+      .opts     = PO_ADVANCED,
+      .list     = satip_device_class_default_rolloff_list,
+      .off      = offsetof(satip_device_t, sd_default_rolloff),
+    },
+    {
       .type     = PT_BOOL,
       .id       = "pids21",
       .name     = N_("PIDs 21 in setup"),
@@ -371,6 +394,16 @@ const idclass_t satip_device_class =
       .name     = N_("Disable device/firmware-specific workarounds"),
       .opts     = PO_ADVANCED,
       .off      = offsetof(satip_device_t, sd_disable_workarounds),
+    },
+    {
+      .type     = PT_BOOL,
+      .id       = "sigtunerno",
+      .name     = N_("Check tuner-number in signal-status messages"),
+      .desc     = N_("This is a workaround for some tuners that mess up "
+                     "the numbers of tuners. Turn this off when you are not "
+                     "seeing signal strength on all tuners but only on some."),
+      .opts     = PO_ADVANCED,
+      .off      = offsetof(satip_device_t, sd_sig_tunerno),
     },
     {
       .type     = PT_STR,
@@ -569,7 +602,20 @@ satip_device_hack( satip_device_t *sd )
     /* OctopusNet requires pids in the SETUP RTSP command */
   } else if (strstr(sd->sd_info.manufacturer, "Triax") &&
              strstr(sd->sd_info.modelname, "TSS400")) {
+    sd->sd_fullmux_ok  = 0;
+    sd->sd_pids_max    = 64;
+    sd->sd_pids_len    = 255;
     sd->sd_pilot_on    = 1;
+    sd->sd_default_rolloff = SATIP_DEFAULT_ROLLOFF_35;
+  } else if (strstr(sd->sd_info.manufacturer, "KATHREIN") &&
+            (strstr(sd->sd_info.modelname, "EXIP-4124") ||
+             strstr(sd->sd_info.modelname, "EXIP-418") ||
+             strstr(sd->sd_info.modelname, "EXIP-414"))) {
+    sd->sd_fullmux_ok  = 0;
+    sd->sd_pids_max    = 64;
+    sd->sd_pids_len    = 255;
+    sd->sd_pilot_on    = 1;
+    sd->sd_default_rolloff = SATIP_DEFAULT_ROLLOFF_35;
   } else if (strcmp(sd->sd_info.modelname, "TVHeadend SAT>IP") == 0)  {
     sd->sd_pids_max    = 128;
     sd->sd_pids_len    = 2048;
@@ -611,6 +657,7 @@ satip_device_create( satip_device_info_t *info )
   sd->sd_pids_deladd = 1;
   sd->sd_fe          = 1;
   sd->sd_sig_scale   = 240;
+  sd->sd_sig_tunerno = 1;
   sd->sd_dbus_allow  = 1;
 
   if (!tvh_hardware_create0((tvh_hardware_t*)sd, &satip_device_class,
@@ -619,7 +666,7 @@ satip_device_create( satip_device_info_t *info )
     return NULL;
   }
 
-  pthread_mutex_init(&sd->sd_tune_mutex, NULL);
+  tvh_mutex_init(&sd->sd_tune_mutex, NULL);
 
   TAILQ_INIT(&sd->sd_frontends);
   TAILQ_INIT(&sd->sd_serialize_queue);
@@ -691,6 +738,9 @@ satip_device_create( satip_device_info_t *info )
       v2 = 1;
     } else if (strncmp(argv[i], "DVBC-", 5) == 0) {
       type = DVB_TYPE_C;
+      m = atoi(argv[i] + 5);
+    } else if (strncmp(argv[i], "ATSC-", 5) == 0) {
+      type = DVB_TYPE_ATSC_T;
       m = atoi(argv[i] + 5);
     } else if (strncmp(argv[i], "ATSCT-", 6) == 0) {
       type = DVB_TYPE_ATSC_T;
@@ -1010,10 +1060,10 @@ satip_discovery_http_closed(http_client_t *hc, int errn)
   info.tunercfg = strdup(tunercfg);
   htsmsg_destroy(xml);
   xml = NULL;
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   if (!satip_device_find(info.uuid))
     satip_device_create(&info);
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
   free(info.myaddr);
   free(info.location);
   free(info.server);
@@ -1171,7 +1221,7 @@ satip_discovery_service_received
     return;
   }
 
-  pthread_mutex_lock(&global_lock);  
+  tvh_mutex_lock(&global_lock);  
   i = 1;
   if (!satip_discovery_find(d) && !satip_device_find(d->uuid)) {
     TAILQ_INSERT_TAIL(&satip_discoveries, d, disc_link);
@@ -1179,7 +1229,7 @@ satip_discovery_service_received
     mtimer_arm_rel(&satip_discovery_timerq, satip_discovery_timerq_cb, NULL, ms2mono(250));
     i = 0;
   }
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
   if (i) /* duplicate */
     satip_discovery_destroy(d, 0);
   return;
@@ -1188,10 +1238,10 @@ add_uuid:
   if (deviceid == NULL || uuid == NULL)
     return;
   /* if new uuid was discovered, retrigger MSEARCH */
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   if (!satip_device_find(uuid))
     mtimer_arm_rel(&satip_discovery_timer, satip_discovery_timer_cb, NULL, sec2mono(5));
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
 }
 
 static void
@@ -1247,7 +1297,7 @@ ST: urn:ses-com:device:SatIPServer:1\r\n"
 
   htsbuf_queue_init(&q, 0);
   htsbuf_append(&q, MSG, sizeof(MSG)-1);
-  htsbuf_qprintf(&q, "USER-AGENT: unix/1.0 UPnP/1.1 TVHeadend/%s\r\n", tvheadend_version);
+  htsbuf_qprintf(&q, "USER-AGENT: unix/1.0 UPnP/1.1 tvheadend/%s\r\n", tvheadend_version);
   htsbuf_append(&q, "\r\n", 2);
   upnp_send(&q, NULL, 0, 0);
   htsbuf_queue_flush(&q);
@@ -1342,7 +1392,7 @@ void satip_done ( void )
   tvh_hardware_t *th, *n;
   satip_discovery_t *d, *nd;
 
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   for (th = LIST_FIRST(&tvh_hardware); th != NULL; th = n) {
     n = LIST_NEXT(th, th_link);
     if (idnode_is_instance(&th->th_id, &satip_device_class)) {
@@ -1353,5 +1403,5 @@ void satip_done ( void )
     nd = TAILQ_NEXT(d, disc_link);
     satip_discovery_destroy(d, 1);
   }
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
 }

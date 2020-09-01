@@ -103,6 +103,8 @@ def do_upload(*args):
     data = open(file, 'rb').read()
     resp = Bintray(bpath).put(data, binary=1)
     if resp.code != 200 and resp.code != 201:
+        if resp.code == 409:
+            error(0, 'HTTP WARNING "%s" %s %s', resp.url, resp.code, resp.reason)
         error(10, 'HTTP ERROR "%s" %s %s', resp.url, resp.code, resp.reason)
 
 def get_ver(version):
@@ -189,6 +191,7 @@ def get_bintray_params(filename, hint=None):
     return (basename, args, extra)
 
 def do_publish(*args):
+    return
     if len(args) < 1: error(1, 'upload [file with the file list]')
     if not DEBUG:
         branches = os.popen('git branch --contains HEAD').readlines()
@@ -314,11 +317,11 @@ def do_tidy(*args):
     files, sfiles = fedora_files('fedora')
     delete_up_to_count('fedora', sfiles, 10, fedora_delete)
 
-    files = get_files('misc', 'staticlib', 1)
-    for f in files:
-      a, b = f['path'].split('-')
-      f['sortkey'] = a + '*' + f['created']
-    delete_up_to_count('misc', files, 4)
+    #files = get_files('misc', 'staticlib', 1)
+    #for f in files:
+    #  a, b = f['path'].split('-')
+    #  f['sortkey'] = a + '*' + f['created']
+    #delete_up_to_count('misc', files, 4)
 
 def do_unknown(*args):
     r = 'Please, specify a valid command:\n'

@@ -55,6 +55,7 @@ typedef struct eit_sdt {
 typedef struct eit_private
 {
   TAILQ_ENTRY(eit_private) link;
+  lang_str_t *name;
   epggrab_module_ota_t *module;
   uint16_t pid;
   uint16_t bat_pid;
@@ -62,6 +63,7 @@ typedef struct eit_private
   uint32_t sdt_enable;
   uint32_t hacks;
   uint32_t priv;
+  char slave[32];
   LIST_HEAD(, eit_nit) nit;
   LIST_HEAD(, eit_sdt) sdt;
   epggrab_ota_module_ops_t *ops;
@@ -476,7 +478,12 @@ static int _eit_desc_crid
       /* Next */
       len -= 1 + r;
       ptr += 1 + r;
+    } else {
+      break;
     }
+  }
+  if (len > 3) {
+    return -1;
   }
 
   return 0;
@@ -840,7 +847,7 @@ static int _eit_process_event
   _eit_scrape_text(eit_mod, &ev);
 
   if (lock)
-    pthread_mutex_lock(&global_lock);
+    tvh_mutex_lock(&global_lock);
   svc = (mpegts_service_t *)service_find_by_uuid0(&ed->svc_uuid);
   if (svc && eit_mod->opaque) {
     LIST_FOREACH(ilm, &svc->s_channels, ilm_in1_link) {
@@ -852,7 +859,7 @@ static int _eit_process_event
     }
   }
   if (lock)
-    pthread_mutex_unlock(&global_lock);
+    tvh_mutex_unlock(&global_lock);
 
 #if TODO_ADD_EXTRA
   if (ev.extra)    htsmsg_destroy(ev.extra);
@@ -890,9 +897,9 @@ _eit_process_data(void *m, void *data, uint32_t len)
   }
 
   if (save) {
-    pthread_mutex_lock(&global_lock);
+    tvh_mutex_lock(&global_lock);
     epg_updated();
-    pthread_mutex_unlock(&global_lock);
+    tvh_mutex_unlock(&global_lock);
   }
 }
 
@@ -1101,12 +1108,98 @@ complete:
 static int _eit_start
   ( epggrab_ota_map_t *map, mpegts_mux_t *dm )
 {
-  epggrab_module_ota_t *m = map->om_module;
-
-  /* Disabled */
-  if (!m->enabled && !map->om_forced) return -1;
-
   return 0;
+}
+
+static void _eit_install_one_handler
+  ( mpegts_mux_t *dm, epggrab_ota_map_t *map )
+{
+  epggrab_module_ota_t *m = map->om_module;
+  eit_private_t *priv = m->opaque;
+  int pid = priv->pid;
+  int opts = 0;
+
+  /* Standard (0x12) */
+  if (pid == 0) {
+    pid  = DVB_EIT_PID;
+    opts = MT_RECORD;
+  }
+
+  mpegts_table_add(dm, 0, 0, _eit_callback, map, map->om_module->id, LS_TBL_EIT,
+                   MT_CRC | opts, pid, MPS_WEIGHT_EIT);
+  tvhdebug(m->subsys, "%s: installed table handler (pid %d)", m->id, pid);
+}
+
+static void _eit_install_handlers
+  ( epggrab_ota_map_t *_map, mpegts_mux_t *dm )
+{
+  epggrab_ota_mux_t *om;
+  epggrab_ota_map_t *map, *map2;
+  epggrab_module_ota_t *m, *m2;
+  epggrab_ota_mux_eit_plist_t *plist;
+  eit_private_t *priv, *priv2;
+  const char *modname;
+
+  om = epggrab_ota_find_mux(dm);
+  if (!om)
+    return;
+  modname = om->om_force_modname;
+
+  priv = NULL;
+  map = NULL;
+  if (strempty(modname)) {
+    LIST_FOREACH(plist, &om->om_eit_plist, link) {
+      priv2 = (eit_private_t *)plist->priv;
+      if (!priv || priv->module->priority < priv2->module->priority) {
+        /* ignore priority for the slave, always prefer master */
+        if (priv && strcmp(priv->slave, priv2->module->id) == 0)
+          continue;
+        /* find the ota map */
+        m = priv2->module;
+        map = epggrab_ota_find_map(om, m);
+        if (!map || !m->enabled) {
+          tvhtrace(m->subsys, "handlers - module '%s' not enabled", m->id);
+          continue;
+        }
+        priv = priv2;
+      }
+    }
+  } else {
+    m = (epggrab_module_ota_t *)epggrab_module_find_by_id(modname);
+    if (m) {
+      priv = (eit_private_t *)m->opaque;
+      map = epggrab_ota_find_map(om, m);
+    }
+  }
+
+  if (!priv || !map)
+    return;
+
+  epggrab_ota_free_eit_plist(om);
+
+  if (priv->bat_pid) {
+    mpegts_table_add(dm, DVB_BAT_BASE, DVB_BAT_MASK, dvb_bat_callback, NULL,
+                     "ebat", LS_TBL_BASE, MT_CRC, priv->bat_pid, MPS_WEIGHT_EIT);
+  }
+
+  m = priv->module;
+
+  tvhtrace(m->subsys, "handlers - detected module '%s'", m->id);
+
+  if (!strempty(priv->slave)) {
+    m2 = (epggrab_module_ota_t *)epggrab_module_find_by_id(priv->slave);
+    if (m2) {
+      map2 = epggrab_ota_find_map(om, m2);
+      if (map2) {
+        tvhtrace(m->subsys, "handlers - detected slave module '%s'", m2->id);
+        _eit_install_one_handler(dm, map2);
+      }
+    }
+  }
+
+  _eit_install_one_handler(dm, map);
+
+  mpegts_mux_set_epg_module(dm, m->id);
 }
 
 static int _eit_activate(void *m, int e)
@@ -1137,14 +1230,10 @@ static int _eit_tune
   ( epggrab_ota_map_t *map, epggrab_ota_mux_t *om, mpegts_mux_t *mm )
 {
   int r = 0;
-  epggrab_module_ota_t *m = map->om_module;
   mpegts_service_t *s;
   epggrab_ota_svc_link_t *osl, *nxt;
 
   lock_assert(&global_lock);
-
-  /* Disabled */
-  if (!m->enabled) return 0;
 
   /* Have gathered enough info to decide */
   if (!om->om_complete)
@@ -1180,56 +1269,27 @@ static int eit_nit_array_check(uint16_t val, uint16_t *array, int array_count)
   return 1;
 }
 
-static void eit_install_handlers
-  (mpegts_mux_t *dm, eit_private_t *priv, const char *src, int state)
+static void eit_queue_priv
+  (mpegts_mux_t *dm, const char *src, eit_private_t *priv)
 {
   epggrab_ota_mux_t *om;
-  epggrab_ota_map_t *map;
-  epggrab_module_ota_t *m = priv->module;
-  int pid, opts = 0;
-
-  if (priv->bat_pid) {
-    mpegts_table_add(dm, DVB_BAT_BASE, DVB_BAT_MASK, dvb_bat_callback, NULL,
-                     "ebat", LS_TBL_BASE, MT_CRC, priv->bat_pid, MPS_WEIGHT_EIT);
-  }
+  epggrab_ota_mux_eit_plist_t *plist, *plist2;
 
   om = epggrab_ota_find_mux(dm);
   if (!om)
     return;
-  if (state == EPGGRAB_OTA_MUX_EIT_SDT) {
-    /* check, if NIT EIT is already installed */
-    LIST_FOREACH(map, &om->om_modules, om_link)
-      if (map->om_eit_state == EPGGRAB_OTA_MUX_EIT_NIT)
-        return;
-  }
-  LIST_FOREACH(map, &om->om_modules, om_link) {
-    if (map->om_module == m)
-      break;
-  }
-  if (!map || (!m->enabled && !map->om_forced)) {
-    tvhtrace(m->subsys, "%s - module '%s' not enabled", src, m->id);
-    return;
-  }
-  if (map->om_eit_state != EPGGRAB_OTA_MUX_EIT_IDLE) {
-    tvhtrace(m->subsys, "%s - module '%s' already installed", src, m->id);
-    return;
-  }
-  map->om_eit_state = state;
 
-  tvhtrace(m->subsys, "%s - detected module '%s'", src, m->id);
-  priv = (eit_private_t *)m->opaque;
-  pid = priv->pid;
+  LIST_FOREACH(plist2, &om->om_eit_plist, link)
+    if (plist2->priv == priv)
+      return;
 
-  /* Standard (0x12) */
-  if (pid == 0) {
-    pid  = DVB_EIT_PID;
-    opts = MT_RECORD;
-  }
+  tvhtrace(LS_TBL_EIT, "%s - detected module '%s'", src, priv->module->id);
+  plist = calloc(1, sizeof(*plist));
+  plist->src = src;
+  plist->priv = priv;
+  LIST_INSERT_HEAD(&om->om_eit_plist, plist, link);
 
-  mpegts_table_add(dm, 0, 0, _eit_callback, map, map->om_module->id, LS_TBL_EIT,
-                   MT_CRC | opts, pid, MPS_WEIGHT_EIT);
-  // TODO: might want to limit recording to EITpf only
-  tvhdebug(m->subsys, "%s: installed table handlers (%s)", m->id, src);
+  om->om_detected = 1;
 }
 
 void eit_nit_callback
@@ -1267,7 +1327,7 @@ void eit_nit_callback
   if (!priv)
     return;
 
-  eit_install_handlers(dm, priv, "NIT", EPGGRAB_OTA_MUX_EIT_NIT);
+  eit_queue_priv(dm, "NIT", priv);
 }
 
 void eit_sdt_callback(mpegts_table_t *mt, uint32_t sdtpriv)
@@ -1275,12 +1335,6 @@ void eit_sdt_callback(mpegts_table_t *mt, uint32_t sdtpriv)
   mpegts_mux_t *dm = mt->mt_mux;
   eit_sdt_t *sdt;
   eit_private_t *priv = NULL;
-
-  /* do not rerun */
-  assert(mt->mt_bat == NULL || mt->mt_bat == mt);
-  if (mt->mt_bat)
-    return;
-  mt->mt_bat = mt;
 
   tvhtrace(LS_TBL_EIT, "SDT - tsid %04X (%d) onid %04X (%d) private %08X",
            dm->mm_tsid, dm->mm_tsid, dm->mm_onid, dm->mm_onid, sdtpriv);
@@ -1308,7 +1362,7 @@ void eit_sdt_callback(mpegts_table_t *mt, uint32_t sdtpriv)
   if (!priv)
     return;
 
-  eit_install_handlers(dm, priv, "SDT", EPGGRAB_OTA_MUX_EIT_SDT);
+  eit_queue_priv(dm, "SDT", priv);
 }
 
 static void _eit_scrape_clear(eit_module_t *mod)
@@ -1407,6 +1461,7 @@ static void _eit_done0( eit_private_t *priv )
     free(nit);
   }
   free(priv->ops);
+  lang_str_destroy(priv->name);
   free(priv);
 }
 
@@ -1514,6 +1569,7 @@ static void eit_init_one ( const char *id, htsmsg_t *conf )
   ops = calloc(1, sizeof(*ops));
   priv = calloc(1, sizeof(*priv));
   ops->start = _eit_start;
+  ops->handlers = _eit_install_handlers;
   ops->done = _eit_done;
   ops->activate = _eit_activate;
   ops->process_data = _eit_process_data;
@@ -1529,7 +1585,7 @@ static void eit_init_one ( const char *id, htsmsg_t *conf )
   if (map) {
     HTSMSG_FOREACH(f, map) {
       nit = calloc(1, sizeof(*nit));
-      nit->name = f->hmf_name[0] ? strdup(f->hmf_name) : NULL;
+      nit->name = htsmsg_field_name(f)[0] ? strdup(htsmsg_field_name(f)) : NULL;
       if ((e = htsmsg_field_get_map(f)) != NULL) {
         eit_parse_list(e, "onid", nit->onid, ARRAY_SIZE(nit->onid), &nit->onid_count);
         eit_parse_list(e, "tsid", nit->tsid, ARRAY_SIZE(nit->tsid), &nit->tsid_count);
@@ -1553,18 +1609,22 @@ static void eit_init_one ( const char *id, htsmsg_t *conf )
   map = htsmsg_get_map(conf, "hacks");
   if (map) {
     HTSMSG_FOREACH(f, map) {
-      if (strcmp(f->hmf_name, "interest-4e") == 0)
+      if (strcmp(htsmsg_field_name(f), "slave") == 0) {
+        s = htsmsg_field_get_str(f);
+        if (s) strncpy(priv->slave, s, sizeof(priv->slave) - 1);
+      } else if (strcmp(htsmsg_field_name(f), "interest-4e") == 0)
         priv->hacks |= EIT_HACK_INTEREST4E;
-      else if (strcmp(f->hmf_name, "extra-mux-lookup") == 0)
+      else if (strcmp(htsmsg_field_name(f), "extra-mux-lookup") == 0)
         priv->hacks |= EIT_HACK_EXTRAMUXLOOKUP;
-      else if (strcmp(f->hmf_name, "svc-net-lookup") == 0)
+      else if (strcmp(htsmsg_field_name(f), "svc-net-lookup") == 0)
         priv->hacks |= EIT_HACK_EXTRAMUXLOOKUP;
-      else if (strcmp(f->hmf_name, "bat") == 0) {
+      else if (strcmp(htsmsg_field_name(f), "bat") == 0) {
         if (!(e = htsmsg_field_get_map(f))) continue;
         priv->bat_pid = htsmsg_get_s32_or_default(e, "pid", 0);
       }
     }
   }
+  priv->name = name_str;
   if (name_str) {
     priv->module = (epggrab_module_ota_t *)
       eit_module_ota_create(id, LS_TBL_EIT, NULL,
@@ -1575,7 +1635,6 @@ static void eit_init_one ( const char *id, htsmsg_t *conf )
     tvherror(LS_TBL_EIT, "missing name for '%s' in config", id);
     _eit_done0(priv);
   }
-  lang_str_destroy(name_str);
 }
 
 void eit_init ( void )
@@ -1592,9 +1651,37 @@ void eit_init ( void )
   }
   HTSMSG_FOREACH(f, c) {
     if (!(e = htsmsg_field_get_map(f))) continue;
-    eit_init_one(f->hmf_name, e);
+    eit_init_one(htsmsg_field_name(f), e);
   }
   htsmsg_destroy(c);
+}
+
+htsmsg_t *eit_module_id_list( const char *lang )
+{
+  eit_private_t *priv, *priv2;
+  htsmsg_t *e, *l = htsmsg_create_list();
+
+  TAILQ_FOREACH(priv, &eit_private_list, link) {
+    TAILQ_FOREACH(priv2, &eit_private_list, link)
+      if (strcmp(priv2->slave, priv->module->id) == 0)
+        break;
+    if (priv2) continue; /* show only parents */
+    e = htsmsg_create_key_val(priv->module->id, lang_str_get(priv->name, lang));
+    htsmsg_add_msg(l, NULL, e);
+  }
+  return l;
+}
+
+const char *eit_check_module_id ( const char *id )
+{
+  eit_private_t *priv;
+
+  if (!id) return NULL;
+  TAILQ_FOREACH(priv, &eit_private_list, link) {
+    if (strcmp(id, priv->module->id) == 0)
+      return priv->module->id;
+  }
+  return NULL;
 }
 
 void eit_done ( void )

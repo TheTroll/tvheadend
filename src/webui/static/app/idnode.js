@@ -323,6 +323,7 @@ tvheadend.IdNodeField = function(conf)
             header: this.text,
             editor: this.editor({create: false}),
             renderer: cfg.renderer ? cfg.renderer(this.store) : this.renderer(this.store),
+            groupRenderer: cfg.groupRenderer ? cfg.groupRenderer(this.store) : this.renderer(this.store),
             editable: !this.rdonly,
             hidden: this.get_hidden(uilevel),
             filter: {
@@ -338,6 +339,21 @@ tvheadend.IdNodeField = function(conf)
             props.xtype = 'checkcolumn';
             props.renderer = Ext.ux.grid.CheckColumn.prototype.renderer;
         }
+
+        // Special handling for date/time fields.
+        if (ftype == 'date')
+        {
+            // When grouping, only use date and do not include
+            // timestamp, otherwise when grouping recordings, you can
+            // get hundreds of groups, each containing one recording.
+            // This format is for group section titles only, and not
+            // for normal display of dates nor for the display of
+            // dates inside of a group.
+            props.groupRenderer = function(v, m, r) {
+                var date = new Date(v*1000);
+                return date.toLocaleString(tvheadend.toLocaleFormat(), {weekday: 'short', day: 'numeric', month: 'long', year: 'numeric'});
+            }
+        };
 
         return props;
     };
@@ -1223,6 +1239,7 @@ tvheadend.idnode_editor = function(_uilevel, item, conf)
         }
         var helpBtn = new Ext.Button({
             text: _('Help'),
+            tooltip: _('View help docs.'),
             iconCls: 'help',
             handler: help
         });
@@ -2091,6 +2108,7 @@ tvheadend.idnode_grid = function(panel, conf)
         buttons.push(abuttons.uilevel ? '-' : '->');
         buttons.push({
             text: _('Help'),
+            tooltip: _('View help docs.'),
             iconCls: 'help',
             handler: help
         });
@@ -2496,6 +2514,7 @@ tvheadend.idnode_form_grid = function(panel, conf)
         buttons.push(abuttons.uilevel ? '-' : '->');
         buttons.push({
             text: _('Help'),
+            tooltip: _('View help docs.'),
             iconCls: 'help',
             handler: help
         });
@@ -2712,7 +2731,7 @@ tvheadend.idnode_tree = function(panel, conf)
                         uuid = n.attributes.uuid;
                         current = new tvheadend.idnode_editor(uilevel, n.attributes, {
                             title: _('Parameters'),
-                            width: 550,
+                            width: 560,
                             noautoWidth: true,
                             fixedHeight: true,
                             noApply: true,
@@ -2940,6 +2959,7 @@ tvheadend.idnode_simple = function(panel, conf)
         buttons.push(abuttons.uilevel ? '-' : '->');
         buttons.push({
             text: _('Help'),
+            tooltip: _('View help docs.'),
             iconCls: 'help',
             handler: help
         });

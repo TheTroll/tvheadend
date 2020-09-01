@@ -41,7 +41,7 @@
 
 extern char **environ;
 
-pthread_mutex_t spawn_mutex = PTHREAD_MUTEX_INITIALIZER;
+tvh_mutex_t spawn_mutex = TVH_THREAD_MUTEX_INITIALIZER;
 
 static LIST_HEAD(, spawn) spawns;
 
@@ -119,13 +119,8 @@ spawn_pipe_thread(void *aux)
   tvhpoll_t *efd = tvhpoll_create(2);
   int nfds;
 
-  memset(ev, 0, sizeof(ev));
-  ev[0].events = TVHPOLL_IN;
-  ev[0].fd     = spawn_pipe_info.rd;
-  ev[0].ptr    = &spawn_pipe_info;
-  ev[1].events = TVHPOLL_IN;
-  ev[1].fd     = spawn_pipe_error.rd;
-  ev[1].ptr    = &spawn_pipe_error;
+  tvhpoll_event(ev+0, spawn_pipe_info.rd, TVHPOLL_IN, &spawn_pipe_info);
+  tvhpoll_event(ev+1, spawn_pipe_error.rd, TVHPOLL_IN, &spawn_pipe_error);
   tvhpoll_add(efd, ev, 2);
 
   while (atomic_get(&spawn_pipe_running)) {
@@ -247,7 +242,7 @@ spawn_reap(pid_t wpid, char *stxt, size_t stxtlen)
     return 0;
   }
 
-  pthread_mutex_lock(&spawn_mutex);
+  tvh_mutex_lock(&spawn_mutex);
   LIST_FOREACH(s, &spawns, link)
     if(s->pid == pid)
       break;
@@ -276,7 +271,7 @@ spawn_reap(pid_t wpid, char *stxt, size_t stxtlen)
     free((void *)s->name);
     free(s);
   }
-  pthread_mutex_unlock(&spawn_mutex);
+  tvh_mutex_unlock(&spawn_mutex);
   return res;
 }
 
@@ -298,13 +293,15 @@ spawn_reaper(void)
   } while (1);
 
   /* forced kill for expired PIDs */
-  pthread_mutex_lock(&spawn_mutex);
+  tvh_mutex_lock(&spawn_mutex);
   LIST_FOREACH(s, &spawns, link)
     if (s->killed && s->killed < mclk()) {
       /* kill the whole process group */
-      kill(-(s->pid), SIGKILL);
+      r = kill(-(s->pid), SIGKILL);
+      if (r && errno == EPERM)
+        tvherror(LS_SPAWN, "Unable to kill task pid %d (not enough permissions)", s->pid);
     }
-  pthread_mutex_unlock(&spawn_mutex);
+  tvh_mutex_unlock(&spawn_mutex);
 }
 
 /**
@@ -319,7 +316,7 @@ spawn_kill(pid_t pid, int sig, int timeout)
   if (pid > 0) {
     spawn_reaper();
 
-    pthread_mutex_lock(&spawn_mutex);
+    tvh_mutex_lock(&spawn_mutex);
     LIST_FOREACH(s, &spawns, link)
       if(s->pid == pid)
         break;
@@ -328,10 +325,13 @@ spawn_kill(pid_t pid, int sig, int timeout)
         s->killed = mclk() + sec2mono(MINMAX(timeout, 5, 3600));
       /* kill the whole process group */
       r = kill(-pid, sig);
-      if (r < 0)
+      if (r < 0) {
+        if (errno == EPERM)
+          tvherror(LS_SPAWN, "Unable to kill task pid %d (not enough permissions)", s->pid);
         r = -errno;
+      }
     }
-    pthread_mutex_unlock(&spawn_mutex);
+    tvh_mutex_unlock(&spawn_mutex);
   }
   return r;
 }
@@ -345,9 +345,9 @@ spawn_enq(const char *name, int pid)
   spawn_t *s = calloc(1, sizeof(spawn_t));
   s->name = strdup(name);
   s->pid = pid;
-  pthread_mutex_lock(&spawn_mutex);
+  tvh_mutex_lock(&spawn_mutex);
   LIST_INSERT_HEAD(&spawns, s, link);
-  pthread_mutex_unlock(&spawn_mutex);
+  tvh_mutex_unlock(&spawn_mutex);
   return s;
 }
 
@@ -509,17 +509,19 @@ spawn_and_give_stdout(const char *prog, char *argv[], char *envp[],
 
   maxfd = sysconf(_SC_OPEN_MAX);
 
-  pthread_mutex_lock(&fork_lock);
+  tvh_mutex_lock(&fork_lock);
 
   if(pipe(fd) == -1) {
-    pthread_mutex_unlock(&fork_lock);
+    tvh_mutex_unlock(&fork_lock);
     return -1;
   }
 
   p = fork();
 
   if(p == -1) {
-    pthread_mutex_unlock(&fork_lock);
+    tvh_mutex_unlock(&fork_lock);
+    close(fd[0]);
+    close(fd[1]);
     tvherror(LS_SPAWN, "Unable to fork() for \"%s\" -- %s",
              prog, strerror(errno));
     return -1;
@@ -556,7 +558,7 @@ spawn_and_give_stdout(const char *prog, char *argv[], char *envp[],
     exit(1);
   }
 
-  pthread_mutex_unlock(&fork_lock);
+  tvh_mutex_unlock(&fork_lock);
 
   spawn_enq(prog, p);
 
@@ -633,10 +635,10 @@ spawn_with_passthrough(const char *prog, char *argv[], char *envp[],
 
   maxfd = sysconf(_SC_OPEN_MAX);
 
-  pthread_mutex_lock(&fork_lock);
+  tvh_mutex_lock(&fork_lock);
 
   if(pipe(fd) == -1) {
-    pthread_mutex_unlock(&fork_lock);
+    tvh_mutex_unlock(&fork_lock);
     // do not pass the local variable outside
     if (argv[0] == bin)
       argv[0] = NULL;
@@ -646,7 +648,9 @@ spawn_with_passthrough(const char *prog, char *argv[], char *envp[],
   p = fork();
 
   if(p == -1) {
-    pthread_mutex_unlock(&fork_lock);
+    tvh_mutex_unlock(&fork_lock);
+    close(fd[0]);
+    close(fd[1]);
     tvherror(LS_SPAWN, "Unable to fork() for \"%s\" -- %s",
              prog, strerror(errno));
     // do not pass the local variable outside
@@ -690,7 +694,7 @@ spawn_with_passthrough(const char *prog, char *argv[], char *envp[],
     exit(1);
   }
 
-  pthread_mutex_unlock(&fork_lock);
+  tvh_mutex_unlock(&fork_lock);
 
   spawn_enq(prog, p);
 
@@ -733,12 +737,12 @@ spawnv(const char *prog, char *argv[], pid_t *pid, int redir_stdout, int redir_s
 
   maxfd = sysconf(_SC_OPEN_MAX);
 
-  pthread_mutex_lock(&fork_lock);
+  tvh_mutex_lock(&fork_lock);
 
   p = fork();
 
   if(p == -1) {
-    pthread_mutex_unlock(&fork_lock);
+    tvh_mutex_unlock(&fork_lock);
     tvherror(LS_SPAWN, "Unable to fork() for \"%s\" -- %s",
 	     prog, strerror(errno));
     // do not pass the local variable outside
@@ -777,12 +781,18 @@ spawnv(const char *prog, char *argv[], pid_t *pid, int redir_stdout, int redir_s
     exit(1);
   }
 
-  pthread_mutex_unlock(&fork_lock);
+  tvh_mutex_unlock(&fork_lock);
 
   spawn_enq(prog, p);
 
-  if (pid)
+  if (pid) {
     *pid = p;
+
+    // make the spawned process a session leader so killing the
+    // process group recursively kills any child process that
+    // might have been spawned
+    setpgid(p, p);
+  }
 
   // do not pass the local variable outside
   if (argv[0] == bin)
@@ -806,7 +816,7 @@ void spawn_done(void)
   spawn_t *s;
 
   atomic_set(&spawn_pipe_running, 0);
-  pthread_kill(spawn_pipe_tid, SIGTERM);
+  tvh_thread_kill(spawn_pipe_tid, SIGTERM);
   pthread_join(spawn_pipe_tid, NULL);
   tvh_pipe_close(&spawn_pipe_error);
   tvh_pipe_close(&spawn_pipe_info);

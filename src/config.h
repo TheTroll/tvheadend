@@ -35,6 +35,7 @@ typedef struct config {
   int uilevel_nochange;
   int ui_quicktips;
   int http_auth;
+  int http_auth_algo;
   int proxy;
   char *realm;
   char *wizard;
@@ -69,8 +70,10 @@ typedef struct config {
   int iptv_tpool_count;
   char *date_mask;
   int label_formatting;
-  char* ncserver_ip;
-  uint32_t ncserver_port;
+  uint32_t ticket_expires;
+  char *hdhomerun_ip;
+  char *local_ip;
+  int local_port;
 } config_t;
 
 extern const idclass_t config_class;

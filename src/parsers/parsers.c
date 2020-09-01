@@ -17,15 +17,6 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <pthread.h>
-
-#include <stdio.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <assert.h>
-
 #include "parsers.h"
 #include "parser_h264.h"
 #include "parser_avc.h"
@@ -101,6 +92,20 @@ parser_deliver_error(parser_t *t, parser_es_t *st)
   st->es_buf.sb_err = 0;
 }
 
+
+
+/**
+ * prs_rstlog
+ */
+static void
+parser_rstlog(parser_t *t, th_pkt_t *pkt)
+{
+  streaming_message_t *sm = streaming_msg_create_pkt(pkt);
+  pkt_ref_dec(pkt); /* streaming_msg_create_pkt increses ref counter */
+  streaming_message_t *clone = streaming_msg_clone(sm);
+  TAILQ_INSERT_TAIL (&t->prs_rstlog, clone, sm_link);
+}
+
 /**
  *
  */
@@ -136,15 +141,20 @@ parser_deliver(parser_t *t, parser_es_t *st, th_pkt_t *pkt)
 deliver:
   pkt->pkt_componentindex = st->es_index;
 
-  pkt_trace(LS_PARSER, pkt, "deliver");
-
   if (SCT_ISVIDEO(pkt->pkt_type)) {
     pkt->v.pkt_aspect_num = st->es_aspect_num;
     pkt->v.pkt_aspect_den = st->es_aspect_den;
   }
 
   /* Forward packet */
-  streaming_target_deliver2(t->prs_output, streaming_msg_create_pkt(pkt));
+  if(atomic_get(&st->es_service->s_pending_restart) == 1) {
+    /* Queue pkt to prs_rstlog if pending restart */
+    pkt_trace(LS_PARSER, pkt, "deliver to rstlog");
+    parser_rstlog(t, pkt);
+  } else {
+    pkt_trace(LS_PARSER, pkt, "deliver");
+    streaming_target_deliver2(t->prs_output, streaming_msg_create_pkt(pkt));
+  }
 
   /* Decrease our own reference to the packet */
   pkt_ref_dec(pkt);
@@ -527,6 +537,7 @@ makeapkt(parser_t *t, parser_es_t *st, const void *buf,
 
   pkt->pkt_commercial = t->prs_tt_commercial_advice;
   pkt->pkt_duration = duration;
+  pkt->a.pkt_keyframe = 1;
   pkt->a.pkt_channels = channels;
   pkt->a.pkt_sri = sri;
   pkt->pkt_err = st->es_buf_a.sb_err;
@@ -726,7 +737,7 @@ parse_aac(parser_t *t, parser_es_t *st, const uint8_t *data,
 /**
  * MPEG layer 1/2/3 parser
  */
-const static int mpa_br[2][3][16] = {
+static const int mpa_br[2][3][16] = {
 {
   {0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0},
   {0, 32, 48, 56,  64,  80,  96, 112, 128, 160, 192, 224, 256, 320, 384, 0},
@@ -739,8 +750,8 @@ const static int mpa_br[2][3][16] = {
 }
 };
 
-const static int mpa_sr[4]  = {44100, 48000, 32000, 0};
-const static int mpa_sri[4] = {4,     3,     5,     0};
+static const int mpa_sr[4]  = {44100, 48000, 32000, 0};
+static const int mpa_sri[4] = {4,     3,     5,     0};
 
 static inline int
 mpa_valid_frame(uint32_t h)
@@ -850,9 +861,9 @@ static void parse_pes_mpa(parser_t *t, parser_es_t *st,
 /**
  * (E)AC3 audio parser
  */
-const static int ac3_freq_tab[4] = {48000, 44100, 32000, 0};
+static const int ac3_freq_tab[4] = {48000, 44100, 32000, 0};
 
-const static uint16_t ac3_frame_size_tab[38][3] = {
+static const uint16_t ac3_frame_size_tab[38][3] = {
     { 64,   69,   96   },
     { 64,   70,   96   },
     { 80,   87,   120  },
@@ -919,7 +930,7 @@ parse_ac3(parser_t *t, parser_es_t *st, size_t ilen,
           uint32_t next_startcode, int sc_offset)
 {
   int i, len, count, ver, bsid, fscod, frmsizcod, fsize, fsize2, duration, sri;
-  int sr, sr2, rate, acmod, lfeon, channels, versions[2];
+  int sr, sr2, rate, acmod, lfeon, channels, versions[2], verchg = 0;
   int64_t dts;
   const uint8_t *buf, *p;
   bitstream_t bs;
@@ -997,7 +1008,6 @@ ok:
             read_bits(&bs, 2); // dsurmod
 
           lfeon = read_bits(&bs, 1);
-          channels = acmodtab[acmod] + lfeon;
         } else {
           acmod = (p[4] >> 1) & 0x7;
           lfeon = p[4] & 1;
@@ -1012,7 +1022,7 @@ ok:
   }
   assert(i <= st->es_buf_a.sb_ptr);
   ver = versions[0] + versions[1];
-  if (ver > 4 && ver - count > 2) {
+  if (verchg++ == 0 && ver > 4 && ver - count > 2) {
     if (versions[0] - 2 > versions[1]) {
       tvhtrace(LS_PARSER, "%d: stream changed to AC3 type", st->es_index);
       st->es_audio_version = 1;

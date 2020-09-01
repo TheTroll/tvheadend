@@ -20,8 +20,6 @@
 
 #include "build.h"
 
-#define _GNU_SOURCE
-#include <pthread.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
@@ -32,10 +30,8 @@
 #include <assert.h>
 #include <unistd.h>
 #include <limits.h>
-#if ENABLE_LOCKOWNER || ENABLE_ANDROID
-#include <sys/syscall.h>
-#endif
 #include "queue.h"
+#include "tvh_thread.h"
 #include "tvh_string.h"
 #include "hts_strtab.h"
 #include "htsmsg.h"
@@ -78,44 +74,19 @@ typedef struct str_list
 #define PTS_UNSET INT64_C(0x8000000000000000)
 #define PTS_MASK  INT64_C(0x00000001ffffffff)
 
-extern pthread_mutex_t global_lock;
-extern pthread_mutex_t tasklet_lock;
-extern pthread_mutex_t fork_lock;
+extern tvh_mutex_t global_lock;
+extern tvh_mutex_t tasklet_lock;
+extern tvh_mutex_t fork_lock;
 
 extern int tvheadend_webui_port;
 extern int tvheadend_webui_debug;
 extern int tvheadend_htsp_port;
-
-static inline void
-lock_assert0(pthread_mutex_t *l, const char *file, int line)
-{
-#if 0 && ENABLE_LOCKOWNER
-  assert(l->__data.__owner == syscall(SYS_gettid));
-#else
-  if(pthread_mutex_trylock(l) == EBUSY)
-    return;
-
-  fprintf(stderr, "Mutex not held at %s:%d\n", file, line);
-  abort();
-#endif
-}
-
-#define lock_assert(l) lock_assert0(l, __FILE__, __LINE__)
 
 #if defined(__has_feature)
 #if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
 #define CLANG_SANITIZER 1
 #endif
 #endif
-
-/*
- *
- */
-
-typedef struct {
-  pthread_cond_t cond;
-} tvh_cond_t;
-
 
 /*
  *
@@ -156,8 +127,13 @@ typedef struct {
 
 typedef void (mti_callback_t)(void *opaque);
 
+#define MTIMER_MAGIC1 0x0d62a9de
+
 typedef struct mtimer {
   LIST_ENTRY(mtimer) mti_link;
+#if ENABLE_TRACE
+  uint32_t mti_magic1;
+#endif
   mti_callback_t *mti_callback;
   void *mti_opaque;
   int64_t mti_expire;
@@ -184,10 +160,15 @@ void mtimer_disarm(mtimer_t *mti);
  * global timer (based on the current system time - time())
  */
 
+#define GTIMER_MAGIC1 0x8a6f238f
+
 typedef void (gti_callback_t)(void *opaque);
 
 typedef struct gtimer {
   LIST_ENTRY(gtimer) gti_link;
+#if ENABLE_TRACE
+  uint32_t gti_magic1;
+#endif
   gti_callback_t *gti_callback;
   void *gti_opaque;
   time_t gti_expire;
@@ -246,15 +227,6 @@ int tvh_kill_to_sig(int tvh_kill);
 int sri_to_rate(int sri);
 int rate_to_sri(int rate);
 
-extern void scopedunlock(pthread_mutex_t **mtxp);
-
-#define scopedlock(mtx) \
- pthread_mutex_t *scopedlock ## __LINE__ \
- __attribute__((cleanup(scopedunlock))) = mtx; \
- pthread_mutex_lock(scopedlock ## __LINE__);
-
-#define scopedgloballock() scopedlock(&global_lock)
-
 typedef struct th_pipe
 {
   int rd;
@@ -262,25 +234,6 @@ typedef struct th_pipe
 } th_pipe_t;
 
 void doexit(int x);
-
-int tvhthread_create
-  (pthread_t *thread, const pthread_attr_t *attr,
-   void *(*start_routine) (void *), void *arg,
-   const char *name);
-
-int tvhthread_renice(int value);
-
-int tvh_mutex_timedlock(pthread_mutex_t *mutex, int64_t usec);
-
-int tvh_cond_init(tvh_cond_t *cond);
-
-int tvh_cond_destroy(tvh_cond_t *cond);
-
-int tvh_cond_signal(tvh_cond_t *cond, int broadcast);
-
-int tvh_cond_wait(tvh_cond_t *cond, pthread_mutex_t *mutex);
-
-int tvh_cond_timedwait(tvh_cond_t *cond, pthread_mutex_t *mutex, int64_t monoclock);
 
 int tvh_open(const char *pathname, int flags, mode_t mode);
 
@@ -319,6 +272,9 @@ static inline int64_t ts_rescale_inv(int64_t ts, int tb)
 }
 
 char *md5sum ( const char *str, int lowercase );
+char *sha256sum ( const char *str, int lowercase );
+char *sha512sum256 ( const char *str, int lowercase );
+char *sha256sum_base64 ( const char *str );
 
 int makedirs ( int subsys, const char *path, int mode, int mstrict, gid_t gid, uid_t uid );
 

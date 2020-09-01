@@ -17,15 +17,8 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <stdarg.h>
-#include <pthread.h>
-#include <assert.h>
-#include <string.h>
-#include <ctype.h>
 #include <sys/stat.h>
-#include <libgen.h> /* basename */
-
-#include "htsstr.h"
+#include <ctype.h>
 
 #include "tvheadend.h"
 #include "streaming.h"
@@ -48,7 +41,7 @@ static void *dvr_thread(void *aux);
 static void dvr_thread_epilog(dvr_entry_t *de, const char *dvr_postproc);
 
 
-const static int prio2weight[6] = {
+static const int prio2weight[6] = {
   [DVR_PRIO_IMPORTANT]   = 500,
   [DVR_PRIO_HIGH]        = 400,
   [DVR_PRIO_NORMAL]      = 300,
@@ -56,6 +49,23 @@ const static int prio2weight[6] = {
   [DVR_PRIO_UNIMPORTANT] = 100,
   [DVR_PRIO_NOTSET]      = 300, /* DVR_PRIO_NORMAL */
 };
+
+/// Spawn a fetch of artwork for the entry.
+void
+dvr_spawn_fetch_artwork(dvr_entry_t *de)
+{
+  /* Don't want to use _SC_ARG_MAX since it will be a large number */
+  char buf[1024];
+  char ubuf[UUID_HEX_SIZE];
+
+  if (!dvr_entry_allow_fanart_lookup(de))
+    return;
+
+  snprintf(buf, sizeof buf, "tvhmeta --uuid %s %s",
+           idnode_uuid_as_str(&de->de_id, ubuf),
+           de->de_config->dvr_fetch_artwork_options);
+  dvr_spawn_cmd(de, buf, NULL, 1);
+}
 
 /**
  *
@@ -66,11 +76,11 @@ dvr_rec_subscribe(dvr_entry_t *de)
   char buf[100];
   int weight;
   profile_t *pro;
-  profile_chain_t *prch;
+  profile_chain_t *prch = NULL;
   struct sockaddr_storage sa;
-  access_t *aa;
+  access_t *aa = NULL;
   uint32_t rec_count, net_count;
-  int pri, c1, c2;
+  int ret = 0, pri, c1, c2;
   idnode_list_mapping_t* ilm;
   struct stat st;
 
@@ -86,20 +96,22 @@ dvr_rec_subscribe(dvr_entry_t *de)
 
   snprintf(buf, sizeof(buf), "DVR: %s", lang_str_get(de->de_title, NULL));
 
-  if (de->de_owner && de->de_owner[0] != '\0')
+  if (de->de_owner && de->de_owner[0] != '\0') {
     aa = access_get_by_username(de->de_owner);
-  else if (de->de_creator && de->de_creator[0] != '\0' &&
-           tcp_get_ip_from_str(de->de_creator, &sa) != NULL)
+  } else if (de->de_creator && de->de_creator[0] != '\0' &&
+           tcp_get_ip_from_str(de->de_creator, &sa) != NULL) {
     aa = access_get_by_addr(&sa);
-  else {
+  } else {
     tvherror(LS_DVR, "unable to find access (owner '%s', creator '%s')",
              de->de_owner, de->de_creator);
-    return -EPERM;
+    ret = -EPERM;
+    goto _return;
   }
 
   if (aa->aa_conn_limit || aa->aa_conn_limit_dvr) {
-    rec_count = dvr_usage_count(aa);
+    rec_count = dvr_usage_count(aa) - 1; /* substract self */
     net_count = aa->aa_conn_limit ? tcp_connection_count(aa) : 0;
+    assert(rec_count >= 0);
     /* the rule is: allow if one condition is OK */
     c1 = aa->aa_conn_limit ? rec_count + net_count >= aa->aa_conn_limit : -1;
     c2 = aa->aa_conn_limit_dvr ? rec_count >= aa->aa_conn_limit_dvr : -1;
@@ -108,8 +120,8 @@ dvr_rec_subscribe(dvr_entry_t *de)
                       "(limit %u, dvr limit %u, active DVR %u, streaming %u)",
                aa->aa_username ?: "", aa->aa_representative ?: "",
                aa->aa_conn_limit, aa->aa_conn_limit_dvr, rec_count, net_count);
-      access_destroy(aa);
-      return -EOVERFLOW;
+      ret = -EOVERFLOW;
+      goto _return;
     }
   }
 
@@ -145,23 +157,23 @@ dvr_rec_subscribe(dvr_entry_t *de)
 
   if(stat(de->de_config->dvr_storage, &st) || !S_ISDIR(st.st_mode)) {
     tvherror(LS_DVR, "the directory '%s' is not accessible", de->de_config->dvr_storage);
-    return -EIO;
+    ret = -EIO;
+    goto _return;
   }
 
   prch = malloc(sizeof(*prch));
-  profile_chain_init(prch, pro, de->de_channel);
+  profile_chain_init(prch, pro, de->de_channel, 1);
   if (profile_chain_open(prch, &de->de_config->dvr_muxcnf, NULL, 0, 0)) {
     profile_chain_close(prch);
     tvherror(LS_DVR, "unable to create new channel streaming chain '%s' for '%s', using default",
              profile_get_name(pro), channel_get_name(de->de_channel, channel_blank_name));
     pro = profile_find_by_name(NULL, NULL);
-    profile_chain_init(prch, pro, de->de_channel);
+    profile_chain_init(prch, pro, de->de_channel, 1);
     if (profile_chain_open(prch, &de->de_config->dvr_muxcnf, NULL, 0, 0)) {
       tvherror(LS_DVR, "unable to create channel streaming default chain '%s' for '%s'",
                profile_get_name(pro), channel_get_name(de->de_channel, channel_blank_name));
-      profile_chain_close(prch);
-      free(prch);
-      return -EINVAL;
+      ret = -EINVAL;
+      goto _return;
     }
   }
 
@@ -171,19 +183,27 @@ dvr_rec_subscribe(dvr_entry_t *de)
   if (de->de_s == NULL) {
     tvherror(LS_DVR, "unable to create new channel subcription for '%s' profile '%s'",
              channel_get_name(de->de_channel, channel_blank_name), profile_get_name(pro));
-    profile_chain_close(prch);
-    free(prch);
-    return -EINVAL;
+    ret = -EINVAL;
+    goto _return;
   }
 
   de->de_chain = prch;
 
   atomic_set(&de->de_thread_shutdown, 0);
-  tvhthread_create(&de->de_thread, NULL, dvr_thread, de, "dvr");
+  tvh_thread_create(&de->de_thread, NULL, dvr_thread, de, "dvr");
 
   if (de->de_config->dvr_preproc)
     dvr_spawn_cmd(de, de->de_config->dvr_preproc, NULL, 1);
-  return 0;
+  if (de->de_config->dvr_fetch_artwork)
+    dvr_spawn_fetch_artwork(de);
+
+  return ret;
+
+_return:
+  profile_chain_close(prch);
+  free(prch);
+  access_destroy(aa);
+  return ret;
 }
 
 /**
@@ -351,8 +371,10 @@ dvr_do_prefix(const char *id, const char *fmt, const char *s, char *tmp, size_t 
     tmp[0] = '\0';
   } else if (s[0] && !isalpha(id[0])) {
     snprintf(tmp, tmplen, "%c%s", id[0], s);
+    utf8_validate_inplace(tmp);
   } else {
     strlcpy(tmp, s, tmplen);
+    utf8_validate_inplace(tmp);
   }
   return dvr_clean_directory_separator(tmp, tmp, tmplen);
 }
@@ -392,6 +414,16 @@ dvr_sub_description(const char *id, const char *fmt, const void *aux, char *tmp,
 }
 
 static const char *
+dvr_sub_uuid(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen)
+{
+  const dvr_entry_t *de = aux;
+  char ubuf[UUID_HEX_SIZE];
+  idnode_uuid_as_str(&de->de_id, ubuf);
+  strlcpy(tmp, ubuf, tmplen);
+  return tmp;
+}
+
+static const char *
 dvr_sub_episode(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen)
 {
   const dvr_entry_t *de = aux;
@@ -423,9 +455,21 @@ _dvr_get_tvshows_subdir(const dvr_entry_t *de)
   return "tvshows";
 }
 
+/// Scraper friendly sub-type options bitmask.
+typedef enum {
+  DVR_SF_WITHOUT_SUBDIR         = 0x0, /*< X.ts and Y.ts - movies and tvshows not in subdir */
+  DVR_SF_WITH_GENRE_SUBDIR      = 0x1, /*< tvmovies and tvshows */
+  DVR_SF_WITH_PER_SEASON_SUBDIR = 0x2, /*< X/Season S/Y.ts - separate dir per-season */
+  DVR_SF_WITH_PER_MOVIE_SUBDIR  = 0x4  /*< X/X.ts - separate dir per-movie */
+} dvr_sf_t;
+
 static const char *
-_dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen, int with_genre_subdir)
+_dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen, dvr_sf_t subdir_type)
 {
+  /* Directory to use for no season/special season when using
+   * per-season directories. Kodi "naming tv shows/Special Episodes".
+   */
+  static const char special_season_dir[] = "Season 0"; /* Deliberately not localized. */
   const dvr_entry_t *de = aux;
   epg_broadcast_t *ebc = de->de_bcast;
 
@@ -500,7 +544,7 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
 
   tvhdebug(LS_DVR, "fmt = %s is_movie = %d content_type = %d", fmt ?: "<none>", is_movie, de->de_content_type);
 
-  char *date_buf = NULL, *episode_buf = NULL;
+  char *date_buf = NULL, *episode_buf = NULL, *season_dir = NULL;
 
   if (is_movie) {
     /* Include the year if available. This helps scraper differentiate
@@ -560,13 +604,26 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
      * and moving them easier since they get tracked by inotify on
      * just the one directory.
      *
+     * However, we allow the user to select variants to use multiple
+     * directories for people who so desire.
+     *
      * Example format below:
-     *   "tvmovies/title (yyyy)"            (with genre_subdir)
-     *   "title (yyyy)"                     (without genre_subdir)
-     *   "title"                            (without genre_subdir, no airdate)
+     *   "tvmovies/title (yyyy)"              (with genre_subdir)
+     *   "tvmovies/title (yyyy)/title (yyyy)" (with genre_subdir + per movie subdir)
+     *   "title (yyyy)"                       (without genre_subdir)
+     *   "title"                              (without genre_subdir, no airdate)
      */
-    if (with_genre_subdir)
+    if ((subdir_type & DVR_SF_WITH_GENRE_SUBDIR) == DVR_SF_WITH_GENRE_SUBDIR)
       tvh_strlcatf(tmp, tmplen, offset, "%s/", _dvr_get_tvmovies_subdir(de));
+
+    /* For 'per movie subdir' we want "title (YYYY)/" or "title/" if no year but don't want "(YYYY)" (no title) */
+    if ((subdir_type & DVR_SF_WITH_PER_MOVIE_SUBDIR) == DVR_SF_WITH_PER_MOVIE_SUBDIR && !strempty(title_buf)) {
+      tvh_strlcatf(tmp, tmplen, offset, "%s", title_buf);
+      if (!strempty(date_buf))
+        tvh_strlcatf(tmp, tmplen, offset, " (%s)", date_buf);
+      /* Then add trailing directory slash */
+      tvh_strlcatf(tmp, tmplen, offset, "%s", "/");
+    }
 
     if (!strempty(title_buf))
       tvh_strlcatf(tmp, tmplen, offset, "%s", title_buf);
@@ -586,15 +643,35 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
      * We put the episode number before the subtitle to make it easier
      * to see if we are missing episodes when you do ls.
      *
+     * User can optionally choose to have episodes in per-season directories.
+     *
      * Example formats below:
      *   "tvshows/title/title - S01E02 - subtitle" (with genre_subdir)
+     *   "tvshows/title/Season 1/title - S01E02 - subtitle" (with genre and per season subdir)
      *   "title - S01E02 - subtitle"               (without genre_subdir)
      *   "title - subtitle_2001-05-04"             (without genre_subdir, long running show)
      *   "title - subtitle"                        (without genre_subdir, no epg info on show)
      */
-    if (with_genre_subdir)
+    if ((subdir_type & DVR_SF_WITH_GENRE_SUBDIR) == DVR_SF_WITH_GENRE_SUBDIR)
       tvh_strlcatf(tmp, tmplen, offset, "%s/", _dvr_get_tvshows_subdir(de));
-    if (!strempty(title_buf))
+
+    if ((subdir_type & DVR_SF_WITH_PER_SEASON_SUBDIR) == DVR_SF_WITH_PER_SEASON_SUBDIR &&
+        !strempty(title_buf)) {
+      season_dir = alloca(256);
+      /* Note we do _not_ localize the word "Season" so we are consistent
+       * with what appears to be de facto directory naming conventions.
+       * For example the program Plex states: "Be sure to use the English word
+       * "Season" as noted above, even if your content is in another language."
+       * There seems to be disagreement between tools on whether it should be
+       * "Season 1" (Emby, Kodi) or "Season 01" (Plex).
+       */
+      epg_broadcast_epnumber_format(ebc, season_dir, 256,
+                                    NULL, "Season %d", NULL, NULL, NULL);
+      /* E.g., "Simpsons/Season 1/Simpsons", to which we'll later add " - S01E02"
+       * Or "Simpsons/Season 0/Simpsons" for a tv special.
+       */
+      tvh_strlcatf(tmp, tmplen, offset, "%s/%s/%s", title_buf, strempty(season_dir) ? special_season_dir : season_dir, title_buf);
+    } else if (!strempty(title_buf))
       tvh_strlcatf(tmp, tmplen, offset, "%s/%s", title_buf, title_buf);
     if (!strempty(episode_buf))
       tvh_strlcatf(tmp, tmplen, offset, " - %s", episode_buf);
@@ -610,13 +687,25 @@ _dvr_sub_scraper_friendly(const char *id, const char *fmt, const void *aux, char
 static const char *
 dvr_sub_scraper_friendly_with_genre_subdir(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen)
 {
-  return _dvr_sub_scraper_friendly(id, fmt, aux, tmp, tmplen, 1);
+  return _dvr_sub_scraper_friendly(id, fmt, aux, tmp, tmplen, DVR_SF_WITH_GENRE_SUBDIR);
+}
+
+static const char *
+dvr_sub_scraper_friendly_with_genre_subdir_full(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen)
+{
+  return _dvr_sub_scraper_friendly(id, fmt, aux, tmp, tmplen, DVR_SF_WITH_GENRE_SUBDIR | DVR_SF_WITH_PER_SEASON_SUBDIR | DVR_SF_WITH_PER_MOVIE_SUBDIR);
 }
 
 static const char *
 dvr_sub_scraper_friendly_without_genre_subdir(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen)
 {
-  return _dvr_sub_scraper_friendly(id, fmt, aux, tmp, tmplen, 0);
+  return _dvr_sub_scraper_friendly(id, fmt, aux, tmp, tmplen, DVR_SF_WITHOUT_SUBDIR);
+}
+
+static const char *
+dvr_sub_scraper_friendly_without_genre_subdir_full(const char *id, const char *fmt, const void *aux, char *tmp, size_t tmplen)
+{
+  return _dvr_sub_scraper_friendly(id, fmt, aux, tmp, tmplen, DVR_SF_WITHOUT_SUBDIR | DVR_SF_WITH_PER_SEASON_SUBDIR | DVR_SF_WITH_PER_MOVIE_SUBDIR);
 }
 
 static const char *
@@ -750,9 +839,11 @@ static htsstr_substitute_t dvr_subs_entry[] = {
   { .id = "q",   .getval = dvr_sub_scraper_friendly_with_genre_subdir },
   { .id = "1q",  .getval = dvr_sub_scraper_friendly_with_genre_subdir },
   { .id = "2q",  .getval = dvr_sub_scraper_friendly_with_genre_subdir },
+  { .id = "3q",  .getval = dvr_sub_scraper_friendly_with_genre_subdir_full },
   { .id = "Q",   .getval = dvr_sub_scraper_friendly_without_genre_subdir },
   { .id = "1Q",  .getval = dvr_sub_scraper_friendly_without_genre_subdir },
   { .id = "2Q",  .getval = dvr_sub_scraper_friendly_without_genre_subdir },
+  { .id = "3Q",  .getval = dvr_sub_scraper_friendly_without_genre_subdir_full },
   { .id = NULL,  .getval = NULL }
 };
 
@@ -860,6 +951,7 @@ static htsstr_substitute_t dvr_subs_postproc_entry[] = {
   { .id = "t",  .getval = dvr_sub_title },
   { .id = "s",  .getval = dvr_sub_subtitle_or_summary },
   { .id = "u",  .getval = dvr_sub_subtitle },
+  { .id = "U",  .getval = dvr_sub_uuid },
   { .id = "m",  .getval = dvr_sub_summary },
   { .id = "p",  .getval = dvr_sub_episode },
   { .id = "d",  .getval = dvr_sub_description },
@@ -1394,7 +1486,7 @@ dvr_thread_global_lock(dvr_entry_t *de, int *run)
     *run = 0;
     return 0;
   }
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   return 1;
 }
 
@@ -1404,7 +1496,7 @@ dvr_thread_global_lock(dvr_entry_t *de, int *run)
 static inline void
 dvr_thread_global_unlock(dvr_entry_t *de)
 {
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
   atomic_dec(&de->de_thread_shutdown, 1);
 }
 
@@ -1501,6 +1593,11 @@ dvr_thread_rec_start(dvr_entry_t **_de, streaming_start_t *ss,
       return 0;
     dvr_rec_set_state(de, DVR_RS_WAIT_PROGRAM_START, 0);
     int code = dvr_rec_start(de, ss);
+    /* Persist entry so we save the filename details to avoid orphan
+     * files if we crash before the programme completes recording.
+     */
+    dvr_entry_changed(de);
+    htsp_dvr_entry_update(de);
     if(code == 0) {
       ret = 1;
       *started = 1;
@@ -1568,7 +1665,7 @@ dvr_thread(void *aux)
   int commercial = COMMERCIAL_UNKNOWN;
   int running_disabled;
   int64_t packets = 0, dts_offset = PTS_UNSET;
-  time_t real_start, start_time = 0, running_start = 0, running_stop = 0;
+  time_t now, real_start, start_time = 0, running_start = 0, running_stop = 0;
   char *postproc;
   char ubuf[UUID_HEX_SIZE];
 
@@ -1580,11 +1677,22 @@ dvr_thread(void *aux)
   real_start = dvr_entry_get_start_time(de, 0);
   tvhtrace(LS_DVR, "%s - recoding thread started for \"%s\"",
            idnode_uuid_as_str(&de->de_id, ubuf), lang_str_get(de->de_title, NULL));
+  if (!running_disabled && de->de_bcast) {
+    now = gclk();
+    switch (de->de_bcast->running) {
+    case EPG_RUNNING_PAUSE:
+      atomic_set_time_t(&de->de_running_pause, now);
+      /* fall through */
+    case EPG_RUNNING_NOW:
+      atomic_set_time_t(&de->de_running_start, now);
+      break;
+    }
+  }
   dvr_thread_global_unlock(de);
 
   TAILQ_INIT(&backlog);
 
-  pthread_mutex_lock(&sq->sq_mutex);
+  tvh_mutex_lock(&sq->sq_mutex);
   while(run) {
     sm = TAILQ_FIRST(&sq->sq_queue);
     if(sm == NULL) {
@@ -1620,7 +1728,7 @@ dvr_thread(void *aux)
       tvhtrace(LS_DVR, "%s - running flag changed from %d to %d",
                idnode_uuid_as_str(&de->de_id, ubuf), old_epg_running, epg_running);
 
-    pthread_mutex_unlock(&sq->sq_mutex);
+    tvh_mutex_unlock(&sq->sq_mutex);
 
     switch(sm->sm_type) {
 
@@ -1836,9 +1944,9 @@ fin:
     }
 
     streaming_msg_free(sm);
-    pthread_mutex_lock(&sq->sq_mutex);
+    tvh_mutex_lock(&sq->sq_mutex);
   }
-  pthread_mutex_unlock(&sq->sq_mutex);
+  tvh_mutex_unlock(&sq->sq_mutex);
 
   streaming_queue_clear(&backlog);
 

@@ -44,13 +44,13 @@ api_input_satip_discover
   int err = 0;
 
   if (op == NULL || strcmp(op, "all"))
-    return -EINVAL;
+    return EINVAL;
 
   tvhinfo(LS_SATIP, "Triggered new server discovery");
 
-  pthread_mutex_lock(&global_lock);
+  tvh_mutex_lock(&global_lock);
   satip_device_discovery_start();
-  pthread_mutex_unlock(&global_lock);
+  tvh_mutex_unlock(&global_lock);
 
   return err;
 }

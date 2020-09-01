@@ -332,6 +332,24 @@ const idclass_t dvb_mux_dvbc_class =
       MUX_PROP_STR("fec", N_("FEC"), dvbc, fec, N_("AUTO")),
       .desc     = N_("The forward error correction used on the mux."),
     },
+    {
+      .type     = PT_INT,
+      .id       = "plp_id",
+      .name     = N_("PLP ID"),
+      .desc     = N_("The physical layer pipe ID. "
+                     "Most people will not need to change this setting."),
+      .off      = offsetof(dvb_mux_t, lm_tuning.dmc_fe_stream_id),
+      .def.i	= DVB_NO_STREAM_ID_FILTER,
+    },
+    {
+      .type     = PT_U32,
+      .id       = "data_slice",
+      .name     = N_("Data slice"),
+      .desc     = N_("Data slice code."),
+      .off      = offsetof(dvb_mux_t, lm_tuning.dmc_fe_data_slice),
+      .def.u32	= 0,
+      .opts     = PO_EXPERT
+    },
     {}
   }
 };
@@ -838,6 +856,24 @@ const idclass_t dvb_mux_isdb_c_class =
       MUX_PROP_STR("fec", N_("FEC"), dvbc, fec, N_("AUTO")),
       .desc     = N_("The forward error correction used on the mux."),
     },
+    {
+      .type     = PT_INT,
+      .id       = "plp_id",
+      .name     = N_("PLP ID"),
+      .desc     = N_("The physical layer pipe ID. "
+                     "Most people will not need to change this setting."),
+      .off      = offsetof(dvb_mux_t, lm_tuning.dmc_fe_stream_id),
+      .def.i	= DVB_NO_STREAM_ID_FILTER,
+    },
+    {
+      .type     = PT_U32,
+      .id       = "data_slice",
+      .name     = N_("Data slice"),
+      .desc     = N_("Data slice code."),
+      .off      = offsetof(dvb_mux_t, lm_tuning.dmc_fe_data_slice),
+      .def.u32	= 0,
+      .opts     = PO_EXPERT
+    },
     {}
   }
 };
@@ -1135,7 +1171,7 @@ dvb_mux_delete ( mpegts_mux_t *mm, int delconf )
 dvb_mux_t *
 dvb_mux_create0
   ( dvb_network_t *ln,
-    uint16_t onid, uint16_t tsid, const dvb_mux_conf_t *dmc,
+    uint32_t onid, uint32_t tsid, const dvb_mux_conf_t *dmc,
     const char *uuid, htsmsg_t *conf )
 {
   const idclass_t *idc;
@@ -1210,6 +1246,8 @@ dvb_mux_create0
   lm->mm_display_name     = dvb_mux_display_name;
   lm->mm_config_save      = dvb_mux_config_save;
 
+  mpegts_mux_update_nice_name(mm);
+
   /* No config */
   if (!conf) return lm;
 
@@ -1224,7 +1262,7 @@ dvb_mux_create0
   if (c) {
     HTSMSG_FOREACH(f, c) {
       if (!(e = htsmsg_get_map_by_field(f))) continue;
-      mpegts_service_create1(f->hmf_name, (mpegts_mux_t *)lm, 0, 0, e);
+      mpegts_service_create1(htsmsg_field_name(f), (mpegts_mux_t *)lm, 0, 0, e);
     }
     htsmsg_destroy(c2);
   }
