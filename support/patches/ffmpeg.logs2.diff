@@ -1,0 +1,11 @@
+--- ../ffmpeg-4.1.5.orig/libavcodec/ac3dec.c	2020-10-15 07:39:28.899332562 +0200
++++ libavcodec/ac3dec.c	2020-10-15 07:39:55.762933936 +0200
+@@ -1505,7 +1505,7 @@
+     if (err) {
+         switch (err) {
+         case AAC_AC3_PARSE_ERROR_SYNC:
+-            av_log(avctx, AV_LOG_ERROR, "frame sync error\n");
++            //av_log(avctx, AV_LOG_ERROR, "frame sync error\n");
+             return AVERROR_INVALIDDATA;
+         case AAC_AC3_PARSE_ERROR_BSID:
+             av_log(avctx, AV_LOG_ERROR, "invalid bitstream id\n");

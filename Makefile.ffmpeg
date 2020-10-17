@@ -150,6 +150,7 @@ build: $(LIB_ROOT)/$(FFMPEG)/.tvh_build
 
 
 FFMPEG_DIFFS += ffmpeg.logs.diff
+FFMPEG_DIFFS += ffmpeg.logs2.diff
 
 # ##############################################################################
 # Build Rules
