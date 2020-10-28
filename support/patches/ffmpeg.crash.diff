@@ -1,0 +1,12 @@
+--- ../../ffmpeg-4.1.5.orig/libavformat/rtmpproto.c	2020-10-28 15:23:07.435838657 +0100
++++ libavformat/rtmpproto.c				2020-10-28 14:22:52.520426065 +0100
+@@ -1912,6 +1912,9 @@
+     GetByteContext gbc;
+     int ret;
+ 
++    if (!rt)
++       return AVERROR_INVALIDDATA;
++
+     bytestream2_init(&gbc, p, pkt->size);
+     if (ff_amf_read_string(&gbc, command, sizeof(command),
+                            &stringlen)) {
