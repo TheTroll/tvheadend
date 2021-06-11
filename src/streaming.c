@@ -206,6 +206,7 @@ streaming_msg_create(streaming_message_type_t type)
   sm->sm_type = type;
 #if ENABLE_TIMESHIFT
   sm->sm_time = 0;
+  sm->sm_s = NULL;
 #endif
   return sm;
 }
@@ -263,6 +264,7 @@ streaming_msg_clone(streaming_message_t *src)
   dst->sm_type      = src->sm_type;
 #if ENABLE_TIMESHIFT
   dst->sm_time      = src->sm_time;
+  dst->sm_s         = src->sm_s;
 #endif
 
   switch(src->sm_type) {
@@ -435,6 +437,7 @@ streaming_service_deliver(service_t *t, streaming_message_t *sm)
 {
   if (atomic_set(&t->s_pending_restart, 0))
     service_restart_streams(t);
+  sm->sm_s = t;
   streaming_pad_deliver(&t->s_streaming_pad, sm);
 }
 

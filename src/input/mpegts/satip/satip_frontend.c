@@ -614,6 +614,16 @@ const idclass_t satip_frontend_atsc_c_class =
   }
 };
 
+const idclass_t satip_frontend_isdb_t_class =
+{
+  .ic_super      = &satip_frontend_class,
+  .ic_class      = "satip_frontend_isdb_t",
+  .ic_caption    = N_("SAT>IP ISDB-T Frontend"),
+  .ic_properties = (const property_t[]){
+    {}
+  }
+};
+
 /* **************************************************************************
  * Class methods
  * *************************************************************************/
@@ -864,6 +874,8 @@ satip_frontend_start_mux
   tvh_mutex_unlock(&lfe->sf_dvr_lock);
   tvh_mutex_lock(&mmi->tii_stats_mutex);
   lfe->sf_status    = SIGNAL_NONE;
+  mmi->tii_stats.signal_scale = SIGNAL_STATUS_SCALE_UNKNOWN;
+  mmi->tii_stats.snr_scale = SIGNAL_STATUS_SCALE_UNKNOWN;
   tvh_mutex_unlock(&mmi->tii_stats_mutex);
 
   /* notify thread that we are ready */
@@ -2314,6 +2326,8 @@ satip_frontend_create
     idc = &satip_frontend_atsc_t_class;
   else if (type == DVB_TYPE_ATSC_C)
     idc = &satip_frontend_atsc_c_class;
+  else if (type == DVB_TYPE_ISDB_T)
+    idc = &satip_frontend_isdb_t_class;
   else {
     tvherror(LS_SATIP, "unknown FE type %d", type);
     return NULL;

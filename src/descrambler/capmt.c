@@ -1313,7 +1313,7 @@ capmt_msg_size(capmt_t *capmt, sbuf_t *sb, int offset)
     return 4 + 12 + adapter_byte;
   else if (oscam_new && cmd == DMX_SET_FILTER)
     /* when using network protocol the dmx_sct_filter_params fields are added */
-    /* seperately to avoid padding problems, so we substract 2 bytes: */
+    /* separately to avoid padding problems, so we substract 2 bytes: */
     return 4 + 2 + 60 + adapter_byte + (capmt_oscam_netproto(capmt) ? -2 : 0);
   else if (oscam_new && cmd == DMX_STOP)
     return 4 + 4 + adapter_byte;
@@ -1840,6 +1840,7 @@ capmt_create_udp_socket(capmt_t *capmt, int *socket, int port)
   }
 
   struct sockaddr_in serv_addr;
+  memset(&serv_addr, 0, sizeof(serv_addr));
   serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
   serv_addr.sin_port = htons( (unsigned short int)port);
   serv_addr.sin_family = AF_INET;
@@ -2508,6 +2509,7 @@ capmt_service_start(caclient_t *cac, service_t *s)
                "%s: No free adapter slot available for service \"%s\"",
                capmt_name(capmt), t->s_dvb_svcname);
       tvh_mutex_unlock(&capmt->capmt_mutex);
+      tvh_mutex_unlock(&t->s_stream_mutex);
       return;
     }
   }
