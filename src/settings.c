@@ -159,7 +159,8 @@ hts_settings_save(htsmsg_t *record, const char *pathfmt, ...)
   }
 
   /* Store data */
-#if ENABLE_ZLIB
+//#if ENABLE_ZLIB
+#if 0
   pack = strstr(path, "/muxes/") != NULL && /* ugly, redesign API */
          strstr(path, "/networks/") != NULL &&
          strstr(path, "/input/") != NULL;
